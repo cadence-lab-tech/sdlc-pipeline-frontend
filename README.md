@@ -4,7 +4,8 @@
 задач, карточка задачи с таймлайном и артефактами по этапам, редактор ролей и
 редактор цикла с гейтами.
 
-Бэкенд и общая документация: [sdlc-pipeline-backend](https://github.com/stepaKaziatko/sdlc-pipeline-backend).
+Бэкенд: [sdlc-pipeline-backend](https://github.com/stepaKaziatko/sdlc-pipeline-backend) ·
+Документация по домену: [sdlc-pipeline-docs](https://github.com/stepaKaziatko/sdlc-pipeline-docs)
 
 ## Стек
 

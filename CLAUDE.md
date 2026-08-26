@@ -1,0 +1,77 @@
+# CLAUDE.md — sdlc-pipeline-frontend
+
+Интерфейс SDLC Pipeline: доска задач, карточка задачи с таймлайном и артефактами
+по этапам, редакторы ролей и цикла.
+
+## Прежде чем писать код
+
+Домен описан в [sdlc-pipeline-docs](https://github.com/stepaKaziatko/sdlc-pipeline-docs), локально — соседняя
+директория `../docs/`:
+
+- `../docs/ARCHITECTURE.md` — что такое задача, этап, гейт, роль, дрейф
+- `../docs/decisions/README.md` — принятые решения
+
+API отдаёт [backend](https://github.com/stepaKaziatko/sdlc-pipeline-backend); контракт данных совпадает со
+схемой в `../backend/migrations/`.
+
+## Стек
+
+Vite, React 19, TypeScript, [Astryx](https://github.com/facebook/astryx) 0.5.0
+(`@astryxdesign/core` + `@astryxdesign/theme-neutral`)
+([решение 0014](../docs/decisions/0014-astryx-ui.md)).
+
+## Astryx — как работать
+
+**Не гадать по именам компонентов.** У библиотеки есть CLI, отдающий полную
+документацию:
+
+```bash
+npx @astryxdesign/cli component --list      # все компоненты
+npx @astryxdesign/cli component Table       # props, варианты, примеры, темизация
+npx @astryxdesign/cli template --list       # готовые шаблоны страниц
+npx @astryxdesign/cli template dashboard    # исходник шаблона целиком
+npx @astryxdesign/cli docs tokens           # токены: отступы, цвета, радиусы, типографика
+```
+
+При скаффолде фронтенда первым делом выполнить `npx @astryxdesign/cli init` — он
+допишет индекс компонентов прямо в этот файл, и дальше подсказки будут точными.
+
+**Страницу начинать с шаблона**, а не собирать из примитивов: `template --list`
+покрывает дашборды, настройки, формы и страницы деталей — ровно то, что нужно
+здесь.
+
+**Порядок импорта CSS значим** — он отражает каскад слоёв:
+
+```css
+@import '@astryxdesign/core/reset.css';      /* @layer reset */
+@import '@astryxdesign/core/astryx.css';     /* @layer astryx-base */
+@import '@astryxdesign/theme-neutral/theme.css'; /* @layer astryx-theme */
+```
+
+Для Vite сборочные плагины не нужны — компоненты приезжают пре-собранными,
+StyleX уже скомпилирован. React 19 обязателен.
+
+## Страницы
+
+| Страница | Назначение |
+|---|---|
+| Projects | Проекты, привязка GitHub-репозиториев и проектных документов |
+| Board | Доска задач по статусам текущего цикла |
+| TaskDetail | Таймлайн, артефакты по этапам, гейты, сигналы дрейфа, апрувы |
+| Roles | Редактор ролей: инструкции, входные артефакты, контракт вывода |
+| WorkflowEditor | Статусы, переходы и гейты проекта |
+
+## Что нельзя делать
+
+- **Хардкодить статусы и роли.** Они кастомные на каждый проект и приходят из
+  API. Никаких списков `['analysis', 'development', …]` в коде и никаких цветов,
+  привязанных к именам статусов — цвет лежит в `workflow_statuses.color`.
+- **Считать набор гейтов фиксированным.** Типов восемь, конфиг у каждого свой;
+  UI рендерит по типу, а не по позиции.
+- **Дублировать доменные правила.** Проверку «можно ли перейти» делает бэкенд;
+  фронтенд показывает результат `check_gates`, а не считает его сам.
+
+## Статус
+
+Фаза 0: репозиторий заведён, кода нет. Следующий шаг — скаффолд Vite и каркас
+навигации на `AppShell`.
