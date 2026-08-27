@@ -33,12 +33,17 @@ npx @astryxdesign/cli template dashboard    # исходник шаблона ц
 npx @astryxdesign/cli docs tokens           # токены: отступы, цвета, радиусы, типографика
 ```
 
-При скаффолде фронтенда первым делом выполнить `npx @astryxdesign/cli init` — он
-допишет индекс компонентов прямо в этот файл, и дальше подсказки будут точными.
+Индекс компонентов дописан в конец этого файла командой `npx @astryxdesign/cli init`.
 
 **Страницу начинать с шаблона**, а не собирать из примитивов: `template --list`
 покрывает дашборды, настройки, формы и страницы деталей — ровно то, что нужно
 здесь.
+
+**StyleX здесь не компилируется** — сборочных плагинов нет. Поэтому
+`stylex.create()` из шаблонов не переносить: своё оформление задаётся пропсами
+компонента, а если их не хватает — `style` с токенами
+(`var(--spacing-*)`, `var(--color-*)`), без сырых пикселей и цветов.
+Исключение — структурные размеры вроде ширины колонки.
 
 **Порядок импорта CSS значим** — он отражает каскад слоёв:
 
@@ -51,15 +56,39 @@ npx @astryxdesign/cli docs tokens           # токены: отступы, цв
 Для Vite сборочные плагины не нужны — компоненты приезжают пре-собранными,
 StyleX уже скомпилирован. React 19 обязателен.
 
-## Страницы
+## Структура
+
+```
+src/
+  api/         типы по схеме БД, клиент REST, useResource
+  components/  общие блоки: гейты, карточка задачи, диалоги, форма свойств
+  pages/       Projects, Board, TaskDetail, Roles, WorkflowEditor
+  App.tsx      AppShell, боковая навигация, роутинг
+e2e/           сквозные проверки в headless-Chrome поверх живого бэкенда
+```
 
 | Страница | Назначение |
 |---|---|
-| Projects | Проекты, привязка GitHub-репозиториев и проектных документов |
-| Board | Доска задач по статусам текущего цикла |
-| TaskDetail | Таймлайн, артефакты по этапам, гейты, сигналы дрейфа, апрувы |
-| Roles | Редактор ролей: инструкции, входные артефакты, контракт вывода |
-| WorkflowEditor | Статусы, переходы и гейты проекта |
+| Projects | Проекты и репозитории в их области |
+| Board | Доска задач по статусам действующего цикла, создание задачи |
+| TaskDetail | Этапы с артефактами, вердикт гейтов, переходы, область, лента |
+| Roles | Роли и их версии: инструкция, вход, контракт вывода, где роль стоит |
+| WorkflowEditor | Версии цикла: черновик, статусы, переходы, гейты, активация |
+
+## Конвенции кода
+
+- **Пустые массивы бэкенд опускает** (`omitempty`), поэтому ответы
+  нормализуются в `api/client.ts` — один раз на весь клиент. Компонент, который
+  сам помнит про «а вдруг поля нет», рано или поздно про это забудет и уронит
+  страницу целиком.
+- **Данные не кэшируются.** Задачу двигают агенты с других машин; показать
+  сохранённый ответ вместо текущего хуже, чем сходить в сеть. При перезапросе
+  тех же данных прежний ответ остаётся на экране, чтобы страница не схлопывалась
+  в спиннер после каждого действия.
+- **Сообщение об ошибке показывается как есть.** Оно уже написано для человека,
+  а код ошибки общий у REST и MCP — ветвиться нужно по коду, не по тексту.
+- **Категория статуса и вид перехода — перечни схемы**, по ним выбирать
+  оформление можно. Ключ статуса и ключ роли придумывает проект — по ним нельзя.
 
 ## Что нельзя делать
 
@@ -75,8 +104,58 @@ StyleX уже скомпилирован. React 19 обязателен.
   рендерит форму свойств по определениям из API (`task_property_defs`), а не по
   захардкоженному списку полей, и показывает область как набор репозиториев —
   для мультирепозиторной задачи их несколько, с PR и сигналами дрейфа на каждый.
+- **Двигать задачу перетаскиванием карточки.** Колонка — это статус, а между
+  статусами задачу переводит именованный переход со своими гейтами; в одну и ту
+  же колонку ведут разные переходы («сдать» и «вернуть»), и у них разный смысл.
+- **Раскладывать задачи по доске по `status_id`.** Задача, начатая на прежней
+  версии цикла, доходит по ней, и у её статуса другой идентификатор — раскладка
+  идёт по `status_key`. Задача со статусом, которого в действующей версии уже
+  нет, попадает в отдельную колонку, а не пропадает.
+- **Править активный цикл.** Редактируется только черновик; активная версия
+  открыта на чтение, и это видно на экране.
+
+## Проверки
+
+`npm run typecheck`, `npm run lint`, `npm run build` и `npm run e2e`.
+
+Сквозные проверки (`e2e/`) кликают настоящими кнопками в headless-Chrome поверх
+поднятого бэкенда: экраны показывают вердикт гейтов и состояние цикла, и
+подменять их заглушками — значит проверять заглушки. Порядок сценариев значим:
+`workflow.mjs` активирует новую версию цикла. База поднимается заново
+(`cd ../backend && make reset && make up`) — сиды не идемпотентны.
 
 ## Статус
 
-Фаза 0: репозиторий заведён, кода нет. Следующий шаг — скаффолд Vite и каркас
-навигации на `AppShell`.
+Фаза 1 закрыта: доска, карточка задачи, редактор ролей и редактор цикла работают
+поверх REST. Не сделано: аренды и живой прогресс агента (фаза 2), сигналы дрейфа
+в карточке и на доске (фаза 3), аутентификация (фаза 4).
+
+<!-- ASTRYX:START -->
+Astryx v0.5.0 · 163 components
+CLI: run every command as `npx astryx <cmd>` (shown below as `astryx ...`).
+
+SETUP (once, in your app entry e.g. main.tsx) — without these, components render unstyled:
+  import "@astryxdesign/core/reset.css";
+  import "@astryxdesign/core/astryx.css";
+
+WORKFLOW — discover, don't guess. Before writing UI:
+1. `astryx build "<idea>"` — START HERE: returns a kit (closest [page] + [block]s + [component]s). No args = full playbook.
+2. `astryx template <name> [--skeleton]` — scaffold the [page]/[block]s it named, or study their layout. Templates are reference code.
+3. `astryx component <Name>` — props + examples for every component you use.
+
+RULES:
+- No <div> — components do all layout/spacing, page frame included.
+- Frame first: read `astryx docs layout` before writing any page or screen — page frame, region widths, breakpoint behavior.
+- Dense data = rows (Table, List/Item), never Card-wrapped list items; Card is for standalone widgets. Status = StatusDot/Token; Badge = counts only.
+- Custom styling: component props first; else style/className with tokens — var(--color-*|--spacing-*|--radius-*). No raw hex/px. (No StyleX/Tailwind compiler here — don't use xstyle/utility classes.)
+- Tokens for every value (`astryx docs tokens`). Brand/accent belongs in the theme (`astryx theme list` / `theme add <slug>`, or `astryx theme template` for a custom one) — never override --color-* in :root.
+- SELF-CHECK before you finish: re-read the file and replace any raw <div>/<span> layout, imported .css/@apply, or hardcoded value (#hex, 16px) with the component or a token (var(--color-*|--spacing-*|…)). If unsure a component/prop exists, run `astryx component <Name>` / `astryx search "<thing>"`; don't hand-roll CSS.
+
+MORE CLI:
+  search "<query>"   find any component / hook / doc / template / block
+  component --list   163 components by category
+  template --list    page + block recipes
+  docs <topic>       browser-support, cli-integrations, color, elevation, getting-started, icons, illustrations, internationalization, layout, migration, motion, principles, shape, spacing, styling-libraries, styling, theme, tokens, typography, working-with-ai
+  swizzle <Name>     eject component source for deep customization
+  upgrade --apply    run after any @astryxdesign/core bump
+<!-- ASTRYX:END -->

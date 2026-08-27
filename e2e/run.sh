@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Сквозные проверки интерфейса поверх живого бэкенда.
+#
+# Порядок сценариев значим: workflow.mjs активирует новую версию цикла, после
+# чего прежние сценарии шли бы уже по другому циклу. База поднимается заново,
+# потому что сиды не идемпотентны.
+set -euo pipefail
+
+API=${SDLC_API_URL:-http://localhost:8088}
+UI=${SDLC_UI_URL:-http://localhost:5173}
+PORT=${SDLC_CDP_PORT:-9333}
+CHROME=${CHROME:-"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"}
+PROFILE=$(mktemp -d)
+
+"$CHROME" --headless --disable-gpu --remote-debugging-port="$PORT" \
+  --user-data-dir="$PROFILE" about:blank >/dev/null 2>&1 &
+CHROME_PID=$!
+trap 'kill $CHROME_PID 2>/dev/null || true; wait $CHROME_PID 2>/dev/null || true; rm -rf "$PROFILE"' EXIT
+
+for _ in $(seq 1 30); do
+  curl -sf "http://127.0.0.1:$PORT/json/version" >/dev/null && break
+  sleep 1
+done
+
+node e2e/board.mjs
+# Задача должна стоять на статусе с гейтами, иначе сценарий карточки бессмыслен.
+curl -s -X POST "$API/v1/tasks/SDLC-1/transitions/start" \
+  -H 'Content-Type: application/json' -H 'X-SDLC-Actor: e2e' -d '{}' >/dev/null
+node e2e/task.mjs
+node e2e/roles.mjs
+node e2e/workflow.mjs
