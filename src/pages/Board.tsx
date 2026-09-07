@@ -1,3 +1,4 @@
+import {useState} from 'react';
 import {Link, useParams} from 'react-router-dom';
 import {Badge} from '@astryxdesign/core/Badge';
 import {Button} from '@astryxdesign/core/Button';
@@ -5,13 +6,15 @@ import {Card} from '@astryxdesign/core/Card';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {HStack, Layout, LayoutContent, LayoutHeader, VStack} from '@astryxdesign/core/Layout';
 import {Section} from '@astryxdesign/core/Section';
+import {SegmentedControl, SegmentedControlItem} from '@astryxdesign/core/SegmentedControl';
+import {Selector} from '@astryxdesign/core/Selector';
 import {StatusDot} from '@astryxdesign/core/StatusDot';
 import {Heading, Text} from '@astryxdesign/core/Text';
 import {Token} from '@astryxdesign/core/Token';
 import {Tooltip} from '@astryxdesign/core/Tooltip';
 
 import {api} from '../api/client';
-import type {Status, Task} from '../api/types';
+import type {ProjectDetail, Status, Task} from '../api/types';
 import {useResource} from '../api/useResource';
 import {Failure, Loading} from '../components/Feedback';
 import {categoryVariant, primaryRole, statusColor} from '../components/status';
@@ -19,6 +22,36 @@ import {NewTaskDialog} from '../components/NewTaskDialog';
 import {TaskCard} from '../components/TaskCard';
 
 const COLUMN_WIDTH = 300;
+// Тип задачи по умолчанию и тип эпика. Набор типов — данные проекта, но
+// доска обязана с чего-то начинаться, а эпик она показывает особым образом.
+const DEFAULT_TYPE = 'task';
+const EPIC_TYPE = 'epic';
+
+// TypePicker показывает, какого типа задачи сейчас на доске. Если тип в
+// проекте один, переключать нечего — и переключателя нет.
+function TypePicker({
+  project,
+  value,
+  onChange,
+}: {
+  project: ProjectDetail;
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  const types = new Set<string>();
+  for (const wf of project.active_workflows) {
+    for (const type of wf.task_types ?? []) types.add(type);
+  }
+  if (types.size < 2) return null;
+
+  return (
+    <SegmentedControl label="Тип задач" value={value} onChange={onChange} size="sm">
+      {[...types].map((type) => (
+        <SegmentedControlItem key={type} value={type} label={type} />
+      ))}
+    </SegmentedControl>
+  );
+}
 
 // Доска. Колонки берутся из активного цикла проекта, а не из константы: у
 // каждого проекта свой набор статусов.
@@ -29,9 +62,19 @@ const COLUMN_WIDTH = 300;
 // смысл. Перетаскивание сделало бы вид, что достаточно выбрать колонку.
 export function Board() {
   const {projectKey = ''} = useParams();
-  const workflow = useResource(() => api.getWorkflow(projectKey), [projectKey]);
-  const tasks = useResource(() => api.listTasks(projectKey), [projectKey]);
   const project = useResource(() => api.getProject(projectKey), [projectKey]);
+  // Доска показывает один цикл: у эпиков свои статусы, и смешивать их с
+  // задачами в одних колонках нечестно — это разные наборы (решение 0024).
+  const [taskType, setTaskType] = useState(DEFAULT_TYPE);
+  // Фильтр по эпику: нарезка одного эпика в отрыве от остальной доски.
+  const [parent, setParent] = useState('');
+
+  const workflow = useResource(() => api.getWorkflow(projectKey, taskType), [projectKey, taskType]);
+  const tasks = useResource(
+    () => api.listTasks(projectKey, {type: taskType, parent: parent || undefined}),
+    [projectKey, taskType, parent],
+  );
+  const epics = useResource(() => api.listTasks(projectKey, {type: EPIC_TYPE}), [projectKey]);
 
   if (workflow.error) return <Section padding={6}><Failure error={workflow.error} /></Section>;
   if (tasks.error) return <Section padding={6}><Failure error={tasks.error} /></Section>;
@@ -40,6 +83,7 @@ export function Board() {
   const reload = () => {
     tasks.reload();
     workflow.reload();
+    epics.reload();
   };
 
   // Задачи раскладываются по ключу статуса, а не по его идентификатору:
@@ -69,6 +113,27 @@ export function Board() {
               <Badge variant="neutral" label={`${tasks.data.length} задач`} />
             </HStack>
             <HStack gap={2} vAlign="center">
+              {project.data ? (
+                <TypePicker project={project.data} value={taskType} onChange={(next) => {
+                  setTaskType(next);
+                  setParent('');
+                }} />
+              ) : null}
+              {taskType !== EPIC_TYPE && (epics.data?.length ?? 0) > 0 ? (
+                <Selector
+                  label="Эпик"
+                  isLabelHidden
+                  variant="ghost"
+                  size="sm"
+                  width={240}
+                  value={parent}
+                  onChange={(v) => setParent(v as string)}
+                  options={[
+                    {value: '', label: 'Все эпики'},
+                    ...(epics.data ?? []).map((e) => ({value: e.key, label: `${e.key} · ${e.title}`})),
+                  ]}
+                />
+              ) : null}
               <Tooltip content="Задачи доходят по той версии цикла, на которой начаты">
                 <Text type="supporting" color="secondary">
                   {workflow.data.name} · v{workflow.data.version}
@@ -76,7 +141,7 @@ export function Board() {
               </Tooltip>
               <Button variant="secondary" label="Обновить" onClick={reload} />
               {project.data ? (
-                <NewTaskDialog project={project.data} onCreated={reload} />
+                <NewTaskDialog project={project.data} onCreated={reload} defaultType={taskType} />
               ) : null}
             </HStack>
           </HStack>

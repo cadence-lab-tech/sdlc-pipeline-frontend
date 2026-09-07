@@ -1,5 +1,5 @@
 import {useState} from 'react';
-import {useParams} from 'react-router-dom';
+import {Link, useParams} from 'react-router-dom';
 import {Badge} from '@astryxdesign/core/Badge';
 import {Button} from '@astryxdesign/core/Button';
 import {Card} from '@astryxdesign/core/Card';
@@ -15,6 +15,7 @@ import {
 } from '@astryxdesign/core/Layout';
 import {Item} from '@astryxdesign/core/Item';
 import {List} from '@astryxdesign/core/List';
+import {ProgressBar} from '@astryxdesign/core/ProgressBar';
 import {Section} from '@astryxdesign/core/Section';
 import {StatusDot} from '@astryxdesign/core/StatusDot';
 import {Tab, TabList} from '@astryxdesign/core/TabList';
@@ -22,7 +23,16 @@ import {Heading, Text} from '@astryxdesign/core/Text';
 import {Timestamp} from '@astryxdesign/core/Timestamp';
 
 import {ApiError, api} from '../api/client';
-import type {Artifact, StageRun, TaskDetail as TaskDetailData, TransitionOption, Workflow} from '../api/types';
+import type {
+  Artifact,
+  StageRun,
+  Task,
+  TaskDetail as TaskDetailData,
+  TaskLink,
+  TransitionOption,
+  UsageSummary,
+  Workflow,
+} from '../api/types';
 import {useResource} from '../api/useResource';
 import {Failure, Loading} from '../components/Feedback';
 import {GateRow} from '../components/Gates';
@@ -56,8 +66,21 @@ export function TaskDetail() {
                 {detail.task.key}
               </Text>
               <Badge variant="neutral" label={detail.task.status_name} />
+              <Badge variant="info" label={taskType(detail.task)} />
               {detail.task.priority !== 'normal' ? (
                 <Badge variant="warning" label={detail.task.priority} />
+              ) : null}
+              {detail.task.parent_key ? (
+                <Link
+                  to={`/p/${detail.task.project_key}/tasks/${detail.task.parent_key}`}
+                  style={{color: 'var(--color-text-accent)'}}>
+                  <Text type="supporting">↑ {detail.task.parent_key}</Text>
+                </Link>
+              ) : null}
+              {detail.task.assignee_handle ? (
+                <Text type="supporting" color="secondary">
+                  назначена: {detail.task.assignee_handle}
+                </Text>
               ) : null}
             </HStack>
             <Heading level={1}>{detail.task.title}</Heading>
@@ -73,6 +96,9 @@ export function TaskDetail() {
             <HStack hAlign="between" vAlign="center" gap={3}>
               <TabList value={tab} onChange={setTab} hasDivider>
                 <Tab value="stages" label="Этапы и артефакты" />
+                {detail.children.length > 0 ? (
+                  <Tab value="children" label={`Нарезка · ${detail.children.length}`} />
+                ) : null}
                 <Tab value="timeline" label="Лента" />
               </TabList>
               <SubmitArtifactDialog
@@ -83,6 +109,8 @@ export function TaskDetail() {
             </HStack>
             {tab === 'stages' ? (
               <Stages detail={detail} onChanged={reload} />
+            ) : tab === 'children' ? (
+              <Children detail={detail} />
             ) : (
               <Timeline taskKey={taskKey} />
             )}
@@ -94,11 +122,111 @@ export function TaskDetail() {
           <VStack gap={4}>
             <Transitions detail={detail} onChanged={reload} />
             <Divider />
+            <UsagePanel usage={detail.usage} hasChildren={detail.children.length > 0} />
+            {detail.links.length > 0 ? (
+              <>
+                <Divider />
+                <LinksPanel task={detail.task} links={detail.links} />
+              </>
+            ) : null}
+            <Divider />
             <ScopePanel task={detail.task} onChanged={reload} />
           </VStack>
         </LayoutPanel>
       }
     />
+  );
+}
+
+// Тип задачи — системное свойство: по нему выбран цикл (решение 0024).
+function taskType(task: Task): string {
+  const value = task.properties.type;
+  return typeof value === 'string' && value ? value : 'task';
+}
+
+// Нарезка эпика: дочерние задачи со своими статусами. Порядок между ними
+// держат связи blocks и гейт dependencies_closed, а не эта таблица.
+function Children({detail}: {detail: TaskDetailData}) {
+  const closed = detail.children.filter((c) => c.closed_at).length;
+
+  return (
+    <VStack gap={3}>
+      <HStack gap={2} vAlign="center">
+        <Heading level={3}>Дочерние задачи</Heading>
+        <Badge variant="neutral" label={`закрыто ${closed} из ${detail.children.length}`} />
+      </HStack>
+      <ProgressBar
+        label="Готовность нарезки"
+        value={detail.children.length === 0 ? 0 : (closed / detail.children.length) * 100}
+      />
+      <List hasDividers>
+        {detail.children.map((child) => (
+          <Item
+            key={child.id}
+            label={`${child.key} · ${child.title}`}
+            description={child.assignee_handle ? `исполнитель: ${child.assignee_handle}` : undefined}
+            href={`/p/${child.project_key}/tasks/${child.key}`}
+            endContent={<Badge variant="neutral" label={child.status_name} />}
+          />
+        ))}
+      </List>
+    </VStack>
+  );
+}
+
+// Стоимость задачи (решение 0026). Прогоны без отчёта показаны отдельно:
+// «неизвестно» — это не ноль, и подменять одно другим значит врать о счёте.
+function UsagePanel({usage, hasChildren}: {usage: UsageSummary; hasChildren: boolean}) {
+  const money = (v: number) => `${v.toFixed(2)} $`;
+
+  return (
+    <VStack gap={2}>
+      <Heading level={3}>Стоимость</Heading>
+      <HStack hAlign="between">
+        <Text type="supporting" color="secondary">Своя</Text>
+        <Text hasTabularNumbers>{money(usage.cost_usd)}</Text>
+      </HStack>
+      {hasChildren ? (
+        <HStack hAlign="between">
+          <Text type="supporting" color="secondary">Вместе с дочерними</Text>
+          <Text hasTabularNumbers>{money(usage.subtree_cost_usd)}</Text>
+        </HStack>
+      ) : null}
+      <HStack hAlign="between">
+        <Text type="supporting" color="secondary">Токенов</Text>
+        <Text hasTabularNumbers>{usage.tokens.toLocaleString('ru')}</Text>
+      </HStack>
+      {usage.silent_runs > 0 ? (
+        <Text type="supporting" color="secondary">
+          Прогонов без отчёта: {usage.silent_runs} — их стоимость неизвестна
+        </Text>
+      ) : null}
+    </VStack>
+  );
+}
+
+// Связи задачи. blocks читает гейт зависимостей, поэтому направление важно:
+// «эта блокирует» и «эту блокируют» — разные новости.
+function LinksPanel({task, links}: {task: Task; links: TaskLink[]}) {
+  return (
+    <VStack gap={2}>
+      <Heading level={3}>Связи</Heading>
+      <List hasDividers>
+        {links.map((link) => (
+          <Item
+            key={`${link.rel}-${link.direction}-${link.task_id}`}
+            label={`${link.task_key} · ${link.task_title}`}
+            description={
+              link.direction === 'outgoing'
+                ? `${task.key} → ${link.rel}`
+                : `${link.rel} → ${task.key}`
+            }
+            href={`/p/${task.project_key}/tasks/${link.task_key}`}
+            endContent={<Text type="supporting" color="secondary">{link.status_key}</Text>}
+          />
+        ))}
+      </List>
+    </VStack>
   );
 }
 

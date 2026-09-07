@@ -162,6 +162,7 @@ function normalizeTask(t: Task): Task {
 function normalizeWorkflow(w: Workflow): Workflow {
   return {
     ...w,
+    task_types: w.task_types ?? ['task'],
     statuses: (w.statuses ?? []).map((s) => ({...s, roles: s.roles ?? []})),
     transitions: (w.transitions ?? []).map((t) => ({...t, gates: t.gates ?? []})),
   };
@@ -213,6 +214,8 @@ export const api = {
         repositories: r.repositories ?? [],
         roles: r.roles ?? [],
         documents: r.documents ?? [],
+        workflows: r.workflows ?? [],
+        workflow_validations: r.workflow_validations ?? [],
       }),
     ),
 
@@ -226,24 +229,32 @@ export const api = {
       statuses: m.statuses ?? [],
       gates: m.gates ?? [],
       drift: m.drift ?? [],
+      cost: m.cost ?? [],
     })),
 
   // ── проекты ───────────────────────────────────────────────────────────────
   listProjects: () => request<{projects: Project[]}>('/projects').then((r) => r.projects),
 
-  getProject: (key: string) => request<ProjectDetail>(`/projects/${key}`),
+  getProject: (key: string) =>
+    request<ProjectDetail>(`/projects/${key}`).then((d) => ({
+      ...d,
+      active_workflows: d.active_workflows ?? [],
+    })),
 
   createProject: (body: {key: string; name: string; description?: string}) =>
     request<Project>('/projects', post(body)),
 
   // ── цикл ──────────────────────────────────────────────────────────────────
-  getWorkflow: (projectKey: string) =>
-    request<Workflow>(`/projects/${projectKey}/workflow`).then(normalizeWorkflow),
+  // Цикл выбирается типом задач: у доски эпиков другие колонки.
+  getWorkflow: (projectKey: string, taskType?: string) =>
+    request<Workflow>(
+      `/projects/${projectKey}/workflow${taskType ? `?type=${encodeURIComponent(taskType)}` : ''}`,
+    ).then(normalizeWorkflow),
 
   listWorkflows: (projectKey: string) =>
     request<{workflows: WorkflowHead[]}>(`/projects/${projectKey}/workflows`).then((r) => r.workflows),
 
-  createDraft: (projectKey: string, body: {name?: string; from?: string}) =>
+  createDraft: (projectKey: string, body: {name?: string; from?: string; task_types?: string[]}) =>
     request<Workflow>(`/projects/${projectKey}/workflows`, post(body)).then(normalizeWorkflow),
 
   getWorkflowVersion: (id: UUID) => request<Workflow>(`/workflows/${id}`).then(normalizeWorkflow),
@@ -329,8 +340,15 @@ export const api = {
     request<RoleVersion>(`/projects/${projectKey}/roles/${roleKey}/versions`, post(body)),
 
   // ── задачи ────────────────────────────────────────────────────────────────
-  listTasks: (projectKey: string) =>
-    request<{tasks: Task[]}>(`/projects/${projectKey}/tasks`).then((r) => r.tasks.map(normalizeTask)),
+  listTasks: (projectKey: string, filter: {type?: string; parent?: string} = {}) => {
+    const query = new URLSearchParams();
+    if (filter.type) query.set('type', filter.type);
+    if (filter.parent) query.set('parent', filter.parent);
+    const suffix = query.size > 0 ? `?${query}` : '';
+    return request<{tasks: Task[]}>(`/projects/${projectKey}/tasks${suffix}`).then((r) =>
+      r.tasks.map(normalizeTask),
+    );
+  },
 
   createTask: (projectKey: string, body: Record<string, unknown>) =>
     request<Task>(`/projects/${projectKey}/tasks`, post(body)).then(normalizeTask),
@@ -342,7 +360,14 @@ export const api = {
       stage_runs: d.stage_runs ?? [],
       artifacts: d.artifacts ?? [],
       transitions: (d.transitions ?? []).map((t) => ({...t, gates: t.gates ?? []})),
+      children: (d.children ?? []).map(normalizeTask),
+      links: d.links ?? [],
     })),
+
+  // Назначение адресное: назначенную задачу заберёт только этот принципал
+  // (решение 0025). Пустой хэндл снимает назначение.
+  assignTask: (taskKey: string, assignee: string) =>
+    request<Task>(`/tasks/${taskKey}/assignee`, put({assignee})).then(normalizeTask),
 
   timeline: (taskKey: string) =>
     request<{events: TaskEvent[]}>(`/tasks/${taskKey}/timeline`).then((r) => r.events),

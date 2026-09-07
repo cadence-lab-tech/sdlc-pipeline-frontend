@@ -10,7 +10,7 @@ import {Table, pixel, proportional} from '@astryxdesign/core/Table';
 import {Heading, Text} from '@astryxdesign/core/Text';
 
 import {api} from '../api/client';
-import type {DriftMetric, GateMetric, StatusMetric} from '../api/types';
+import type {CostMetric, DriftMetric, GateMetric, StatusMetric} from '../api/types';
 import {useResource} from '../api/useResource';
 import {Loaded} from '../components/Feedback';
 
@@ -125,6 +125,61 @@ export function Metrics() {
               </VStack>
 
               <VStack gap={2}>
+                <Heading level={2}>Стоимость</Heading>
+                <Text type="supporting" color="secondary">
+                  Что стоила работа агентов за период — по статусам, ролям и моделям. Считается по
+                  самоотчётам: прогон, о котором не отчитались, стоит «неизвестно», а не ноль,
+                  и такие прогоны показаны отдельным счётчиком.
+                </Text>
+                {m.cost.length === 0 ? (
+                  <EmptyState title="О стоимости за период никто не отчитался" />
+                ) : (
+                  <Table<CostMetric & Record<string, unknown>>
+                    data={m.cost as (CostMetric & Record<string, unknown>)[]}
+                    idKey={(c) => `${c.dimension}/${c.key}`}
+                    density="compact"
+                    columns={[
+                      {key: 'dimension', header: 'Разрез', width: pixel(90)},
+                      {
+                        key: 'key',
+                        header: 'Значение',
+                        width: proportional(2),
+                        renderCell: (row) => row.name || row.key,
+                      },
+                      {key: 'runs', header: 'Прогонов', width: pixel(100), align: 'end'},
+                      {
+                        key: 'silent_runs',
+                        header: 'Без отчёта',
+                        width: pixel(110),
+                        align: 'end',
+                      },
+                      {
+                        key: 'cost_usd',
+                        header: 'Стоимость',
+                        width: pixel(110),
+                        align: 'end',
+                        renderCell: (row) => money(row.cost_usd),
+                      },
+                      {
+                        key: 'avg_cost_usd',
+                        header: 'Средняя',
+                        width: pixel(110),
+                        align: 'end',
+                        renderCell: (row) => money(row.avg_cost_usd),
+                      },
+                      {
+                        key: 'tokens',
+                        header: 'Токенов',
+                        width: pixel(120),
+                        align: 'end',
+                        renderCell: (row) => row.tokens.toLocaleString('ru'),
+                      },
+                    ]}
+                  />
+                )}
+              </VStack>
+
+              <VStack gap={2}>
                 <Heading level={2}>Дрейф</Heading>
                 {m.drift.length === 0 ? (
                   <EmptyState title="Сигналов дрейфа за период не было" />
@@ -162,6 +217,13 @@ function Stat({label, value}: {label: string; value: number | string}) {
       </VStack>
     </Card>
   );
+}
+
+// Доллары с двумя знаками: суммы тут маленькие, и округление до целого
+// превратило бы разницу между моделями в ноль.
+function money(v: number): string {
+  if (!v) return '—';
+  return `${v.toFixed(v < 1 ? 3 : 2)} $`;
 }
 
 // Часы читаются, пока их меньше двух суток; дальше понятнее дни.

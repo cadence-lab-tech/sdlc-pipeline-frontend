@@ -46,6 +46,8 @@ export interface ProjectDetail {
   project: Project;
   repositories: Repository[];
   task_property_defs: TaskPropertyDef[];
+  // Действующие циклы: по ним видно, задачу какого типа вообще можно завести.
+  active_workflows: WorkflowHead[];
 }
 
 export interface StatusRole {
@@ -104,6 +106,9 @@ export interface WorkflowHead {
   name: string;
   version: number;
   state: WorkflowState;
+  // Типы задач, которые ведёт цикл: активных циклов у проекта столько, сколько
+  // типов, но на один тип — ровно один (решение 0024).
+  task_types: string[];
 }
 
 export interface Workflow extends WorkflowHead {
@@ -123,7 +128,10 @@ export interface Task {
   id: UUID;
   project_id: UUID;
   project_key: string;
-  epic_id?: UUID;
+  // Родительская задача: эпик для своих детей. Иерархия — ссылка, ключи задач
+  // остаются плоскими.
+  parent_id?: UUID;
+  parent_key?: string;
   key: string;
   seq: number;
   title: string;
@@ -134,6 +142,7 @@ export interface Task {
   status_name: string;
   priority: 'low' | 'normal' | 'high' | 'urgent';
   assignee_id?: UUID;
+  assignee_handle?: string;
   external_ref: Record<string, unknown>;
   labels: string[];
   properties: Record<string, unknown>;
@@ -202,11 +211,37 @@ export interface TransitionOption {
   gates: GateCheck[];
 }
 
+// Связь между задачами. blocks задаёт порядок работ и читается гейтом
+// dependencies_closed, остальные отношения — контекст.
+export interface TaskLink {
+  rel: string;
+  direction: 'outgoing' | 'incoming';
+  task_id: UUID;
+  task_key: string;
+  task_title: string;
+  status_key: string;
+  note?: string;
+}
+
+// Стоимость задачи (решение 0026). silent_runs — прогоны, о которых никто не
+// отчитался: их стоимость неизвестна, а не равна нулю.
+export interface UsageSummary {
+  cost_usd: number;
+  subtree_cost_usd: number;
+  tokens: number;
+  reported_runs: number;
+  silent_runs: number;
+}
+
 export interface TaskDetail {
   task: Task;
   stage_runs: StageRun[];
   artifacts: Artifact[];
   transitions: TransitionOption[];
+  // Дочерние задачи: у эпика это его нарезка.
+  children: Task[];
+  links: TaskLink[];
+  usage: UsageSummary;
 }
 
 export interface TaskEvent {
@@ -290,6 +325,7 @@ export interface RoleWithVersions {
 export interface ActivationResult {
   workflow: WorkflowHead;
   retired_workflow_id?: UUID;
+  retired_workflow_ids?: UUID[];
   tasks_on_previous_version: OpenTaskOnWorkflow[];
   warnings: WorkflowProblem[];
 }
@@ -379,8 +415,10 @@ export interface ImportReport {
   repositories: ImportEntry[];
   roles: ImportEntry[];
   documents: ImportEntry[];
-  workflow?: ImportEntry;
-  workflow_validation?: Validation;
+  // Циклов в связке столько, сколько типов задач; проверка графа — по каждому
+  // в том же порядке.
+  workflows: ImportEntry[];
+  workflow_validations: Validation[];
 }
 
 export interface StatusMetric {
@@ -415,6 +453,20 @@ export interface DriftMetric {
   dismissed: number;
 }
 
+// Стоимость в одном разрезе: по статусу, по роли, по модели. Прогоны без
+// отчёта считаются отдельно — «неизвестно» не то же самое, что ноль.
+export interface CostMetric {
+  dimension: 'status' | 'role' | 'model';
+  key: string;
+  name?: string;
+  runs: number;
+  reported_runs: number;
+  silent_runs: number;
+  cost_usd: number;
+  avg_cost_usd: number;
+  tokens: number;
+}
+
 export interface Metrics {
   since: string;
   until: string;
@@ -429,4 +481,5 @@ export interface Metrics {
   statuses: StatusMetric[];
   gates: GateMetric[];
   drift: DriftMetric[];
+  cost: CostMetric[];
 }

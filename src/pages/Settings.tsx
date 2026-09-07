@@ -399,7 +399,9 @@ function Report({report}: {report: ImportReport}) {
     ...report.repositories.map((e) => ({...e, section: 'репозиторий'})),
     ...report.roles.map((e) => ({...e, section: 'роль'})),
     ...report.documents.map((e) => ({...e, section: 'документ'})),
-    ...(report.workflow ? [{...report.workflow, section: 'цикл'}] : []),
+    // Циклов в связке столько, сколько типов задач: у проекта с эпиками их
+    // как минимум два (решение 0024).
+    ...report.workflows.map((e) => ({...e, section: 'цикл'})),
   ];
   return (
     <VStack gap={2}>
@@ -428,18 +430,19 @@ function Report({report}: {report: ImportReport}) {
           ]}
         />
       )}
-      {report.workflow_validation ? (
+      {report.workflow_validations.map((validation, i) => (
         <Banner
-          status={report.workflow_validation.valid ? 'success' : 'warning'}
+          key={report.workflows[i]?.key ?? i}
+          status={validation.valid ? 'success' : 'warning'}
           title={
-            report.workflow_validation.valid
-              ? 'Цикл прошёл проверку графа; активируйте черновик в редакторе цикла'
-              : 'Черновик цикла создан, но проверку не прошёл'
+            validation.valid
+              ? `Цикл «${report.workflows[i]?.key ?? ''}» прошёл проверку графа; активируйте черновик в редакторе цикла`
+              : `Черновик цикла «${report.workflows[i]?.key ?? ''}» создан, но проверку не прошёл`
           }
-          description={report.workflow_validation.problems.map((p) => p.message).join('; ')}
+          description={validation.problems.map((p) => p.message).join('; ')}
           collapsible={false}
         />
-      ) : null}
+      ))}
     </VStack>
   );
 }

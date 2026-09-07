@@ -17,9 +17,35 @@ import {defaultProperties} from './properties';
 
 const PRIORITIES = ['low', 'normal', 'high', 'urgent'].map((p) => ({value: p, label: p}));
 
-export function NewTaskDialog({project, onCreated}: {project: ProjectDetail; onCreated: () => void}) {
+// Тип задачи определяет, по какому циклу она пойдёт (решение 0024). Список
+// типов берётся из действующих циклов проекта, а не из константы: типы —
+// данные, и проект заводит их сам.
+function taskTypes(project: ProjectDetail): string[] {
+  const out = new Set<string>();
+  for (const wf of project.active_workflows) {
+    for (const type of wf.task_types ?? []) out.add(type);
+  }
+  const declared = project.task_property_defs.find((d) => d.key === 'type');
+  for (const value of declared?.enum_values ?? []) out.add(value);
+  return out.size > 0 ? [...out] : ['task'];
+}
+
+export function NewTaskDialog({
+  project,
+  onCreated,
+  defaultType,
+  parentKey,
+}: {
+  project: ProjectDetail;
+  onCreated: () => void;
+  defaultType?: string;
+  // Задан — форма заводит дочернюю задачу этого эпика.
+  parentKey?: string;
+}) {
   const navigate = useNavigate();
+  const types = taskTypes(project);
   const [isOpen, setIsOpen] = useState(false);
+  const [taskType, setTaskType] = useState(defaultType ?? types[0]);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState('normal');
@@ -35,6 +61,8 @@ export function NewTaskDialog({project, onCreated}: {project: ProjectDetail; onC
       const task = await api.createTask(project.project.key, {
         title,
         description: description || undefined,
+        type: taskType,
+        parent_key: parentKey,
         priority,
         properties,
         repositories,
@@ -51,13 +79,33 @@ export function NewTaskDialog({project, onCreated}: {project: ProjectDetail; onC
 
   return (
     <>
-      <Button variant="primary" label="Новая задача" onClick={() => setIsOpen(true)} />
+      <Button
+        variant={parentKey ? 'secondary' : 'primary'}
+        label={parentKey ? 'Дочерняя задача' : 'Новая задача'}
+        onClick={() => setIsOpen(true)}
+      />
       <Dialog isOpen={isOpen} onOpenChange={setIsOpen} purpose="form" width={560} padding={5}>
         <VStack gap={4}>
-          <DialogHeader title="Новая задача" />
+          <DialogHeader
+            title={parentKey ? `Дочерняя задача ${parentKey}` : 'Новая задача'}
+            subtitle={
+              parentKey
+                ? undefined
+                : 'Тип задачи выбирает цикл: эпик идёт планированием, задача — разработкой'
+            }
+          />
           {error ? <Failure error={error} title="Задача не создана" /> : null}
           <FormLayout>
             <TextInput label="Название" value={title} onChange={setTitle} isRequired />
+            {types.length > 1 ? (
+              <Selector
+                label="Тип"
+                description="По типу выбирается цикл, по которому пойдёт задача"
+                options={types.map((t) => ({value: t, label: t}))}
+                value={taskType}
+                onChange={(v) => setTaskType(v as string)}
+              />
+            ) : null}
             <TextArea label="Описание" value={description} onChange={setDescription} rows={4} />
             <Selector label="Приоритет" options={PRIORITIES} value={priority} onChange={(v) => setPriority(v as string)} />
             <MultiSelector
@@ -70,14 +118,16 @@ export function NewTaskDialog({project, onCreated}: {project: ProjectDetail; onC
                 label: `${r.owner}/${r.name}`,
               }))}
             />
-            {project.task_property_defs.map((def) => (
-              <PropertyField
-                key={def.id}
-                def={def}
-                value={properties[def.key]}
-                onChange={(value) => setProperties((prev) => ({...prev, [def.key]: value}))}
-              />
-            ))}
+            {project.task_property_defs
+              .filter((def) => def.key !== 'type')
+              .map((def) => (
+                <PropertyField
+                  key={def.id}
+                  def={def}
+                  value={properties[def.key]}
+                  onChange={(value) => setProperties((prev) => ({...prev, [def.key]: value}))}
+                />
+              ))}
           </FormLayout>
           <HStack gap={2} hAlign="end">
             <Button variant="ghost" label="Отмена" onClick={() => setIsOpen(false)} />
