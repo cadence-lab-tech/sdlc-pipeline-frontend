@@ -43,6 +43,28 @@ await new Promise((r) => setTimeout(r, 1800));
 t = await run('return texts();');
 check('ссылка на эпик в карточке', t.includes('SDLC-4'), t.slice(0, 400));
 
+console.log('назначение исполнителя');
+t = await run('return texts();');
+check('панель исполнителя есть', t.includes('Исполнитель'), t.slice(0, 600));
+// Принципал web заводится при первом же запросе интерфейса, назначать можно
+// только на существующего.
+await run(`
+  const input = all('input').find((i) => (i.placeholder || '').includes('agent:developer'));
+  if (!input) throw new Error('поля исполнителя нет');
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'web');
+  input.dispatchEvent(new Event('input', {bubbles: true}));
+  await sleep(300);
+  await clickExact('Назначить');
+  await sleep(1400);
+  return true;
+`);
+t = await run('return texts();');
+check('исполнитель назначен', t.includes('заберёт только web'), t.slice(0, 600));
+
+await run('await clickExact("Снять назначение"); await sleep(1400); return true;');
+t = await run('return texts();');
+check('назначение снимается', t.includes('заберёт любой агент'), t.slice(0, 600));
+
 s.close();
 console.log(`\n${ok} ok, ${fail} fail`);
 process.exit(fail ? 1 : 0);

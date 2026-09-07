@@ -16,6 +16,7 @@ import {
 } from '@astryxdesign/core/Layout';
 import {Item} from '@astryxdesign/core/Item';
 import {List} from '@astryxdesign/core/List';
+import {Selector} from '@astryxdesign/core/Selector';
 import {StatusDot} from '@astryxdesign/core/StatusDot';
 import {Heading, Text} from '@astryxdesign/core/Text';
 import {Token} from '@astryxdesign/core/Token';
@@ -37,7 +38,9 @@ import {Failure, Loading} from '../components/Feedback';
 import {GateDialog} from '../components/GateDialog';
 import {StatusDialog} from '../components/StatusDialog';
 import {TransitionDialog} from '../components/TransitionDialog';
+import {WorkflowDraftDialog} from '../components/WorkflowDraftDialog';
 import {categoryVariant, primaryRole, statusColor} from '../components/status';
+import {taskTypes} from '../components/taskTypes';
 
 // Редактор цикла. Активная версия не правится — ни целиком, ни по мелочи:
 // по ней прямо сейчас идут задачи (решение 0016). Правка — это черновик,
@@ -45,11 +48,17 @@ import {categoryVariant, primaryRole, statusColor} from '../components/status';
 export function WorkflowEditor() {
   const {projectKey = ''} = useParams();
   const versions = useResource(() => api.listWorkflows(projectKey), [projectKey]);
+  const project = useResource(() => api.getProject(projectKey), [projectKey]);
   const [picked, setPicked] = useState<UUID>();
+  // Тип задач для нового черновика: копия снимается с действующего цикла
+  // этого же типа, иначе черновик цикла эпиков начался бы с разработки.
+  const [draftType, setDraftType] = useState('task');
   const [error, setError] = useState<ApiError>();
 
   if (versions.error) return <Failure error={versions.error} />;
   if (!versions.data) return <Loading />;
+
+  const types = project.data ? taskTypes(project.data) : ['task'];
 
   // По умолчанию открыт черновик, если он есть: правят обычно его, а не
   // работающую версию, которую всё равно нельзя менять.
@@ -60,7 +69,7 @@ export function WorkflowEditor() {
   const createDraft = async (from: 'active' | 'empty') => {
     setError(undefined);
     try {
-      const created = await api.createDraft(projectKey, {from});
+      const created = await api.createDraft(projectKey, {from, task_types: [draftType]});
       versions.reload();
       setPicked(created.id);
     } catch (err) {
@@ -79,6 +88,16 @@ export function WorkflowEditor() {
               <LayoutHeader hasDivider padding={3}>
                 <VStack gap={2}>
                   <Heading level={2}>Версии цикла</Heading>
+                  {types.length > 1 ? (
+                    <Selector
+                      label="Тип задач"
+                      size="sm"
+                      description="Циклов в проекте столько, сколько типов задач"
+                      options={types.map((t) => ({value: t, label: t}))}
+                      value={draftType}
+                      onChange={(v) => setDraftType(v as string)}
+                    />
+                  ) : null}
                   <Button
                     size="sm"
                     variant="primary"
@@ -119,6 +138,7 @@ export function WorkflowEditor() {
               key={selected}
               projectKey={projectKey}
               workflowID={selected}
+              types={types}
               onChanged={() => {
                 versions.reload();
               }}
@@ -160,7 +180,7 @@ function VersionRow({
   return (
     <Item
       label={`${head.name} · v${head.version}`}
-      description={STATE_LABEL[head.state]}
+      description={`${STATE_LABEL[head.state]} · ${head.task_types.join(', ')}`}
       isSelected={isSelected}
       onClick={onSelect}
       startContent={<StatusDot variant={STATE_VARIANT[head.state]} label={head.state} />}
@@ -171,11 +191,13 @@ function VersionRow({
 function VersionEditor({
   projectKey,
   workflowID,
+  types,
   onChanged,
   onDeleted,
 }: {
   projectKey: string;
   workflowID: UUID;
+  types: string[];
   onChanged: () => void;
   onDeleted: () => void;
 }) {
@@ -184,6 +206,7 @@ function VersionEditor({
   const validation = useResource(() => api.validateWorkflow(workflowID), [workflowID]);
   const [error, setError] = useState<ApiError>();
   const [activation, setActivation] = useState<ActivationResult>();
+  const [isEditingHead, setIsEditingHead] = useState(false);
 
   if (workflow.error) return <Failure error={workflow.error} />;
   if (!workflow.data) return <Loading />;
@@ -217,9 +240,17 @@ function VersionEditor({
             variant={wf.state === 'active' ? 'success' : 'neutral'}
             label={STATE_LABEL[wf.state]}
           />
+          {wf.task_types.map((type) => (
+            <Token key={type} size="sm" label={type} />
+          ))}
         </HStack>
         {isDraft ? (
           <HStack gap={2}>
+            <Button
+              variant="ghost"
+              label="Название и типы"
+              onClick={() => setIsEditingHead(true)}
+            />
             <Button
               variant="secondary"
               label="Удалить черновик"
@@ -268,6 +299,16 @@ function VersionEditor({
       <Divider />
 
       <Transitions workflow={wf} isEditable={isDraft} onChanged={refresh} />
+
+      {isEditingHead ? (
+        <WorkflowDraftDialog
+          workflow={wf}
+          types={types}
+          isOpen={isEditingHead}
+          onClose={() => setIsEditingHead(false)}
+          onSaved={refresh}
+        />
+      ) : null}
     </VStack>
   );
 }

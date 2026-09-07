@@ -48,7 +48,7 @@ await run(`
 t = await run('return texts();');
 check('статус удалён', !t.includes('security_review'), t.slice(0, 300));
 check('проблема ушла вместе со статусом', !t.includes('Цикл не активируется'), t.slice(0, 400));
-// Все девять типов гейтов реализованы: у демонстрационного цикла ни ошибок, ни предупреждений.
+// Все десять типов гейтов реализованы: у демонстрационного цикла ни ошибок, ни предупреждений.
 check('проверка проходит без предупреждений', t.includes('Цикл проходит проверку') && !t.includes('Предупреждения'), t.slice(0, 400));
 
 console.log('активация черновика');
@@ -66,15 +66,50 @@ check('доска на новой версии цикла', t.includes('v2'), t.
 check('задачи не пропали с доски', t.includes('SDLC-1') && t.includes('SDLC-3'), t.slice(0, 600));
 check('задача с прежней версии помечена', t.includes('прежняя версия цикла'), t.slice(0, 600));
 
-console.log('пустой черновик');
+console.log('пустой черновик под другой тип задач');
 await s.goto(BASE + '/p/SDLC/workflow');
 await new Promise((r) => setTimeout(r, 1800));
+// Циклов в проекте столько, сколько типов задач (решение 0024): черновик
+// заводится под выбранный тип, а не под единственный.
+await run(`
+  const trigger = all('button').find((b) => (b.innerText || '').trim() === 'task');
+  if (!trigger) throw new Error('переключателя типа задач нет');
+  trigger.click();
+  await sleep(600);
+  const option = all('[role=option], li, button').find((e) => (e.innerText || '').trim() === 'epic');
+  if (!option) throw new Error('типа epic нет в списке');
+  option.click();
+  await sleep(600);
+  return true;
+`);
 await run('return click("Пустой черновик");');
 await new Promise((r) => setTimeout(r, 1800));
 t = await run('return texts();');
 check('пустой черновик открывается без падения', t.includes('Статусы') && t.includes('Добавить статус'), t.slice(0, 300));
+check('черновик заведён под тип epic', t.includes('черновик · epic'), t.slice(0, 400));
 check('пустой цикл не активируется', t.includes('Цикл не активируется'), t.slice(0, 400));
 check('названа причина', t.includes('начальн') || t.includes('стату'), t.slice(0, 500));
+
+console.log('правка названия и типов черновика');
+await run('return click("Название и типы");');
+await run('return fill("Название", "Черновик под эпики");');
+// Один цикл может вести несколько типов задач. Список типов в диалоге —
+// последний на странице: такой же переключатель стоит в панели версий.
+await run(`
+  const triggers = all('button').filter((b) => (b.innerText || '').trim() === 'epic');
+  triggers[triggers.length - 1].click();
+  await sleep(700);
+  const option = all('[role=option]').filter((o) => o.innerText.trim() === 'task').pop();
+  if (!option) throw new Error('типа task нет в списке');
+  option.click();
+  await sleep(500);
+  return true;
+`);
+await run('return click("Сохранить");');
+await new Promise((r) => setTimeout(r, 1500));
+t = await run('return texts();');
+check('название черновика изменилось', t.includes('Черновик под эпики'), t.slice(0, 400));
+check('черновик ведёт оба типа задач', t.includes('черновик · epic, task'), t.slice(0, 500));
 
 await run('return click("Удалить черновик");');
 await new Promise((r) => setTimeout(r, 1500));

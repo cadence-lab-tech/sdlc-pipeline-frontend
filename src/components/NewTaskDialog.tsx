@@ -14,21 +14,9 @@ import type {ProjectDetail} from '../api/types';
 import {Failure} from './Feedback';
 import {PropertyField} from './PropertyFields';
 import {defaultProperties} from './properties';
+import {taskTypes} from './taskTypes';
 
 const PRIORITIES = ['low', 'normal', 'high', 'urgent'].map((p) => ({value: p, label: p}));
-
-// Тип задачи определяет, по какому циклу она пойдёт (решение 0024). Список
-// типов берётся из действующих циклов проекта, а не из константы: типы —
-// данные, и проект заводит их сам.
-function taskTypes(project: ProjectDetail): string[] {
-  const out = new Set<string>();
-  for (const wf of project.active_workflows) {
-    for (const type of wf.task_types ?? []) out.add(type);
-  }
-  const declared = project.task_property_defs.find((d) => d.key === 'type');
-  for (const value of declared?.enum_values ?? []) out.add(value);
-  return out.size > 0 ? [...out] : ['task'];
-}
 
 export function NewTaskDialog({
   project,

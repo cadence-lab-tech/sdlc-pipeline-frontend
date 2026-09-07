@@ -37,6 +37,7 @@ import {useResource} from '../api/useResource';
 import {Failure, Loading} from '../components/Feedback';
 import {GateRow} from '../components/Gates';
 import {ArtifactView} from '../components/ArtifactView';
+import {AssigneePanel} from '../components/AssigneePanel';
 import {ScopePanel} from '../components/ScopePanel';
 import {SubmitArtifactDialog} from '../components/SubmitArtifactDialog';
 
@@ -121,6 +122,8 @@ export function TaskDetail() {
         <LayoutPanel width={400} hasDivider padding={4} isScrollable label="Движение задачи">
           <VStack gap={4}>
             <Transitions detail={detail} onChanged={reload} />
+            <Divider />
+            <AssigneePanel task={detail.task} onChanged={reload} />
             <Divider />
             <UsagePanel usage={detail.usage} hasChildren={detail.children.length > 0} />
             {detail.links.length > 0 ? (

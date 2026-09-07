@@ -259,6 +259,11 @@ export const api = {
 
   getWorkflowVersion: (id: UUID) => request<Workflow>(`/workflows/${id}`).then(normalizeWorkflow),
 
+  // Правится только черновик: у активной версии ни имя, ни типы задач не
+  // меняются — по ней идут задачи (решение 0016).
+  updateWorkflowVersion: (id: UUID, body: {name?: string; task_types?: string[]}) =>
+    request<Workflow>(`/workflows/${id}`, patch(body)).then(normalizeWorkflow),
+
   deleteWorkflow: (id: UUID) => request<void>(`/workflows/${id}`, del()),
 
   validateWorkflow: (id: UUID) => request<Validation>(`/workflows/${id}/validation`),
