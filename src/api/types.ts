@@ -293,3 +293,140 @@ export interface ActivationResult {
   tasks_on_previous_version: OpenTaskOnWorkflow[];
   warnings: WorkflowProblem[];
 }
+
+// ── фаза 4: аутентификация, участники, перенос правил, метрики ─────────────
+
+export type MemberRole = 'viewer' | 'agent' | 'maintainer' | 'admin';
+
+export interface Principal {
+  id: UUID;
+  kind: 'user' | 'agent' | 'system';
+  handle: string;
+  display_name: string;
+  email?: string;
+  is_admin: boolean;
+  created_at: string;
+}
+
+export interface ProjectMember {
+  project_id: UUID;
+  project_key: string;
+  principal_id: UUID;
+  handle: string;
+  kind: 'user' | 'agent' | 'system';
+  display_name: string;
+  role: MemberRole;
+  created_at: string;
+}
+
+export interface AccessToken {
+  id: UUID;
+  principal_id: UUID;
+  handle: string;
+  kind: 'user' | 'agent' | 'system';
+  project_id?: UUID;
+  project_key?: string;
+  name: string;
+  prefix: string;
+  role_keys: string[];
+  created_at: string;
+  expires_at?: string;
+  last_used_at?: string;
+  revoked_at?: string;
+}
+
+// Ответ /auth/me. mode = header означает, что актор назван заголовком и не
+// проверен; в этом режиме форма входа не нужна.
+export interface Me {
+  mode: 'header' | 'token';
+  authenticated: boolean;
+  principal: Principal;
+  token?: AccessToken;
+  memberships: ProjectMember[];
+}
+
+export interface IssuedToken {
+  token: string;
+  record: AccessToken;
+}
+
+export interface ProjectDocument {
+  id: UUID;
+  project_id: UUID;
+  kind: string;
+  title: string;
+  source: 'inline' | 'url' | 'repo_path';
+  url?: string;
+  repository?: string;
+  repo_path?: string;
+  blob_sha?: string;
+  meta: Record<string, unknown>;
+}
+
+// Связка переноса правил (решение 0022). Форма открытая: UI показывает и
+// передаёт её как JSON, не разбирая по полям.
+export type Bundle = Record<string, unknown> & {version: number};
+
+export interface ImportEntry {
+  key: string;
+  outcome: 'created' | 'updated' | 'unchanged' | 'new_version' | 'draft_created';
+  detail?: string;
+  id?: string;
+}
+
+export interface ImportReport {
+  dry_run: boolean;
+  repositories: ImportEntry[];
+  roles: ImportEntry[];
+  documents: ImportEntry[];
+  workflow?: ImportEntry;
+  workflow_validation?: Validation;
+}
+
+export interface StatusMetric {
+  status: string;
+  status_name: string;
+  open_tasks: number;
+  finished_runs: number;
+  avg_hours: number;
+  median_hours: number;
+  max_hours: number;
+  rejections: number;
+  repeated_runs: number;
+  expired_leases: number;
+}
+
+export interface GateMetric {
+  transition: string;
+  gate: string;
+  gate_name: string;
+  type: string;
+  passed: number;
+  failed: number;
+  waived: number;
+  pending: number;
+}
+
+export interface DriftMetric {
+  kind: string;
+  severity: string;
+  open: number;
+  resolved: number;
+  dismissed: number;
+}
+
+export interface Metrics {
+  since: string;
+  until: string;
+  throughput: {
+    created: number;
+    closed: number;
+    cancelled: number;
+    avg_lead_hours: number;
+    review_runs: number;
+    review_fails: number;
+  };
+  statuses: StatusMetric[];
+  gates: GateMetric[];
+  drift: DriftMetric[];
+}

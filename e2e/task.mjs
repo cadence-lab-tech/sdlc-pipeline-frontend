@@ -15,7 +15,7 @@ console.log('карточка задачи');
 let t = await run('return texts();');
 check('вердикт гейтов показан', t.includes('не сданы артефакты'), t.slice(0, 300));
 check('переход заблокирован', t.includes('Держат гейты'));
-check('неготовый тип гейта объяснён', t.includes('появится в следующей фазе'));
+check('перепроверка объяснена', t.includes('перепроверка не запускалась'), t.slice(0, 400));
 
 console.log('сдача артефактов');
 for (const kind of ['analysis.brief', 'analysis.acceptance_criteria']) {
@@ -53,15 +53,12 @@ check('апрув учтён', !t.includes('апрувов 0 из 1'), t.slice(0
 
 console.log('переход');
 t = await run('return texts();');
-const allowed = t.includes('Перевести');
-check('переход разблокирован', allowed, t.slice(0, 600));
-if (allowed) {
-  await run('await clickIn("Аналитика готова", "Перевести"); return true;');
-  await new Promise((r) => setTimeout(r, 2000));
-  t = await run('return texts();');
-  check('задача перешла на следующий статус', t.includes('Architecture'), t.slice(0, 300));
-  check('прошлая попытка осталась в истории', t.includes('analysis'), t.slice(0, 400));
-}
+// Артефакты сданы и апрув стоит, но перепроверка ревьюером не запускалась:
+// переход «Аналитика готова» остаётся закрытым, а отмена задачи доступна всегда.
+// Кликать нельзя — единственная разблокированная кнопка отменит задачу.
+check('переход вперёд держит перепроверка', t.includes('Держат гейты') && t.includes('перепроверка не запускалась'), t.slice(0, 600));
+check('отмена доступна', t.includes('Перевести') && t.includes('cancelled'), t.slice(0, 600));
+check('задача всё ещё в аналитике', t.includes('analysis') && !t.includes('Cancelled'), t.slice(0, 300));
 
 console.log('лента событий');
 await run('await clickExact("Лента", "button, [role=tab]"); return true;');

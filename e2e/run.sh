@@ -28,4 +28,5 @@ curl -s -X POST "$API/v1/tasks/SDLC-1/transitions/start" \
   -H 'Content-Type: application/json' -H 'X-SDLC-Actor: e2e' -d '{}' >/dev/null
 node e2e/task.mjs
 node e2e/roles.mjs
+node e2e/settings.mjs
 node e2e/workflow.mjs

@@ -2,9 +2,17 @@
 // общие для REST и MCP, и UI ветвится по коду, а не по тексту сообщения.
 
 import type {
+  AccessToken,
   ActivationResult,
   Artifact,
+  Bundle,
+  ImportReport,
+  IssuedToken,
+  Me,
+  Metrics,
   Project,
+  ProjectDocument,
+  ProjectMember,
   ProjectDetail,
   Role,
   RoleVersion,
@@ -37,6 +45,8 @@ export type ErrorCode =
   | 'drift_unresolved'
   | 'transition_not_allowed'
   | 'out_of_task_scope'
+  | 'unauthenticated'
+  | 'forbidden'
   | 'internal';
 
 export class ApiError extends Error {
@@ -51,9 +61,11 @@ export class ApiError extends Error {
   }
 }
 
-// Аутентификации пока нет (решение 0010): действующее лицо приезжает
-// заголовком и заводится в principals при первом обращении.
+// Кто пришёл, определяет токен (решение 0021). В режиме header бэкенд берёт
+// актора из заголовка X-SDLC-Actor — он отправляется всегда и в режиме
+// токенов просто игнорируется.
 const ACTOR_KEY = 'sdlc.actor';
+const TOKEN_KEY = 'sdlc.token';
 
 export function currentActor(): string {
   return localStorage.getItem(ACTOR_KEY) ?? 'web';
@@ -63,6 +75,39 @@ export function setCurrentActor(handle: string): void {
   localStorage.setItem(ACTOR_KEY, handle);
 }
 
+export function currentToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setCurrentToken(token: string | null): void {
+  if (token) localStorage.setItem(TOKEN_KEY, token);
+  else localStorage.removeItem(TOKEN_KEY);
+}
+
+// Событие «нужен вход»: клиент один на всё приложение и не знает про роутер,
+// а показать форму входа после 401 должен тот, кто рисует страницы.
+export const UNAUTHENTICATED_EVENT = 'sdlc:unauthenticated';
+
+function authHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {'X-SDLC-Actor': currentActor()};
+  const token = currentToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
+
+function raise(res: Response, body: unknown): never {
+  const err = (body as {error?: {code: ErrorCode; message: string; details?: unknown}})?.error;
+  if (res.status === 401) {
+    window.dispatchEvent(new Event(UNAUTHENTICATED_EVENT));
+  }
+  throw new ApiError(
+    err?.code ?? 'internal',
+    err?.message ?? `запрос завершился со статусом ${res.status}`,
+    err?.details,
+    res.status,
+  );
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
@@ -70,7 +115,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...init,
       headers: {
         'Content-Type': 'application/json',
-        'X-SDLC-Actor': currentActor(),
+        ...authHeaders(),
         ...init?.headers,
       },
     });
@@ -86,22 +131,22 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const body: unknown = text ? JSON.parse(text) : undefined;
 
   if (!res.ok) {
-    const err = (body as {error?: {code: ErrorCode; message: string; details?: unknown}})?.error;
-    throw new ApiError(
-      err?.code ?? 'internal',
-      err?.message ?? `запрос завершился со статусом ${res.status}`,
-      err?.details,
-      res.status,
-    );
+    raise(res, body);
   }
   return body as T;
 }
 
 async function requestText(path: string): Promise<string> {
-  const res = await fetch(BASE + path, {headers: {'X-SDLC-Actor': currentActor()}});
+  const res = await fetch(BASE + path, {headers: authHeaders()});
   const text = await res.text();
   if (!res.ok) {
-    throw new ApiError('internal', `не удалось прочитать содержимое (${res.status})`, undefined, res.status);
+    let body: unknown;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = undefined;
+    }
+    raise(res, body);
   }
   return text;
 }
@@ -129,6 +174,60 @@ const put = (body: unknown): RequestInit => ({method: 'PUT', ...json(body)});
 const del = (): RequestInit => ({method: 'DELETE'});
 
 export const api = {
+  // ── кто я, токены, участники ──────────────────────────────────────────────
+  me: () => request<Me>('/auth/me').then((m) => ({...m, memberships: m.memberships ?? []})),
+
+  listTokens: (projectKey?: string) =>
+    request<{tokens: AccessToken[]}>(`/auth/tokens${projectKey ? `?project=${projectKey}` : ''}`).then(
+      (r) => (r.tokens ?? []).map((t) => ({...t, role_keys: t.role_keys ?? []})),
+    ),
+
+  // Сам токен приходит один раз — в ответе на выдачу; дальше только хеш.
+  issueToken: (body: {
+    name: string;
+    principal?: string;
+    project?: string;
+    role_keys?: string[];
+    expires_in_days?: number;
+    member_role?: string;
+  }) => request<IssuedToken>('/auth/tokens', post(body)),
+
+  revokeToken: (id: UUID) => request<void>(`/auth/tokens/${id}`, del()),
+
+  listMembers: (projectKey: string) =>
+    request<{members: ProjectMember[]}>(`/projects/${projectKey}/members`).then((r) => r.members ?? []),
+
+  setMember: (projectKey: string, principal: string, role: string) =>
+    request<ProjectMember>(`/projects/${projectKey}/members`, put({principal, role})),
+
+  removeMember: (projectKey: string, handle: string) =>
+    request<void>(`/projects/${projectKey}/members/${encodeURIComponent(handle)}`, del()),
+
+  // ── перенос правил ────────────────────────────────────────────────────────
+  exportBundle: (projectKey: string) => request<Bundle>(`/projects/${projectKey}/export`),
+
+  importBundle: (projectKey: string, bundle: unknown, dryRun: boolean) =>
+    request<ImportReport>(`/projects/${projectKey}/import${dryRun ? '?dry_run=true' : ''}`, post(bundle)).then(
+      (r) => ({
+        ...r,
+        repositories: r.repositories ?? [],
+        roles: r.roles ?? [],
+        documents: r.documents ?? [],
+      }),
+    ),
+
+  listDocuments: (projectKey: string) =>
+    request<{documents: ProjectDocument[]}>(`/projects/${projectKey}/documents`).then((r) => r.documents ?? []),
+
+  // ── метрики ───────────────────────────────────────────────────────────────
+  metrics: (projectKey: string, period: string) =>
+    request<Metrics>(`/projects/${projectKey}/metrics?period=${period}`).then((m) => ({
+      ...m,
+      statuses: m.statuses ?? [],
+      gates: m.gates ?? [],
+      drift: m.drift ?? [],
+    })),
+
   // ── проекты ───────────────────────────────────────────────────────────────
   listProjects: () => request<{projects: Project[]}>('/projects').then((r) => r.projects),
 
