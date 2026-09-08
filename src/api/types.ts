@@ -55,6 +55,8 @@ export interface ProjectTeam {
   team_key: string;
   team_name: string;
   level: MemberRole;
+  // Роли специалистов для участников команды; null — любые.
+  role_keys: string[] | null;
   created_at: string;
 }
 
@@ -444,6 +446,9 @@ export interface ProjectMember {
   kind: 'user' | 'agent' | 'system';
   display_name: string;
   role: MemberRole;
+  // Роли специалистов, которые участник может забирать (решение 0030).
+  // null — любые роли проекта, пустой список — ни одной.
+  role_keys: string[] | null;
   created_at: string;
 }
 
@@ -474,6 +479,10 @@ export interface Me {
   // Команды показываются отдельно: права из них приходят в проекты, которых
   // в memberships нет.
   teams: TeamMember[];
+  // Сработает ли кнопка «Новый проект»: открытое создание, администратор
+  // системы или лид команды с правом на это. Бэкенд решает, интерфейс лишь
+  // не показывает кнопку тому, у кого она отобьётся.
+  can_create_projects: boolean;
 }
 
 // Вход через корпоративного провайдера (решение 0027). Адреса приходят из
@@ -485,6 +494,15 @@ export interface OIDCSettings {
   authorization_endpoint?: string;
   token_endpoint?: string;
   end_session_endpoint?: string;
+  scopes?: string;
+}
+
+// Вход через GitHub (решение 0030). Секрета клиента здесь нет: код
+// авторизации меняет бэкенд.
+export interface GitHubSettings {
+  enabled: boolean;
+  client_id?: string;
+  authorization_endpoint?: string;
   scopes?: string;
 }
 

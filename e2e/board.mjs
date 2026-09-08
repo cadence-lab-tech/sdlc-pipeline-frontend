@@ -16,6 +16,23 @@ let t = await run('return texts();');
 check('проект показан', t.includes('SDLC Pipeline'));
 check('репозитории проекта показаны', t.includes('sdlc-pipeline-backend'));
 
+// Проект заводит любой вошедший (решение 0030): в режиме header это
+// действующее лицо из заголовка, и кнопка для него есть.
+console.log('создание проекта');
+await run(`
+  await clickExact("Новый проект");
+  await sleep(300);
+  await fill("Ключ", "e2e");
+  await fill("Название", "Проект e2e");
+  await sleep(200);
+  await clickExact("Создать проект");
+  await sleep(2000);
+  return true;
+`);
+t = await run('return texts();');
+check('проект заведён', t.includes('Проект e2e') && t.includes('E2E'), t.slice(0, 600));
+check('форма закрылась', !t.includes('Создать проект'), t.slice(0, 300));
+
 console.log('доска');
 await s.goto(BASE + '/p/SDLC/board');
 await new Promise((r) => setTimeout(r, 2000));

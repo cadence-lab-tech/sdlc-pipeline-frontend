@@ -5,7 +5,7 @@ import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Card} from '@/components/ui/card';
 import {Separator} from '@/components/ui/separator';
-import {FormLayout, Selector, TextArea, TextInput} from '@/components/fields';
+import {FormLayout, MultiSelector, Selector, TextArea, TextInput} from '@/components/fields';
 import {DataTable} from '@/components/DataTable';
 import {CodeBlock, EmptyState, Note, Page, PageHeader, Section, Token} from '@/components/kit';
 
@@ -18,6 +18,7 @@ import type {
   Me,
   ProjectMember,
   ProjectTeam,
+  Role,
 } from '../api/types';
 import {useResource} from '../api/useResource';
 import {Failure, Loaded} from '../components/Feedback';
@@ -64,12 +65,35 @@ export function Settings() {
   );
 }
 
+// ── роли специалистов ───────────────────────────────────────────────────────
+
+// Роли, которые участник может забирать, задаются на участии, а токен их
+// только сужает (решение 0030). Пустой выбор — любые роли проекта: та же
+// договорённость, что у токена.
+function roleOptions(roles: Role[]) {
+  return roles.filter((r) => !r.archived_at).map((r) => ({value: r.key, label: `${r.name} (${r.key})`}));
+}
+
+function RoleKeys({keys}: {keys: string[] | null}) {
+  if (keys === null) return <span className="text-muted-foreground text-xs">любые</span>;
+  if (keys.length === 0) return <span className="text-muted-foreground text-xs">ни одной</span>;
+  return (
+    <span className="flex flex-wrap gap-1">
+      {keys.map((k) => (
+        <Token key={k} label={k} />
+      ))}
+    </span>
+  );
+}
+
 // ── участники ───────────────────────────────────────────────────────────────
 
 function Members({projectKey}: {projectKey: string}) {
   const members = useResource(() => api.listMembers(projectKey), [projectKey]);
+  const roles = useResource(() => api.listRoles(projectKey), [projectKey]);
   const [principal, setPrincipal] = useState('');
   const [level, setLevel] = useState('viewer');
+  const [roleKeys, setRoleKeys] = useState<string[]>([]);
   const [error, setError] = useState<ApiError>();
 
   const act = async (fn: () => Promise<unknown>) => {
@@ -85,7 +109,7 @@ function Members({projectKey}: {projectKey: string}) {
   return (
     <Section
       title="Участники"
-      description="Уровень — про права, а не про роль специалиста: агент с уровнем agent забирает задачи любой роли, если его токен не ограничен.">
+      description="Уровень — про права, роли специалистов — про то, какие этапы участник может забирать. Без ролей забирает любые; токен агента может только сузить этот набор.">
       {error ? <Failure error={error} /> : null}
       <Loaded resource={members}>
         {(list) => (
@@ -106,6 +130,11 @@ function Members({projectKey}: {projectKey: string}) {
                 header: 'Уровень',
                 width: 130,
                 renderCell: (m) => <Token label={m.role} />,
+              },
+              {
+                key: 'role_keys',
+                header: 'Роли',
+                renderCell: (m) => <RoleKeys keys={m.role_keys} />,
               },
               {
                 key: 'actions',
@@ -135,14 +164,23 @@ function Members({projectKey}: {projectKey: string}) {
             onChange={setPrincipal}
           />
           <Selector label="Уровень" options={LEVELS} value={level} onChange={setLevel} />
+          <MultiSelector
+            label="Роли специалиста"
+            description="какие этапы участник может забирать; пусто — любые"
+            options={roleOptions(roles.data ?? [])}
+            value={roleKeys}
+            onChange={setRoleKeys}
+            placeholder="Любые роли"
+          />
         </FormLayout>
         <div>
           <Button
             disabled={principal.trim() === ''}
             onClick={() =>
               act(async () => {
-                await api.setMember(projectKey, principal.trim(), level);
+                await api.setMember(projectKey, principal.trim(), level, roleKeys);
                 setPrincipal('');
+                setRoleKeys([]);
               })
             }>
             Сохранить
@@ -161,8 +199,10 @@ function Members({projectKey}: {projectKey: string}) {
 function Teams({projectKey}: {projectKey: string}) {
   const teams = useResource(() => api.listProjectTeams(projectKey), [projectKey]);
   const project = useResource(() => api.getProject(projectKey), [projectKey]);
+  const roles = useResource(() => api.listRoles(projectKey), [projectKey]);
   const [team, setTeam] = useState('');
   const [level, setLevel] = useState('viewer');
+  const [roleKeys, setRoleKeys] = useState<string[]>([]);
   const [error, setError] = useState<ApiError>();
 
   const act = async (fn: () => Promise<unknown>) => {
@@ -205,6 +245,11 @@ function Teams({projectKey}: {projectKey: string}) {
                 renderCell: (t) => <Token label={t.level} />,
               },
               {
+                key: 'role_keys',
+                header: 'Роли',
+                renderCell: (t) => <RoleKeys keys={t.role_keys} />,
+              },
+              {
                 key: 'actions',
                 header: '',
                 width: 110,
@@ -232,14 +277,23 @@ function Teams({projectKey}: {projectKey: string}) {
             onChange={setTeam}
           />
           <Selector label="Уровень" options={LEVELS} value={level} onChange={setLevel} />
+          <MultiSelector
+            label="Роли специалиста"
+            description="для всех участников команды; пусто — любые"
+            options={roleOptions(roles.data ?? [])}
+            value={roleKeys}
+            onChange={setRoleKeys}
+            placeholder="Любые роли"
+          />
         </FormLayout>
         <div>
           <Button
             disabled={team.trim() === ''}
             onClick={() =>
               act(async () => {
-                await api.setProjectTeam(projectKey, team.trim(), level);
+                await api.setProjectTeam(projectKey, team.trim(), level, roleKeys);
                 setTeam('');
+                setRoleKeys([]);
               })
             }>
             Сохранить

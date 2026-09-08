@@ -28,6 +28,9 @@ await run(`
 `);
 t = await run('return texts();');
 check('участник добавлен', t.includes('agent:e2e-bot'), t.slice(0, 600));
+// Роли специалиста (решение 0030): без выбора участник забирает любые, и
+// колонка так и говорит.
+check('роли участника показаны', t.includes('Роли') && t.includes('любые'), t.slice(0, 900));
 
 console.log('токены');
 await run(`

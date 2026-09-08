@@ -42,7 +42,7 @@ import type {Me} from './api/types';
 import {Failure, Loading} from './components/Feedback';
 import {Principals, Teams} from './pages/Admin';
 import {Board} from './pages/Board';
-import {Login} from './pages/Login';
+import {GITHUB_RETURN_PATH, Login} from './pages/Login';
 import {Knowledge} from './pages/Knowledge';
 import {Metrics} from './pages/Metrics';
 import {Projects} from './pages/Projects';
@@ -60,6 +60,7 @@ export function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path={GITHUB_RETURN_PATH} element={<Login />} />
             <Route path="/" element={<Navigate to="/projects" replace />} />
             <Route path="/projects" element={<Shell page="projects"><Projects /></Shell>} />
             <Route path="/teams" element={<Shell page="teams"><Teams /></Shell>} />

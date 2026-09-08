@@ -10,6 +10,7 @@ import type {
   IndexStatusRow,
   QueueEntry,
   SearchResult,
+  GitHubSettings,
   ImportReport,
   IssuedToken,
   GitHubStatus,
@@ -198,6 +199,12 @@ export const api = {
 
   oidcLogin: (idToken: string) => request<Session>('/auth/oidc/login', post({id_token: idToken})),
 
+  // ── вход через GitHub ─────────────────────────────────────────────────────
+  githubSettings: () => request<GitHubSettings>('/auth/github'),
+
+  githubLogin: (code: string, redirectURI: string) =>
+    request<Session>('/auth/github/login', post({code, redirect_uri: redirectURI})),
+
   // Выход отзывает предъявленную сессию на бэкенде; токен, выданный руками,
   // так не отзывается — он отзывается по имени из списка.
   logout: () => request<void>('/auth/logout', post()),
@@ -222,8 +229,9 @@ export const api = {
   listMembers: (projectKey: string) =>
     request<{members: ProjectMember[]}>(`/projects/${projectKey}/members`).then((r) => r.members ?? []),
 
-  setMember: (projectKey: string, principal: string, role: string) =>
-    request<ProjectMember>(`/projects/${projectKey}/members`, put({principal, role})),
+  // Пустой список ролей — «любые»: та же договорённость, что у токена.
+  setMember: (projectKey: string, principal: string, role: string, roleKeys: string[] = []) =>
+    request<ProjectMember>(`/projects/${projectKey}/members`, put({principal, role, role_keys: roleKeys})),
 
   removeMember: (projectKey: string, handle: string) =>
     request<void>(`/projects/${projectKey}/members/${encodeURIComponent(handle)}`, del()),
@@ -281,8 +289,8 @@ export const api = {
   listProjectTeams: (projectKey: string) =>
     request<{teams: ProjectTeam[]}>(`/projects/${projectKey}/teams`).then((r) => r.teams ?? []),
 
-  setProjectTeam: (projectKey: string, team: string, level: string) =>
-    request<ProjectTeam>(`/projects/${projectKey}/teams`, put({team, level})),
+  setProjectTeam: (projectKey: string, team: string, level: string, roleKeys: string[] = []) =>
+    request<ProjectTeam>(`/projects/${projectKey}/teams`, put({team, level, role_keys: roleKeys})),
 
   removeProjectTeam: (projectKey: string, teamKey: string) =>
     request<void>(`/projects/${projectKey}/teams/${teamKey}`, del()),
@@ -336,9 +344,10 @@ export const api = {
       active_workflows: d.active_workflows ?? [],
     })),
 
-  // Заводит проект администратор системы или лид команды с правом на это;
-  // команда-владелец подставляется бэкендом, если она у лида одна.
-  createProject: (body: {key: string; name: string; description?: string; owner_team?: string}) =>
+  // Кто может завести проект, решает бэкенд (решение 0030): по умолчанию
+  // любой вошедший, и создатель становится администратором. Команда-владелец
+  // необязательна и указывается явно.
+  createProject: (body: {key: string; name: string; description?: string; team?: string}) =>
     request<Project>('/projects', post(body)),
 
   // ── цикл ──────────────────────────────────────────────────────────────────

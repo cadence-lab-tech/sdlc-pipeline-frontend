@@ -7,7 +7,7 @@ import {Card} from '@/components/ui/card';
 import {FormLayout, TextInput} from '@/components/fields';
 
 import {ApiError, api, setCurrentToken} from '../api/client';
-import type {OIDCSettings, Session} from '../api/types';
+import type {GitHubSettings, OIDCSettings, Session} from '../api/types';
 import {useResource} from '../api/useResource';
 
 // Вход: токеном (решение 0021) или через корпоративного провайдера
@@ -19,9 +19,13 @@ export function Login() {
   const navigate = useNavigate();
   const location = useLocation();
   const settings = useResource(() => api.oidcSettings(), []);
+  const github = useResource(() => api.githubSettings(), []);
   const [error, setError] = useState<ApiError>();
 
   const from = (location.state as {from?: string} | null)?.from ?? '/projects';
+  // Возврат от GitHub приходит на свой адрес: у него и у провайдера OIDC
+  // одинаковый ответ (code, state), и по пути видно, чей он.
+  const fromGitHub = location.pathname === GITHUB_RETURN_PATH;
 
   return (
     <div className="flex min-h-svh items-center justify-center p-8">
@@ -33,15 +37,18 @@ export function Login() {
             <AlertDescription>{error.message}</AlertDescription>
           </Alert>
         ) : null}
-        {settings.data?.enabled ? (
-          <>
-            <Provider settings={settings.data} from={from} onError={setError} />
-            <div className="flex items-center gap-3">
-              <span className="bg-border h-px flex-1" />
-              <span className="text-muted-foreground text-xs">или</span>
-              <span className="bg-border h-px flex-1" />
-            </div>
-          </>
+        {github.data?.enabled ? (
+          <GitHub settings={github.data} from={from} returning={fromGitHub} onError={setError} />
+        ) : null}
+        {settings.data?.enabled && !fromGitHub ? (
+          <Provider settings={settings.data} from={from} onError={setError} />
+        ) : null}
+        {github.data?.enabled || settings.data?.enabled ? (
+          <div className="flex items-center gap-3">
+            <span className="bg-border h-px flex-1" />
+            <span className="text-muted-foreground text-xs">или</span>
+            <span className="bg-border h-px flex-1" />
+          </div>
         ) : null}
         <ByToken from={from} onError={setError} navigate={navigate} />
       </Card>
@@ -199,6 +206,100 @@ async function exchange(settings: OIDCSettings, code: string, verifier: string):
     );
   }
   return body.id_token;
+}
+
+// ── GitHub ──────────────────────────────────────────────────────────────────
+
+// Адрес возврата от GitHub регистрируется в приложении как callback URL, и
+// путь у него свой: страница входа по нему понимает, что код — от GitHub.
+export const GITHUB_RETURN_PATH = '/login/github';
+const GITHUB_STATE_KEY = 'sdlc.github.state';
+const GITHUB_RETURN_KEY = 'sdlc.github.from';
+
+function githubRedirectURI(): string {
+  return `${window.location.origin}${GITHUB_RETURN_PATH}`;
+}
+
+// Вход через GitHub (решение 0030). PKCE здесь нет: код меняет бэкенд с
+// секретом клиента, браузер только сверяет state — ответ, пришедший не на
+// наш запрос, это чужой вход.
+function GitHub({
+  settings,
+  from,
+  returning,
+  onError,
+}: {
+  settings: GitHubSettings;
+  from: string;
+  returning: boolean;
+  onError: (err: ApiError) => void;
+}) {
+  const navigate = useNavigate();
+  const [busy, setBusy] = useState(
+    () => returning && new URLSearchParams(window.location.search).has('code'),
+  );
+
+  useEffect(() => {
+    if (!returning) return;
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('code') && !params.has('error')) return;
+    const back = sessionStorage.getItem(GITHUB_RETURN_KEY) ?? from;
+
+    finishGitHub(params)
+      .then((session) => {
+        setCurrentToken(session.token);
+        navigate(back, {replace: true});
+      })
+      .catch((err: unknown) =>
+        onError(err instanceof ApiError ? err : new ApiError('internal', String(err))),
+      )
+      .finally(() => setBusy(false));
+    // Обмен выполняется один раз на возврат: код одноразовый.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const start = () => {
+    setBusy(true);
+    const state = randomString();
+    sessionStorage.setItem(GITHUB_STATE_KEY, state);
+    sessionStorage.setItem(GITHUB_RETURN_KEY, from);
+    const query = new URLSearchParams({
+      client_id: settings.client_id ?? '',
+      redirect_uri: githubRedirectURI(),
+      scope: settings.scopes ?? 'read:user user:email',
+      state,
+    });
+    window.location.assign(`${settings.authorization_endpoint}?${query}`);
+  };
+
+  return (
+    <div className="space-y-3">
+      <p className="text-muted-foreground text-sm">
+        Вход по аккаунту GitHub. Доступ к проектам выдают их администраторы; репозитории система
+        читает установкой приложения, а не от вашего имени.
+      </p>
+      <Button className="w-full" disabled={busy} onClick={start}>
+        {busy ? 'Ждём GitHub…' : 'Войти через GitHub'}
+      </Button>
+    </div>
+  );
+}
+
+async function finishGitHub(params: URLSearchParams): Promise<Session> {
+  const expected = sessionStorage.getItem(GITHUB_STATE_KEY);
+  sessionStorage.removeItem(GITHUB_STATE_KEY);
+  sessionStorage.removeItem(GITHUB_RETURN_KEY);
+  window.history.replaceState(null, '', GITHUB_RETURN_PATH);
+
+  const denied = params.get('error');
+  if (denied) {
+    throw new ApiError('unauthenticated', params.get('error_description') ?? denied);
+  }
+  const code = params.get('code');
+  if (!code || params.get('state') !== expected) {
+    throw new ApiError('unauthenticated', 'ответ GitHub не относится к этому входу');
+  }
+  return api.githubLogin(code, githubRedirectURI());
 }
 
 // ── токен ───────────────────────────────────────────────────────────────────
