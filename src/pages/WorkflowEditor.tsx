@@ -1,25 +1,12 @@
 import {useState} from 'react';
 import {useParams} from 'react-router-dom';
-import {Badge} from '@astryxdesign/core/Badge';
-import {Banner} from '@astryxdesign/core/Banner';
-import {Button} from '@astryxdesign/core/Button';
-import {Card} from '@astryxdesign/core/Card';
-import {Divider} from '@astryxdesign/core/Divider';
-import {EmptyState} from '@astryxdesign/core/EmptyState';
-import {
-  HStack,
-  Layout,
-  LayoutContent,
-  LayoutHeader,
-  LayoutPanel,
-  VStack,
-} from '@astryxdesign/core/Layout';
-import {Item} from '@astryxdesign/core/Item';
-import {List} from '@astryxdesign/core/List';
-import {Selector} from '@astryxdesign/core/Selector';
-import {StatusDot} from '@astryxdesign/core/StatusDot';
-import {Heading, Text} from '@astryxdesign/core/Text';
-import {Token} from '@astryxdesign/core/Token';
+
+import {Badge} from '@/components/ui/badge';
+import {Button} from '@/components/ui/button';
+import {Card} from '@/components/ui/card';
+import {Separator} from '@/components/ui/separator';
+import {Selector} from '@/components/fields';
+import {EmptyState, Note, Row, Section, StatusDot, Token, type DotVariant} from '@/components/kit';
 
 import {ApiError, api} from '../api/client';
 import type {
@@ -78,81 +65,62 @@ export function WorkflowEditor() {
   };
 
   return (
-    <Layout
-      height="fill"
-      start={
-        <LayoutPanel width={280} hasDivider padding={0} isScrollable label="Версии цикла">
-          <Layout
-            height="fill"
-            header={
-              <LayoutHeader hasDivider padding={3}>
-                <VStack gap={2}>
-                  <Heading level={2}>Версии цикла</Heading>
-                  {types.length > 1 ? (
-                    <Selector
-                      label="Тип задач"
-                      size="sm"
-                      description="Циклов в проекте столько, сколько типов задач"
-                      options={types.map((t) => ({value: t, label: t}))}
-                      value={draftType}
-                      onChange={(v) => setDraftType(v as string)}
-                    />
-                  ) : null}
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    label="Черновик копией активного"
-                    onClick={() => createDraft('active')}
-                  />
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    label="Пустой черновик"
-                    onClick={() => createDraft('empty')}
-                  />
-                </VStack>
-              </LayoutHeader>
-            }
-            content={
-              <LayoutContent padding={0}>
-                {error ? <Banner status="error" title="Черновик не создан" description={error.message} /> : null}
-                <List hasDividers>
-                  {versions.data.map((w) => (
-                    <VersionRow
-                      key={w.id}
-                      head={w}
-                      isSelected={w.id === selected}
-                      onSelect={() => setPicked(w.id)}
-                    />
-                  ))}
-                </List>
-              </LayoutContent>
-            }
-          />
-        </LayoutPanel>
-      }
-      content={
-        <LayoutContent padding={4}>
-          {selected ? (
-            <VersionEditor
-              key={selected}
-              projectKey={projectKey}
-              workflowID={selected}
-              types={types}
-              onChanged={() => {
-                versions.reload();
-              }}
-              onDeleted={() => {
-                setPicked(undefined);
-                versions.reload();
-              }}
+    <div className="flex min-h-[calc(100svh-3.5rem)]">
+      <aside className="w-70 shrink-0 border-r">
+        <div className="space-y-2 border-b p-3">
+          <h2 className="text-base font-semibold">Версии цикла</h2>
+          {types.length > 1 ? (
+            <Selector
+              label="Тип задач"
+              description="Циклов в проекте столько, сколько типов задач"
+              options={types.map((t) => ({value: t, label: t}))}
+              value={draftType}
+              onChange={setDraftType}
             />
-          ) : (
-            <EmptyState title="Цикла нет" description="Создайте первый черновик" />
-          )}
-        </LayoutContent>
-      }
-    />
+          ) : null}
+          <Button size="sm" className="w-full" onClick={() => createDraft('active')}>
+            Черновик копией активного
+          </Button>
+          <Button size="sm" variant="ghost" className="w-full" onClick={() => createDraft('empty')}>
+            Пустой черновик
+          </Button>
+        </div>
+        {error ? (
+          <div className="p-3">
+            <Failure error={error} title="Черновик не создан" />
+          </div>
+        ) : null}
+        <ul className="divide-border divide-y">
+          {versions.data.map((w) => (
+            <VersionRow
+              key={w.id}
+              head={w}
+              isSelected={w.id === selected}
+              onSelect={() => setPicked(w.id)}
+            />
+          ))}
+        </ul>
+      </aside>
+      <div className="min-w-0 flex-1 p-4">
+        {selected ? (
+          <VersionEditor
+            key={selected}
+            projectKey={projectKey}
+            workflowID={selected}
+            types={types}
+            onChanged={() => {
+              versions.reload();
+            }}
+            onDeleted={() => {
+              setPicked(undefined);
+              versions.reload();
+            }}
+          />
+        ) : (
+          <EmptyState title="Цикла нет" description="Создайте первый черновик" />
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -162,7 +130,7 @@ const STATE_LABEL: Record<string, string> = {
   retired: 'выведена',
 };
 
-const STATE_VARIANT: Record<string, 'accent' | 'success' | 'neutral'> = {
+const STATE_VARIANT: Record<string, DotVariant> = {
   draft: 'accent',
   active: 'success',
   retired: 'neutral',
@@ -178,13 +146,19 @@ function VersionRow({
   onSelect: () => void;
 }) {
   return (
-    <Item
-      label={`${head.name} · v${head.version}`}
-      description={`${STATE_LABEL[head.state]} · ${head.task_types.join(', ')}`}
-      isSelected={isSelected}
-      onClick={onSelect}
-      startContent={<StatusDot variant={STATE_VARIANT[head.state]} label={head.state} />}
-    />
+    <li>
+      <Row
+        isSelected={isSelected}
+        onClick={onSelect}
+        start={<StatusDot variant={STATE_VARIANT[head.state]} />}>
+        <p className="truncate font-medium">
+          {head.name} · v{head.version}
+        </p>
+        <p className="text-muted-foreground truncate text-xs">
+          {STATE_LABEL[head.state]} · {head.task_types.join(', ')}
+        </p>
+      </Row>
+    </li>
   );
 }
 
@@ -230,58 +204,53 @@ function VersionEditor({
   };
 
   return (
-    <VStack gap={4}>
-      <HStack hAlign="between" vAlign="center" gap={3}>
-        <HStack gap={2} vAlign="center">
-          <Heading level={1}>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-2xl font-semibold tracking-tight">
             {wf.name} · v{wf.version}
-          </Heading>
-          <Badge
-            variant={wf.state === 'active' ? 'success' : 'neutral'}
-            label={STATE_LABEL[wf.state]}
-          />
+          </h1>
+          <Badge variant={wf.state === 'active' ? 'default' : 'secondary'}>
+            {STATE_LABEL[wf.state]}
+          </Badge>
           {wf.task_types.map((type) => (
-            <Token key={type} size="sm" label={type} />
+            <Token key={type} label={type} />
           ))}
-        </HStack>
+        </div>
         {isDraft ? (
-          <HStack gap={2}>
-            <Button
-              variant="ghost"
-              label="Название и типы"
-              onClick={() => setIsEditingHead(true)}
-            />
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={() => setIsEditingHead(true)}>
+              Название и типы
+            </Button>
             <Button
               variant="secondary"
-              label="Удалить черновик"
               onClick={() =>
                 act(async () => {
                   await api.deleteWorkflow(workflowID);
                   onDeleted();
                 })
-              }
-            />
+              }>
+              Удалить черновик
+            </Button>
             <Button
-              variant="primary"
-              label="Активировать"
-              isDisabled={validation.data ? !validation.data.valid : true}
+              disabled={validation.data ? !validation.data.valid : true}
               onClick={() =>
                 act(async () => {
                   setActivation(await api.activateWorkflow(workflowID));
                   refresh();
                 })
-              }
-            />
-          </HStack>
+              }>
+              Активировать
+            </Button>
+          </div>
         ) : null}
-      </HStack>
+      </div>
 
       {error ? <Failure error={error} title="Не получилось" /> : null}
       {activation ? <ActivationReport result={activation} /> : null}
 
       {!isDraft ? (
-        <Banner
-          status="info"
+        <Note
           title="Эта версия не редактируется"
           description="По ней идут задачи. Правка цикла — новый черновик копией этой версии; он активируется целиком."
         />
@@ -289,14 +258,9 @@ function VersionEditor({
 
       {isDraft && validation.data ? <ValidationReport validation={validation.data} /> : null}
 
-      <Statuses
-        workflow={wf}
-        roles={roles.data ?? []}
-        isEditable={isDraft}
-        onChanged={refresh}
-      />
+      <Statuses workflow={wf} roles={roles.data ?? []} isEditable={isDraft} onChanged={refresh} />
 
-      <Divider />
+      <Separator />
 
       <Transitions workflow={wf} isEditable={isDraft} onChanged={refresh} />
 
@@ -309,7 +273,7 @@ function VersionEditor({
           onSaved={refresh}
         />
       ) : null}
-    </VStack>
+    </div>
   );
 }
 
@@ -317,33 +281,29 @@ function VersionEditor({
 // ловит — они про цикл целиком, а не про отдельную строку.
 function ValidationReport({validation}: {validation: Validation}) {
   if (validation.valid && validation.warnings.length === 0) {
-    return <Banner status="success" title="Цикл проходит проверку" />;
+    return <Note tone="success" title="Цикл проходит проверку" />;
   }
 
   return (
-    <VStack gap={2}>
+    <div className="space-y-2">
       {validation.problems.length > 0 ? (
-        <Banner status="error" title="Цикл не активируется" collapsible={false}>
-          <VStack gap={1}>
-            {validation.problems.map((p, i) => (
-              <Text key={i}>
-                {p.message}
-                {p.status ? ` (${p.status})` : ''}
-              </Text>
-            ))}
-          </VStack>
-        </Banner>
+        <Note tone="error" title="Цикл не активируется">
+          {validation.problems.map((p, i) => (
+            <p key={i}>
+              {p.message}
+              {p.status ? ` (${p.status})` : ''}
+            </p>
+          ))}
+        </Note>
       ) : null}
       {validation.warnings.length > 0 ? (
-        <Banner status="warning" title="Предупреждения" collapsible={false}>
-          <VStack gap={1}>
-            {validation.warnings.map((p, i) => (
-              <Text key={i}>{p.message}</Text>
-            ))}
-          </VStack>
-        </Banner>
+        <Note tone="warning" title="Предупреждения">
+          {validation.warnings.map((p, i) => (
+            <p key={i}>{p.message}</p>
+          ))}
+        </Note>
       ) : null}
-    </VStack>
+    </div>
   );
 }
 
@@ -351,9 +311,8 @@ function ValidationReport({validation}: {validation: Validation}) {
 // потому что переклеивание результатов гейтов теряло бы решения людей.
 function ActivationReport({result}: {result: ActivationResult}) {
   return (
-    <Banner
-      status="success"
-      collapsible={false}
+    <Note
+      tone="success"
       title={`Версия ${result.workflow.version} активирована`}
       description={
         result.tasks_on_previous_version.length
@@ -361,13 +320,13 @@ function ActivationReport({result}: {result: ActivationResult}) {
           : undefined
       }>
       {result.tasks_on_previous_version.length ? (
-        <HStack gap={1} wrap="wrap">
+        <div className="flex flex-wrap gap-1">
           {result.tasks_on_previous_version.map((t) => (
-            <Token key={t.task} size="sm" label={`${t.task} · ${t.status}`} />
+            <Token key={t.task} label={`${t.task} · ${t.status}`} />
           ))}
-        </HStack>
+        </div>
       ) : null}
-    </Banner>
+    </Note>
   );
 }
 
@@ -401,68 +360,64 @@ function Statuses({
   };
 
   return (
-    <VStack gap={3}>
-      <HStack hAlign="between" vAlign="center">
-        <Heading level={2}>Статусы</Heading>
-        {isEditable ? (
-          <Button size="sm" variant="secondary" label="Добавить статус" onClick={() => open()} />
-        ) : null}
-      </HStack>
-
-      <List hasDividers>
+    <Section
+      title="Статусы"
+      actions={
+        isEditable ? (
+          <Button size="sm" variant="secondary" onClick={() => open()}>
+            Добавить статус
+          </Button>
+        ) : null
+      }>
+      <ul className="divide-border overflow-hidden rounded-lg border divide-y">
         {workflow.statuses.map((status, index) => {
           const role = primaryRole(status);
           return (
-            <Item
-              key={status.id}
-              startContent={
-                <StatusDot variant={categoryVariant(status.category)} label={status.category} />
-              }
-              label={status.name}
-              description={`${status.key} · ${status.category}`}
-              endContent={
-                <HStack gap={2} vAlign="center">
-                  {status.is_initial ? <Token size="sm" label="начальный" /> : null}
-                  {status.is_terminal ? <Token size="sm" label="терминальный" /> : null}
-                  {role ? <Token size="sm" color="blue" label={role.role_name} /> : null}
-                  {status.color ? (
-                    <span
-                      aria-hidden
-                      style={{
-                        width: 'var(--spacing-3)',
-                        height: 'var(--spacing-3)',
-                        borderRadius: 'var(--radius-full, 50%)',
-                        background: statusColor(status),
-                        display: 'inline-block',
-                      }}
-                    />
-                  ) : null}
-                  {isEditable ? (
-                    <HStack gap={1}>
-                      <Button size="sm" variant="ghost" label="↑" onClick={() => move(index, -1)} />
-                      <Button size="sm" variant="ghost" label="↓" onClick={() => move(index, 1)} />
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        label="Править"
-                        onClick={() => open(status)}
+            <li key={status.id}>
+              <Row
+                start={<StatusDot variant={categoryVariant(status.category)} />}
+                end={
+                  <>
+                    {status.is_initial ? <Token label="начальный" /> : null}
+                    {status.is_terminal ? <Token label="терминальный" /> : null}
+                    {role ? <Token color="blue" label={role.role_name} /> : null}
+                    {status.color ? (
+                      <span
+                        aria-hidden
+                        className="inline-block size-3 rounded-full"
+                        style={{background: statusColor(status)}}
                       />
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        label="Удалить"
-                        onClick={() =>
-                          void api.deleteStatus(workflow.id, status.key).then(onChanged)
-                        }
-                      />
-                    </HStack>
-                  ) : null}
-                </HStack>
-              }
-            />
+                    ) : null}
+                    {isEditable ? (
+                      <>
+                        <Button size="sm" variant="ghost" onClick={() => move(index, -1)}>
+                          ↑
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => move(index, 1)}>
+                          ↓
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => open(status)}>
+                          Править
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void api.deleteStatus(workflow.id, status.key).then(onChanged)}>
+                          Удалить
+                        </Button>
+                      </>
+                    ) : null}
+                  </>
+                }>
+                <p className="truncate font-medium">{status.name}</p>
+                <p className="text-muted-foreground truncate text-xs">
+                  {status.key} · {status.category}
+                </p>
+              </Row>
+            </li>
           );
         })}
-      </List>
+      </ul>
 
       {isOpen ? (
         <StatusDialog
@@ -474,7 +429,7 @@ function Statuses({
           onSaved={onChanged}
         />
       ) : null}
-    </VStack>
+    </Section>
   );
 }
 
@@ -492,62 +447,59 @@ function Transitions({
   const byID = new Map(workflow.statuses.map((s) => [s.id, s]));
 
   return (
-    <VStack gap={3}>
-      <HStack hAlign="between" vAlign="center">
-        <Heading level={2}>Переходы</Heading>
-        {isEditable ? (
+    <Section
+      title="Переходы"
+      actions={
+        isEditable ? (
           <Button
             size="sm"
             variant="secondary"
-            label="Добавить переход"
             onClick={() => {
               setEditing(undefined);
               setIsOpen(true);
-            }}
-          />
-        ) : null}
-      </HStack>
-
+            }}>
+            Добавить переход
+          </Button>
+        ) : null
+      }>
       {workflow.transitions.map((t) => (
-        <Card key={t.id} padding={3}>
-          <VStack gap={3}>
-            <HStack hAlign="between" vAlign="center" gap={2}>
-              <VStack gap={1}>
-                <Text weight="medium">{t.name}</Text>
-                <Text type="supporting" color="secondary">
-                  {t.from_status_id ? byID.get(t.from_status_id)?.key : 'из любого статуса'} →{' '}
-                  {byID.get(t.to_status_id)?.key} · {t.kind}
-                  {t.auto ? ' · автоматический' : ''}
-                </Text>
-              </VStack>
-              {isEditable ? (
-                <HStack gap={1}>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    label="Править"
-                    onClick={() => {
-                      setEditing(t);
-                      setIsOpen(true);
-                    }}
-                  />
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    label="Удалить"
-                    onClick={() => void api.deleteTransition(workflow.id, t.key).then(onChanged)}
-                  />
-                </HStack>
-              ) : null}
-            </HStack>
-            <Gates
-              workflowID={workflow.id}
-              transitionKey={t.key}
-              gates={t.gates ?? []}
-              isEditable={isEditable}
-              onChanged={onChanged}
-            />
-          </VStack>
+        <Card key={t.id} className="gap-3 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <p className="text-sm font-medium">{t.name}</p>
+              <p className="text-muted-foreground text-xs">
+                {t.from_status_id ? byID.get(t.from_status_id)?.key : 'из любого статуса'} →{' '}
+                {byID.get(t.to_status_id)?.key} · {t.kind}
+                {t.auto ? ' · автоматический' : ''}
+              </p>
+            </div>
+            {isEditable ? (
+              <div className="flex gap-1">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setEditing(t);
+                    setIsOpen(true);
+                  }}>
+                  Править
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => void api.deleteTransition(workflow.id, t.key).then(onChanged)}>
+                  Удалить
+                </Button>
+              </div>
+            ) : null}
+          </div>
+          <Gates
+            workflowID={workflow.id}
+            transitionKey={t.key}
+            gates={t.gates ?? []}
+            isEditable={isEditable}
+            onChanged={onChanged}
+          />
         </Card>
       ))}
 
@@ -561,7 +513,7 @@ function Transitions({
           onSaved={onChanged}
         />
       ) : null}
-    </VStack>
+    </Section>
   );
 }
 
@@ -582,66 +534,61 @@ function Gates({
   const [isOpen, setIsOpen] = useState(false);
 
   return (
-    <VStack gap={2}>
-      <HStack hAlign="between" vAlign="center">
-        <Text type="supporting" color="secondary">
-          Гейты
-        </Text>
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-muted-foreground text-xs">Гейты</p>
         {isEditable ? (
           <Button
             size="sm"
             variant="ghost"
-            label="Добавить гейт"
             onClick={() => {
               setEditing(undefined);
               setIsOpen(true);
-            }}
-          />
+            }}>
+            Добавить гейт
+          </Button>
         ) : null}
-      </HStack>
+      </div>
 
       {gates.length === 0 ? (
-        <Text type="supporting" color="secondary">
-          Переход ничем не закрыт
-        </Text>
+        <p className="text-muted-foreground text-sm">Переход ничем не закрыт</p>
       ) : (
-        <List hasDividers density="compact">
+        <ul className="divide-border overflow-hidden rounded-lg border divide-y">
           {gates.map((gate) => (
-            <Item
-              key={gate.id}
-              label={gate.name}
-              description={gate.type}
-              endContent={
-                <HStack gap={2} vAlign="center">
-                  {gate.blocking ? null : <Token size="sm" label="не блокирует" />}
-                  {isEditable ? (
-                    <HStack gap={1}>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        label="Править"
-                        onClick={() => {
-                          setEditing(gate);
-                          setIsOpen(true);
-                        }}
-                      />
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        label="Удалить"
-                        onClick={() =>
-                          void api
-                            .deleteGate(workflowID, transitionKey, gate.key)
-                            .then(onChanged)
-                        }
-                      />
-                    </HStack>
-                  ) : null}
-                </HStack>
-              }
-            />
+            <li key={gate.id}>
+              <Row
+                end={
+                  <>
+                    {gate.blocking ? null : <Token label="не блокирует" />}
+                    {isEditable ? (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            setEditing(gate);
+                            setIsOpen(true);
+                          }}>
+                          Править
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() =>
+                            void api.deleteGate(workflowID, transitionKey, gate.key).then(onChanged)
+                          }>
+                          Удалить
+                        </Button>
+                      </>
+                    ) : null}
+                  </>
+                }>
+                <p className="truncate font-medium">{gate.name}</p>
+                <p className="text-muted-foreground truncate text-xs">{gate.type}</p>
+              </Row>
+            </li>
           ))}
-        </List>
+        </ul>
       )}
 
       {isOpen ? (
@@ -654,6 +601,6 @@ function Gates({
           onSaved={onChanged}
         />
       ) : null}
-    </VStack>
+    </div>
   );
 }

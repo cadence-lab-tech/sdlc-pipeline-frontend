@@ -1,11 +1,16 @@
 import {useState} from 'react';
-import {Button} from '@astryxdesign/core/Button';
-import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
-import {FormLayout} from '@astryxdesign/core/FormLayout';
-import {HStack, VStack} from '@astryxdesign/core/Layout';
-import {Selector} from '@astryxdesign/core/Selector';
-import {TextArea} from '@astryxdesign/core/TextArea';
-import {TextInput} from '@astryxdesign/core/TextInput';
+
+import {Button} from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import {FormLayout, Selector, TextArea, TextInput} from '@/components/fields';
 
 import {ApiError, api} from '../api/client';
 import type {TransitionOption} from '../api/types';
@@ -34,7 +39,7 @@ export function SubmitArtifactDialog({
   onSubmitted: () => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [kind, setKind] = useState<string | null>(null);
+  const [kind, setKind] = useState('');
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [error, setError] = useState<ApiError>();
@@ -55,7 +60,7 @@ export function SubmitArtifactDialog({
       setIsOpen(false);
       setTitle('');
       setContent('');
-      setKind(null);
+      setKind('');
       onSubmitted();
     } catch (err) {
       setError(err instanceof ApiError ? err : new ApiError('internal', String(err)));
@@ -65,38 +70,39 @@ export function SubmitArtifactDialog({
   };
 
   return (
-    <>
-      <Button variant="secondary" label="Сдать артефакт" onClick={() => setIsOpen(true)} />
-      <Dialog isOpen={isOpen} onOpenChange={setIsOpen} purpose="form" width={620} padding={5}>
-        <VStack gap={4}>
-          <DialogHeader title="Сдать артефакт" />
-          {error ? <Failure error={error} title="Артефакт не принят" /> : null}
-          <FormLayout>
-            <Selector
-              label="Вид"
-              description={
-                kinds.length ? 'Виды, которых ждут гейты этого статуса' : 'Гейты ничего не требуют'
-              }
-              options={kinds.map((k) => ({value: k, label: k}))}
-              value={kind}
-              onChange={setKind}
-              hasClear
-              isRequired
-            />
-            <TextInput label="Название" value={title} onChange={setTitle} />
-            <TextArea label="Содержимое" value={content} onChange={setContent} rows={12} isRequired />
-          </FormLayout>
-          <HStack gap={2} hAlign="end">
-            <Button variant="ghost" label="Отмена" onClick={() => setIsOpen(false)} />
-            <Button
-              variant="primary"
-              label="Сдать"
-              isDisabled={!kind || !content || busy}
-              onClick={submit}
-            />
-          </HStack>
-        </VStack>
-      </Dialog>
-    </>
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <DialogTrigger asChild>
+        <Button variant="secondary">Сдать артефакт</Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-[620px]">
+        <DialogHeader>
+          <DialogTitle>Сдать артефакт</DialogTitle>
+          <DialogDescription>Артефакт иммутабелен: правка сдаётся новой версией.</DialogDescription>
+        </DialogHeader>
+        {error ? <Failure error={error} title="Артефакт не принят" /> : null}
+        <FormLayout>
+          <Selector
+            label="Вид"
+            description={
+              kinds.length ? 'Виды, которых ждут гейты этого статуса' : 'Гейты ничего не требуют'
+            }
+            options={kinds.map((k) => ({value: k, label: k}))}
+            value={kind}
+            onChange={setKind}
+            hasClear
+          />
+          <TextInput label="Название" value={title} onChange={setTitle} />
+          <TextArea label="Содержимое" value={content} onChange={setContent} rows={12} isRequired />
+        </FormLayout>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => setIsOpen(false)}>
+            Отмена
+          </Button>
+          <Button disabled={!kind || !content || busy} onClick={submit}>
+            Сдать
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

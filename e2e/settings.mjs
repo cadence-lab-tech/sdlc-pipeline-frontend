@@ -42,10 +42,10 @@ check('токен в списке', t.includes('e2e-token') && t.includes('де�
 
 console.log('перенос связки');
 await run('await clickExact("Экспортировать проект"); await sleep(1500); return true;');
-// CodeBlock показывает строки лениво (content-visibility), поэтому innerText
-// содержит только видимую часть, а полный JSON — в textContent.
+// Блок кода прокручивается, поэтому innerText содержит только видимую
+// часть, а полный JSON — в textContent.
 const exported = await run(`
-  const code = document.querySelector('pre.astryx-codeblock.json code');
+  const code = document.querySelector('pre.code-block[data-language="json"] code');
   return code ? code.textContent : '';
 `);
 t = await run('return texts();');

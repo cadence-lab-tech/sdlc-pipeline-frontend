@@ -1,11 +1,8 @@
-import {Card} from '@astryxdesign/core/Card';
-import {EmptyState} from '@astryxdesign/core/EmptyState';
-import {Grid} from '@astryxdesign/core/Grid';
-import {Item} from '@astryxdesign/core/Item';
-import {Section} from '@astryxdesign/core/Section';
-import {Text, Heading} from '@astryxdesign/core/Text';
-import {Token} from '@astryxdesign/core/Token';
-import {VStack} from '@astryxdesign/core/Stack';
+import {Link} from 'react-router-dom';
+import {ChevronRight} from 'lucide-react';
+
+import {Card, CardContent, CardDescription, CardHeader, CardTitle} from '@/components/ui/card';
+import {EmptyState, Page, PageHeader, Token} from '@/components/kit';
 
 import {api} from '../api/client';
 import {useResource} from '../api/useResource';
@@ -15,27 +12,25 @@ export function Projects() {
   const projects = useResource(() => api.listProjects(), []);
 
   return (
-    <Section padding={6}>
-      <VStack gap={4}>
-        <Heading level={1}>Проекты</Heading>
-        <Loaded resource={projects}>
-          {(list) =>
-            list.length === 0 ? (
-              <EmptyState
-                title="Проектов пока нет"
-                description="Проект заводит цикл, роли и задачи. Создайте первый через API."
-              />
-            ) : (
-              <Grid columns={{minWidth: 320}} gap={4}>
-                {list.map((p) => (
-                  <ProjectCard key={p.id} projectKey={p.key} name={p.name} description={p.description} />
-                ))}
-              </Grid>
-            )
-          }
-        </Loaded>
-      </VStack>
-    </Section>
+    <Page>
+      <PageHeader title="Проекты" description="Каждый проект настраивает свой цикл, роли и область по репозиториям." />
+      <Loaded resource={projects}>
+        {(list) =>
+          list.length === 0 ? (
+            <EmptyState
+              title="Проектов пока нет"
+              description="Проект заводит цикл, роли и задачи. Создайте первый через API."
+            />
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {list.map((p) => (
+                <ProjectCard key={p.id} projectKey={p.key} name={p.name} description={p.description} />
+              ))}
+            </div>
+          )
+        }
+      </Loaded>
+    </Page>
   );
 }
 
@@ -51,28 +46,32 @@ function ProjectCard({
   const detail = useResource(() => api.getProject(projectKey), [projectKey]);
 
   return (
-    <Card padding={4}>
-      <VStack gap={3}>
-        <Item
-          href={`/p/${projectKey}/board`}
-          label={name}
-          description={description}
-          endContent={<Token label={projectKey} size="sm" />}
-        />
+    <Card className="hover:border-foreground/20 transition-colors">
+      <CardHeader>
+        <CardTitle>
+          <Link to={`/p/${projectKey}/board`} className="flex items-center gap-1 hover:underline">
+            {name}
+            <ChevronRight className="size-4 opacity-50" />
+          </Link>
+        </CardTitle>
+        {description ? <CardDescription>{description}</CardDescription> : null}
+        <div className="col-start-2 row-span-2 row-start-1 self-start justify-self-end">
+          <Token label={projectKey} />
+        </div>
+      </CardHeader>
+      <CardContent>
         {detail.data ? (
-          <VStack gap={1}>
-            <Text type="supporting" color="secondary">
-              Репозитории в области проекта
-            </Text>
+          <div className="space-y-1">
+            <p className="text-muted-foreground text-xs">Репозитории в области проекта</p>
             {detail.data.repositories.map((r) => (
-              <Text key={r.id} type="supporting">
+              <p key={r.id} className="font-mono text-xs">
                 {r.owner}/{r.name}
-                {r.role_hint ? ` · ${r.role_hint}` : ''}
-              </Text>
+                {r.role_hint ? <span className="text-muted-foreground"> · {r.role_hint}</span> : null}
+              </p>
             ))}
-          </VStack>
+          </div>
         ) : null}
-      </VStack>
+      </CardContent>
     </Card>
   );
 }

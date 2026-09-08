@@ -1,14 +1,10 @@
 import {useEffect, useState} from 'react';
 import {useLocation, useNavigate} from 'react-router-dom';
-import {Banner} from '@astryxdesign/core/Banner';
-import {Button} from '@astryxdesign/core/Button';
-import {Card} from '@astryxdesign/core/Card';
-import {Center} from '@astryxdesign/core/Center';
-import {Divider} from '@astryxdesign/core/Divider';
-import {FormLayout} from '@astryxdesign/core/FormLayout';
-import {VStack} from '@astryxdesign/core/Layout';
-import {Heading, Text} from '@astryxdesign/core/Text';
-import {TextInput} from '@astryxdesign/core/TextInput';
+
+import {Alert, AlertDescription, AlertTitle} from '@/components/ui/alert';
+import {Button} from '@/components/ui/button';
+import {Card} from '@/components/ui/card';
+import {FormLayout, TextInput} from '@/components/fields';
 
 import {ApiError, api, setCurrentToken} from '../api/client';
 import type {OIDCSettings, Session} from '../api/types';
@@ -28,21 +24,28 @@ export function Login() {
   const from = (location.state as {from?: string} | null)?.from ?? '/projects';
 
   return (
-    <Center padding={8}>
-      <Card padding={6} width={440}>
-        <VStack gap={4}>
-          <Heading level={1}>Вход</Heading>
-          {error ? <Banner status="error" title="Войти не удалось" description={error.message} /> : null}
-          {settings.data?.enabled ? (
-            <>
-              <Provider settings={settings.data} from={from} onError={setError} />
-              <Divider label="или" />
-            </>
-          ) : null}
-          <ByToken from={from} onError={setError} navigate={navigate} />
-        </VStack>
+    <div className="flex min-h-svh items-center justify-center p-8">
+      <Card className="w-full max-w-110 gap-4 p-6">
+        <h1 className="text-2xl font-semibold tracking-tight">Вход</h1>
+        {error ? (
+          <Alert variant="destructive">
+            <AlertTitle>Войти не удалось</AlertTitle>
+            <AlertDescription>{error.message}</AlertDescription>
+          </Alert>
+        ) : null}
+        {settings.data?.enabled ? (
+          <>
+            <Provider settings={settings.data} from={from} onError={setError} />
+            <div className="flex items-center gap-3">
+              <span className="bg-border h-px flex-1" />
+              <span className="text-muted-foreground text-xs">или</span>
+              <span className="bg-border h-px flex-1" />
+            </div>
+          </>
+        ) : null}
+        <ByToken from={from} onError={setError} navigate={navigate} />
       </Card>
-    </Center>
+    </div>
   );
 }
 
@@ -137,17 +140,14 @@ function Provider({
   };
 
   return (
-    <VStack gap={3}>
-      <Text color="secondary">
+    <div className="space-y-3">
+      <p className="text-muted-foreground text-sm">
         Вход через {settings.issuer}. Команды подтягиваются из групп провайдера при каждом входе.
-      </Text>
-      <Button
-        variant="primary"
-        label={busy ? 'Ждём провайдера…' : 'Войти через провайдера'}
-        isDisabled={busy}
-        onClick={start}
-      />
-    </VStack>
+      </p>
+      <Button className="w-full" disabled={busy} onClick={start}>
+        {busy ? 'Ждём провайдера…' : 'Войти через провайдера'}
+      </Button>
+    </div>
   );
 }
 
@@ -230,11 +230,11 @@ function ByToken({
   };
 
   return (
-    <VStack gap={3}>
-      <Text color="secondary">
+    <div className="space-y-3">
+      <p className="text-muted-foreground text-sm">
         Или предъявите токен доступа. Его выдаёт администратор проекта в настройках или командой
         «sdlc token create».
-      </Text>
+      </p>
       <FormLayout>
         <TextInput
           label="Токен"
@@ -245,11 +245,9 @@ function ByToken({
           isRequired
         />
       </FormLayout>
-      <Button
-        label={checking ? 'Проверяем…' : 'Войти'}
-        onClick={submit}
-        isDisabled={checking || token.trim() === ''}
-      />
-    </VStack>
+      <Button className="w-full" onClick={submit} disabled={checking || token.trim() === ''}>
+        {checking ? 'Проверяем…' : 'Войти'}
+      </Button>
+    </div>
   );
 }

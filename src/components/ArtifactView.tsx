@@ -1,12 +1,9 @@
 import {useState} from 'react';
-import {Button} from '@astryxdesign/core/Button';
-import {Collapsible} from '@astryxdesign/core/Collapsible';
-import {HStack, VStack} from '@astryxdesign/core/Layout';
-import {Item} from '@astryxdesign/core/Item';
-import {Markdown} from '@astryxdesign/core/Markdown';
-import {CodeBlock} from '@astryxdesign/core/CodeBlock';
-import {Text} from '@astryxdesign/core/Text';
-import {Token} from '@astryxdesign/core/Token';
+import {ChevronRight} from 'lucide-react';
+
+import {Button} from '@/components/ui/button';
+import {Collapsible, CollapsibleContent, CollapsibleTrigger} from '@/components/ui/collapsible';
+import {CodeBlock, Markdown, Token} from '@/components/kit';
 
 import {ApiError, api} from '../api/client';
 import type {Artifact} from '../api/types';
@@ -18,6 +15,8 @@ export function ArtifactView({artifact, onChanged}: {artifact: Artifact; onChang
   const [content, setContent] = useState<string>();
   const [error, setError] = useState<ApiError>();
 
+  // Содержимое подтягивается на первом раскрытии: крупные артефакты лежат во
+  // внешнем хранилище, и тянуть их для всего списка сразу незачем.
   const load = async (isOpen: boolean) => {
     if (!isOpen || content !== undefined) return;
     try {
@@ -37,34 +36,42 @@ export function ArtifactView({artifact, onChanged}: {artifact: Artifact; onChang
   };
 
   return (
-    <VStack gap={2}>
-      <Item
-        label={artifact.title}
-        description={artifact.kind}
-        startContent={<Token size="sm" label={`v${artifact.version}`} />}
-        endContent={
-          <HStack gap={2} vAlign="center">
-            <Text type="supporting" color="secondary">
-              {artifact.status}
-            </Text>
-            {artifact.approved_by ? null : (
-              <Button size="sm" variant="secondary" label="Принять" onClick={approve} />
-            )}
-          </HStack>
-        }
-      />
+    <div className="space-y-2 rounded-lg border p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-2">
+          <Token label={`v${artifact.version}`} />
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium">{artifact.title}</p>
+            <p className="text-muted-foreground text-xs">{artifact.kind}</p>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="text-muted-foreground text-xs">{artifact.status}</span>
+          {artifact.approved_by ? null : (
+            <Button size="sm" variant="secondary" onClick={approve}>
+              Принять
+            </Button>
+          )}
+        </div>
+      </div>
       {error ? <Failure error={error} title="Артефакт не открылся" /> : null}
-      <Collapsible trigger="Содержимое" onOpenChange={load}>
-        {content === undefined ? (
-          <Text type="supporting" color="secondary">
-            Загрузка…
-          </Text>
-        ) : artifact.format === 'markdown' ? (
-          <Markdown>{content}</Markdown>
-        ) : (
-          <CodeBlock code={content} language={artifact.format} hasCopyButton />
-        )}
+      <Collapsible onOpenChange={load}>
+        <CollapsibleTrigger asChild>
+          <Button variant="ghost" size="sm" className="group -ml-2">
+            <ChevronRight className="transition-transform group-data-[state=open]:rotate-90" />
+            Содержимое
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="pt-2">
+          {content === undefined ? (
+            <p className="text-muted-foreground text-sm">Загрузка…</p>
+          ) : artifact.format === 'markdown' ? (
+            <Markdown>{content}</Markdown>
+          ) : (
+            <CodeBlock code={content} language={artifact.format} />
+          )}
+        </CollapsibleContent>
       </Collapsible>
-    </VStack>
+    </div>
   );
 }

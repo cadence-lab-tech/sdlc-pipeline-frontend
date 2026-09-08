@@ -1,15 +1,14 @@
-import {useState} from 'react';
-import {Button} from '@astryxdesign/core/Button';
-import {CheckboxList, CheckboxListItem} from '@astryxdesign/core/CheckboxList';
-import {HStack, VStack} from '@astryxdesign/core/Layout';
-import {StatusDot} from '@astryxdesign/core/StatusDot';
-import {Text} from '@astryxdesign/core/Text';
-import {Token} from '@astryxdesign/core/Token';
+import {useId, useState} from 'react';
+
+import {Button} from '@/components/ui/button';
+import {Checkbox} from '@/components/ui/checkbox';
+import {Label} from '@/components/ui/label';
+import {StatusDot, Token, type DotVariant} from '@/components/kit';
 
 import type {Gate, GateCheck} from '../api/types';
 
 // Вердикт по гейту считает бэкенд — фронтенд его показывает, а не пересчитывает.
-const GATE_VARIANT: Record<GateCheck['status'], 'success' | 'warning' | 'error' | 'neutral'> = {
+const GATE_VARIANT: Record<GateCheck['status'], DotVariant> = {
   passed: 'success',
   waived: 'success',
   pending: 'warning',
@@ -36,21 +35,17 @@ export function GateRow({
   onDecide?: (status: string, details?: unknown) => void;
 }) {
   return (
-    <VStack gap={2}>
-      <HStack gap={2} vAlign="center" hAlign="between">
-        <HStack gap={2} vAlign="center">
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
           <StatusDot variant={GATE_VARIANT[check.status]} label={GATE_STATUS[check.status]} />
-          <Text weight="medium">{check.gate_name}</Text>
-        </HStack>
-        <Token size="sm" label={check.type} />
-      </HStack>
-      {check.reason ? (
-        <Text type="supporting" color="secondary">
-          {check.reason}
-        </Text>
-      ) : null}
+          <span className="text-sm font-medium">{check.gate_name}</span>
+        </div>
+        <Token label={check.type} />
+      </div>
+      {check.reason ? <p className="text-muted-foreground text-sm">{check.reason}</p> : null}
       <GateDetails check={check} gate={gate} onDecide={onDecide} />
-    </VStack>
+    </div>
   );
 }
 
@@ -71,25 +66,24 @@ function GateDetails({
     case 'artifacts_required': {
       const missing = (details.missing as string[]) ?? [];
       return missing.length ? (
-        <HStack gap={1} wrap="wrap">
+        <div className="flex flex-wrap gap-1">
           {missing.map((kind) => (
-            <Token key={kind} size="sm" color="orange" label={kind} />
+            <Token key={kind} color="orange" label={kind} />
           ))}
-        </HStack>
+        </div>
       ) : null;
     }
 
     case 'human_approval':
       return onDecide && check.status !== 'passed' ? (
-        <HStack gap={2}>
-          <Button size="sm" variant="primary" label="Апрув" onClick={() => onDecide('passed')} />
-          <Button
-            size="sm"
-            variant="destructive"
-            label="Отклонить"
-            onClick={() => onDecide('failed')}
-          />
-        </HStack>
+        <div className="flex gap-2">
+          <Button size="sm" onClick={() => onDecide('passed')}>
+            Апрув
+          </Button>
+          <Button size="sm" variant="destructive" onClick={() => onDecide('failed')}>
+            Отклонить
+          </Button>
+        </div>
       ) : null;
 
     case 'checklist':
@@ -98,24 +92,24 @@ function GateDetails({
     case 'drift_clear': {
       const signals = (details.signals as {severity?: string; summary?: string}[]) ?? [];
       return signals.length ? (
-        <VStack gap={1}>
+        <div className="space-y-1 text-sm">
           {signals.map((s, i) => (
-            <Text key={i} type="supporting">
+            <p key={i}>
               {s.severity}: {s.summary}
-            </Text>
+            </p>
           ))}
-        </VStack>
+        </div>
       ) : null;
     }
 
     case 'repo_scope': {
       const scope = (details.scope as string[]) ?? [];
       return scope.length ? (
-        <HStack gap={1} wrap="wrap">
+        <div className="flex flex-wrap gap-1">
           {scope.map((repo) => (
-            <Token key={repo} size="sm" label={repo} />
+            <Token key={repo} label={repo} />
           ))}
-        </HStack>
+        </div>
       ) : null;
     }
 
@@ -133,6 +127,7 @@ function Checklist({
   check: GateCheck;
   onDecide?: (status: string, details?: unknown) => void;
 }) {
+  const prefix = useId();
   const items = (gate?.config.items as {id: string; text: string; required?: boolean}[]) ?? [];
   const unchecked = new Set(
     ((check.details?.unchecked as {id: string}[]) ?? []).map((i) => i.id),
@@ -143,25 +138,31 @@ function Checklist({
 
   if (items.length === 0) return null;
 
+  const toggle = (id: string) =>
+    setChecked((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
   return (
-    <VStack gap={2}>
-      <CheckboxList
-        value={checked}
-        onChange={setChecked}
-        label={gate?.name ?? 'Чек-лист'}
-        isLabelHidden>
+    <div className="space-y-2">
+      <ul className="space-y-1.5">
         {items.map((item) => (
-          <CheckboxListItem key={item.id} value={item.id} label={item.text} />
+          <li key={item.id} className="flex items-start gap-2">
+            <Checkbox
+              id={`${prefix}-${item.id}`}
+              checked={checked.includes(item.id)}
+              onCheckedChange={() => toggle(item.id)}
+              className="mt-0.5"
+            />
+            <Label htmlFor={`${prefix}-${item.id}`} className="text-sm font-normal">
+              {item.text}
+            </Label>
+          </li>
         ))}
-      </CheckboxList>
+      </ul>
       {onDecide ? (
-        <Button
-          size="sm"
-          variant="secondary"
-          label="Сохранить отметки"
-          onClick={() => onDecide('passed', {checked})}
-        />
+        <Button size="sm" variant="secondary" onClick={() => onDecide('passed', {checked})}>
+          Сохранить отметки
+        </Button>
       ) : null}
-    </VStack>
+    </div>
   );
 }

@@ -16,45 +16,47 @@ API отдаёт [backend](https://github.com/stepaKaziatko/sdlc-pipeline-backen
 
 ## Стек
 
-Vite, React 19, TypeScript, [Astryx](https://github.com/facebook/astryx) 0.5.0
-(`@astryxdesign/core` + `@astryxdesign/theme-neutral`)
-([решение 0014](../docs/decisions/0014-astryx-ui.md)).
+Vite, React 19, TypeScript, Tailwind CSS 4 и [shadcn/ui](https://ui.shadcn.com)
+на примитивах Radix ([решение 0029](../docs/decisions/0029-shadcn-ui.md)).
 
-## Astryx — как работать
+## shadcn — как работать
 
-**Не гадать по именам компонентов.** У библиотеки есть CLI, отдающий полную
-документацию:
+**Компоненты живут в репозитории, а не в node_modules.** `src/components/ui/`
+— это исходники, приехавшие командой `npx shadcn@latest add <имя>`; их можно и
+нужно править под себя. Обновление библиотеки не перезапишет их само.
 
 ```bash
-npx @astryxdesign/cli component --list      # все компоненты
-npx @astryxdesign/cli component Table       # props, варианты, примеры, темизация
-npx @astryxdesign/cli template --list       # готовые шаблоны страниц
-npx @astryxdesign/cli template dashboard    # исходник шаблона целиком
-npx @astryxdesign/cli docs tokens           # токены: отступы, цвета, радиусы, типографика
+npx shadcn@latest add dialog        # добавить компонент в src/components/ui
+npx shadcn@latest add --help        # список доступных
 ```
 
-Индекс компонентов дописан в конец этого файла командой `npx @astryxdesign/cli init`.
+Настройки переезда лежат в `components.json`: стиль `radix-nova`, псевдоним
+`@/` на `src/`, иконки `lucide-react`.
 
-**Страницу начинать с шаблона**, а не собирать из примитивов: `template --list`
-покрывает дашборды, настройки, формы и страницы деталей — ровно то, что нужно
-здесь.
+**Своё поверх готового — в трёх местах, и только в них:**
 
-**StyleX здесь не компилируется** — сборочных плагинов нет. Поэтому
-`stylex.create()` из шаблонов не переносить: своё оформление задаётся пропсами
-компонента, а если их не хватает — `style` с токенами
-(`var(--spacing-*)`, `var(--color-*)`), без сырых пикселей и цветов.
-Исключение — структурные размеры вроде ширины колонки.
+| Файл | Что там |
+|---|---|
+| `src/components/kit.tsx` | того, чего в shadcn нет: `Page`, `PageHeader`, `Section`, `Row`/`RowList`, `EmptyState`, `Note`, `StatusDot`, `Token`, `Timestamp`, `CodeBlock`, `Markdown`, `Spinner` |
+| `src/components/fields.tsx` | поля формы: `TextInput`, `TextArea`, `NumberInput`, `Selector`, `MultiSelector`, `Switch`, `FormLayout` |
+| `src/components/DataTable.tsx` | таблица с описанием колонок |
 
-**Порядок импорта CSS значим** — он отражает каскад слоёв:
+**Подпись поля обязана быть связана с контролом** через `label[for]` → `id`.
+По этой связке поле находят и программы чтения с экрана, и сквозные сценарии;
+`fields.tsx` делает это сам через `useId`, руками `<input>` не верстать.
 
-```css
-@import '@astryxdesign/core/reset.css';      /* @layer reset */
-@import '@astryxdesign/core/astryx.css';     /* @layer astryx-base */
-@import '@astryxdesign/theme-neutral/theme.css'; /* @layer astryx-theme */
-```
+**Оформление — утилитарными классами Tailwind по токенам темы**
+(`bg-background`, `text-muted-foreground`, `border`), а не сырыми цветами.
+Цвет, приходящий из данных (`workflow_statuses.color`), — исключение: он идёт
+через `style`, потому что его в классах нет.
 
-Для Vite сборочные плагины не нужны — компоненты приезжают пре-собранными,
-StyleX уже скомпилирован. React 19 обязателен.
+**Тема светлая и тёмная**, класс `dark` на `<html>` ставит
+`src/lib/theme.tsx`; выбор запоминается, «системная» слушает
+`prefers-color-scheme`. Любой новый цвет обязан иметь пару для тёмной темы —
+проверяется переключателем в шапке.
+
+**Подсказки требуют `TooltipProvider`** — он один на всё приложение, в
+`App.tsx`. Radix без него падает, а не деградирует.
 
 ## Структура
 
@@ -62,9 +64,11 @@ StyleX уже скомпилирован. React 19 обязателен.
 src/
   api/         типы по схеме БД, клиент REST, useResource
   components/  общие блоки: гейты, карточка задачи, диалоги, форма свойств
+    ui/        компоненты shadcn: исходники в репозитории, а не зависимость
   pages/       Projects, Teams, Principals, Board, TaskDetail, Roles,
                WorkflowEditor, Metrics, Settings, Login
-  App.tsx      AppShell, боковая навигация, роутинг
+  lib/         cn и провайдер темы
+  App.tsx      оболочка с боковым меню, переключатель темы, роутинг
 e2e/           сквозные проверки в headless-Chrome поверх живого бэкенда
 ```
 
@@ -161,6 +165,10 @@ e2e/           сквозные проверки в headless-Chrome поверх
 
 ## Статус
 
+Интерфейс переведён с Astryx на shadcn/ui
+([решение 0029](../docs/decisions/0029-shadcn-ui.md)): экраны и навигация те
+же, поменялись компоненты, появились тёмная тема и сворачиваемое боковое меню.
+
 Фазы 1, 4, 5 и 6 закрыты: доска с переключением типа задач и фильтром по эпику,
 карточка задачи с нарезкой, стоимостью, связями и назначением исполнителя,
 редактор ролей и цикла с типами задач у черновика, вход по токену и через
@@ -171,33 +179,3 @@ e2e/           сквозные проверки в headless-Chrome поверх
 Не сделано: аренды и живой прогресс агента, вложенные прогоны перепроверки
 (фаза 2), сигналы дрейфа в карточке и на доске, состояние индекса и поиск
 (фаза 3) — REST всё это уже отдаёт.
-
-<!-- ASTRYX:START -->
-Astryx v0.5.0 · 163 components
-CLI: run every command as `npx astryx <cmd>` (shown below as `astryx ...`).
-
-SETUP (once, in your app entry e.g. main.tsx) — without these, components render unstyled:
-  import "@astryxdesign/core/reset.css";
-  import "@astryxdesign/core/astryx.css";
-
-WORKFLOW — discover, don't guess. Before writing UI:
-1. `astryx build "<idea>"` — START HERE: returns a kit (closest [page] + [block]s + [component]s). No args = full playbook.
-2. `astryx template <name> [--skeleton]` — scaffold the [page]/[block]s it named, or study their layout. Templates are reference code.
-3. `astryx component <Name>` — props + examples for every component you use.
-
-RULES:
-- No <div> — components do all layout/spacing, page frame included.
-- Frame first: read `astryx docs layout` before writing any page or screen — page frame, region widths, breakpoint behavior.
-- Dense data = rows (Table, List/Item), never Card-wrapped list items; Card is for standalone widgets. Status = StatusDot/Token; Badge = counts only.
-- Custom styling: component props first; else style/className with tokens — var(--color-*|--spacing-*|--radius-*). No raw hex/px. (No StyleX/Tailwind compiler here — don't use xstyle/utility classes.)
-- Tokens for every value (`astryx docs tokens`). Brand/accent belongs in the theme (`astryx theme list` / `theme add <slug>`, or `astryx theme template` for a custom one) — never override --color-* in :root.
-- SELF-CHECK before you finish: re-read the file and replace any raw <div>/<span> layout, imported .css/@apply, or hardcoded value (#hex, 16px) with the component or a token (var(--color-*|--spacing-*|…)). If unsure a component/prop exists, run `astryx component <Name>` / `astryx search "<thing>"`; don't hand-roll CSS.
-
-MORE CLI:
-  search "<query>"   find any component / hook / doc / template / block
-  component --list   163 components by category
-  template --list    page + block recipes
-  docs <topic>       browser-support, cli-integrations, color, elevation, getting-started, icons, illustrations, internationalization, layout, migration, motion, principles, shape, spacing, styling-libraries, styling, theme, tokens, typography, working-with-ai
-  swizzle <Name>     eject component source for deep customization
-  upgrade --apply    run after any @astryxdesign/core bump
-<!-- ASTRYX:END -->

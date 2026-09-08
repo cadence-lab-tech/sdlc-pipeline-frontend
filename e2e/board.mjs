@@ -31,7 +31,7 @@ await run(`
   await fill("Название", "Проверка формы свойств");
   await sleep(200);
   // включить системное свойство multi_repo
-  const sw = all('input[type=checkbox]').find(c => {
+  const sw = all('[role=switch], input[type=checkbox]').find(c => {
     const lbl = c.getAttribute('id') && document.querySelector('label[for="' + c.id + '"]');
     return lbl && lbl.innerText.includes('Мультирепозиторная');
   });

@@ -1,28 +1,12 @@
 import {useState} from 'react';
-import {Badge} from '@astryxdesign/core/Badge';
-import {Button} from '@astryxdesign/core/Button';
-import {Card} from '@astryxdesign/core/Card';
-import {Divider} from '@astryxdesign/core/Divider';
-import {EmptyState} from '@astryxdesign/core/EmptyState';
-import {FormLayout} from '@astryxdesign/core/FormLayout';
-import {Item} from '@astryxdesign/core/Item';
-import {
-  HStack,
-  Layout,
-  LayoutContent,
-  LayoutHeader,
-  LayoutPanel,
-  VStack,
-} from '@astryxdesign/core/Layout';
-import {List} from '@astryxdesign/core/List';
-import {Section} from '@astryxdesign/core/Section';
-import {Selector} from '@astryxdesign/core/Selector';
-import {Switch} from '@astryxdesign/core/Switch';
-import {Table, pixel, proportional} from '@astryxdesign/core/Table';
-import {Heading, Text} from '@astryxdesign/core/Text';
-import {TextInput} from '@astryxdesign/core/TextInput';
-import {Timestamp} from '@astryxdesign/core/Timestamp';
-import {Token} from '@astryxdesign/core/Token';
+
+import {Badge} from '@/components/ui/badge';
+import {Button} from '@/components/ui/button';
+import {Card} from '@/components/ui/card';
+import {Separator} from '@/components/ui/separator';
+import {FormLayout, Selector, Switch, TextInput} from '@/components/fields';
+import {DataTable} from '@/components/DataTable';
+import {EmptyState, Page, PageHeader, Row, Section, Timestamp, Token} from '@/components/kit';
 
 import {ApiError, api} from '../api/client';
 import type {Principal, ProjectTeam, Team, TeamMember} from '../api/types';
@@ -61,77 +45,60 @@ export function Teams() {
   const selected = picked ?? teams.data[0]?.key;
 
   return (
-    <Layout
-      height="fill"
-      start={
-        <LayoutPanel width={300} hasDivider padding={0} isScrollable label="Команды">
-          <Layout
-            height="fill"
-            header={
-              <LayoutHeader hasDivider padding={3}>
-                <VStack gap={2}>
-                  <HStack hAlign="between" vAlign="center">
-                    <Heading level={2}>Команды</Heading>
-                    <Badge variant="neutral" label={String(teams.data.length)} />
-                  </HStack>
-                  <Button
-                    size="sm"
-                    label="Завести команду"
-                    onClick={() => setCreating(true)}
-                  />
-                </VStack>
-              </LayoutHeader>
-            }
-            content={
-              <LayoutContent padding={0}>
-                <List hasDividers>
-                  {teams.data.map((team) => (
-                    <Item
-                      key={team.id}
-                      label={team.name}
-                      description={team.key}
-                      isSelected={team.key === selected}
-                      onClick={() => {
-                        setCreating(false);
-                        setPicked(team.key);
-                      }}
-                      endContent={
-                        team.archived_at ? (
-                          <Token size="sm" label="в архиве" />
-                        ) : team.can_create_projects ? (
-                          <Token size="sm" label="проекты" />
-                        ) : null
-                      }
-                    />
-                  ))}
-                </List>
-              </LayoutContent>
-            }
+    <div className="flex min-h-[calc(100svh-3.5rem)]">
+      <aside className="w-75 shrink-0 border-r">
+        <div className="space-y-2 border-b p-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold">Команды</h2>
+            <Badge variant="secondary">{teams.data.length}</Badge>
+          </div>
+          <Button size="sm" className="w-full" onClick={() => setCreating(true)}>
+            Завести команду
+          </Button>
+        </div>
+        <ul className="divide-border divide-y">
+          {teams.data.map((team) => (
+            <li key={team.id}>
+              <Row
+                isSelected={team.key === selected}
+                onClick={() => {
+                  setCreating(false);
+                  setPicked(team.key);
+                }}
+                end={
+                  team.archived_at ? (
+                    <Token label="в архиве" />
+                  ) : team.can_create_projects ? (
+                    <Token label="проекты" />
+                  ) : null
+                }>
+                <p className="truncate font-medium">{team.name}</p>
+                <p className="text-muted-foreground truncate text-xs">{team.key}</p>
+              </Row>
+            </li>
+          ))}
+        </ul>
+      </aside>
+      <div className="min-w-0 flex-1 p-4">
+        {creating ? (
+          <NewTeam
+            onDone={(team) => {
+              setCreating(false);
+              setPicked(team.key);
+              teams.reload();
+            }}
+            onCancel={() => setCreating(false)}
           />
-        </LayoutPanel>
-      }
-      content={
-        <LayoutContent padding={4}>
-          {creating ? (
-            <NewTeam
-              onDone={(team) => {
-                setCreating(false);
-                setPicked(team.key);
-                teams.reload();
-              }}
-              onCancel={() => setCreating(false)}
-            />
-          ) : selected ? (
-            <TeamDetail teamKey={selected} onChanged={teams.reload} />
-          ) : (
-            <EmptyState
-              title="Команд нет"
-              description="Команда даёт уровень доступа сразу в несколько проектов и владеет теми, что завела сама"
-            />
-          )}
-        </LayoutContent>
-      }
-    />
+        ) : selected ? (
+          <TeamDetail teamKey={selected} onChanged={teams.reload} />
+        ) : (
+          <EmptyState
+            title="Команд нет"
+            description="Команда даёт уровень доступа сразу в несколько проектов и владеет теми, что завела сама"
+          />
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -163,38 +130,40 @@ function NewTeam({onDone, onCancel}: {onDone: (team: Team) => void; onCancel: ()
   };
 
   return (
-    <VStack gap={4}>
-      <Heading level={1}>Новая команда</Heading>
-      <Text color="secondary">
-        Заводит команду администратор системы, и он же становится её первым лидом: команда без лида
-        не примет ни человека, ни проект.
-      </Text>
+    <div className="space-y-4">
+      <PageHeader
+        title="Новая команда"
+        description="Заводит команду администратор системы, и он же становится её первым лидом: команда без лида не примет ни человека, ни проект."
+      />
       {error ? <Failure error={error} /> : null}
-      <Card padding={4}>
-        <VStack gap={3}>
-          <FormLayout>
-            <TextInput label="Ключ" description="короткий, латиницей: platform" value={key} onChange={setKey} isRequired />
-            <TextInput label="Название" value={name} onChange={setName} isRequired />
-            <TextInput label="Описание" value={description} onChange={setDescription} isOptional />
-          </FormLayout>
-          <Switch
-            label="Может заводить проекты"
-            description="право принадлежит команде, а не человеку: лид меняется, команда остаётся"
-            value={canCreateProjects}
-            onChange={setCanCreateProjects}
+      <Card className="gap-3 p-4">
+        <FormLayout>
+          <TextInput
+            label="Ключ"
+            description="короткий, латиницей: platform"
+            value={key}
+            onChange={setKey}
+            isRequired
           />
-          <HStack gap={2}>
-            <Button
-              variant="primary"
-              label="Завести"
-              isDisabled={busy || key.trim() === '' || name.trim() === ''}
-              onClick={submit}
-            />
-            <Button variant="ghost" label="Отмена" onClick={onCancel} />
-          </HStack>
-        </VStack>
+          <TextInput label="Название" value={name} onChange={setName} isRequired />
+          <TextInput label="Описание" value={description} onChange={setDescription} />
+        </FormLayout>
+        <Switch
+          label="Может заводить проекты"
+          description="право принадлежит команде, а не человеку: лид меняется, команда остаётся"
+          value={canCreateProjects}
+          onChange={setCanCreateProjects}
+        />
+        <div className="flex gap-2">
+          <Button disabled={busy || key.trim() === '' || name.trim() === ''} onClick={submit}>
+            Завести
+          </Button>
+          <Button variant="ghost" onClick={onCancel}>
+            Отмена
+          </Button>
+        </div>
       </Card>
-    </VStack>
+    </div>
   );
 }
 
@@ -222,31 +191,33 @@ function TeamDetail({teamKey, onChanged}: {teamKey: string; onChanged: () => voi
   return (
     <Loaded resource={team}>
       {(detail) => (
-        <VStack gap={5}>
-          <VStack gap={2}>
-            <HStack hAlign="between" vAlign="center">
-              <Heading level={1}>{detail.team.name}</Heading>
-              <HStack gap={2} vAlign="center">
-                {detail.team.can_create_projects ? <Token label="заводит проекты" size="sm" /> : null}
-                {detail.team.archived_at ? <Token label="в архиве" size="sm" /> : null}
-                <Button size="sm" variant="ghost" label="Архивировать" onClick={archive} />
-              </HStack>
-            </HStack>
-            <Text type="supporting" color="secondary">
+        <div className="space-y-6">
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h1 className="text-2xl font-semibold tracking-tight">{detail.team.name}</h1>
+              <div className="flex items-center gap-2">
+                {detail.team.can_create_projects ? <Token label="заводит проекты" /> : null}
+                {detail.team.archived_at ? <Token label="в архиве" /> : null}
+                <Button size="sm" variant="ghost" onClick={archive}>
+                  Архивировать
+                </Button>
+              </div>
+            </div>
+            <p className="text-muted-foreground text-sm">
               {detail.team.key}
               {detail.team.description ? ` · ${detail.team.description}` : ''}
-            </Text>
-          </VStack>
+            </p>
+          </div>
           {error ? <Failure error={error} /> : null}
 
           <Members teamKey={teamKey} members={detail.members} onChanged={reload} />
-          <Divider />
+          <Separator />
           <Projects teamKey={teamKey} projects={detail.projects} onChanged={reload} />
-          <Divider />
+          <Separator />
           <IdPGroups teamKey={teamKey} />
-          <Divider />
+          <Separator />
           <Budgets teamKey={teamKey} />
-        </VStack>
+        </div>
       )}
     </Loaded>
   );
@@ -276,79 +247,64 @@ function Members({
   };
 
   return (
-    <VStack gap={3}>
-      <Heading level={2}>Состав</Heading>
-      <Text type="supporting" color="secondary">
-        Лид правит команду и заводит проекты, если у команды есть на это право. Последнего лида
-        убрать нельзя: команда без лида ничего не может.
-      </Text>
+    <Section
+      title="Состав"
+      description="Лид правит команду и заводит проекты, если у команды есть на это право. Последнего лида убрать нельзя: команда без лида ничего не может.">
       {error ? <Failure error={error} /> : null}
-      {members.length === 0 ? (
-        <EmptyState title="В команде никого нет" />
-      ) : (
-        <Table<TeamMember & Record<string, unknown>>
-          data={members as (TeamMember & Record<string, unknown>)[]}
-          idKey="principal_id"
-          density="compact"
-          columns={[
-            {
-              key: 'handle',
-              header: 'Кто',
-              width: proportional(2),
-              renderCell: (m) => `${m.kind}:${m.handle}`,
-            },
-            {key: 'display_name', header: 'Имя', width: proportional(2)},
-            {
-              key: 'role',
-              header: 'Роль',
-              width: pixel(120),
-              renderCell: (m) => <Token label={m.role === 'lead' ? 'лид' : 'участник'} size="sm" />,
-            },
-            {
-              key: 'actions',
-              header: '',
-              width: pixel(110),
-              align: 'end',
-              renderCell: (m) => (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  label="Убрать"
-                  onClick={() => act(() => api.removeTeamMember(teamKey, `${m.kind}:${m.handle}`))}
-                />
-              ),
-            },
-          ]}
-        />
-      )}
-      <Card padding={4}>
-        <VStack gap={3}>
-          <Heading level={3}>Добавить или изменить роль</Heading>
-          <FormLayout>
-            <TextInput
-              label="Принципал"
-              description="user:alice или agent:reviewer-bot; без префикса — человек"
-              value={principal}
-              onChange={setPrincipal}
-            />
-            <Selector label="Роль в команде" options={TEAM_ROLES} value={role} onChange={setRole} />
-          </FormLayout>
-          <HStack gap={2}>
-            <Button
-              variant="primary"
-              label="Сохранить"
-              isDisabled={principal.trim() === ''}
-              onClick={() =>
-                act(async () => {
-                  await api.setTeamMember(teamKey, principal.trim(), role);
-                  setPrincipal('');
-                })
-              }
-            />
-          </HStack>
-        </VStack>
+      <DataTable<TeamMember>
+        data={members}
+        idKey="principal_id"
+        empty={<EmptyState title="В команде никого нет" />}
+        columns={[
+          {key: 'handle', header: 'Кто', renderCell: (m) => `${m.kind}:${m.handle}`},
+          {key: 'display_name', header: 'Имя'},
+          {
+            key: 'role',
+            header: 'Роль',
+            width: 120,
+            renderCell: (m) => <Token label={m.role === 'lead' ? 'лид' : 'участник'} />,
+          },
+          {
+            key: 'actions',
+            header: '',
+            width: 110,
+            align: 'end',
+            renderCell: (m) => (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => act(() => api.removeTeamMember(teamKey, `${m.kind}:${m.handle}`))}>
+                Убрать
+              </Button>
+            ),
+          },
+        ]}
+      />
+      <Card className="gap-3 p-4">
+        <h3 className="text-base font-semibold">Добавить или изменить роль</h3>
+        <FormLayout>
+          <TextInput
+            label="Принципал"
+            description="user:alice или agent:reviewer-bot; без префикса — человек"
+            value={principal}
+            onChange={setPrincipal}
+          />
+          <Selector label="Роль в команде" options={TEAM_ROLES} value={role} onChange={setRole} />
+        </FormLayout>
+        <div>
+          <Button
+            disabled={principal.trim() === ''}
+            onClick={() =>
+              act(async () => {
+                await api.setTeamMember(teamKey, principal.trim(), role);
+                setPrincipal('');
+              })
+            }>
+            Сохранить
+          </Button>
+        </div>
       </Card>
-    </VStack>
+    </Section>
   );
 }
 
@@ -374,50 +330,42 @@ function Projects({
   };
 
   return (
-    <VStack gap={3}>
-      <Heading level={2}>Доступ в проекты</Heading>
-      <Text type="supporting" color="secondary">
-        Уровень команды складывается с поимённым участием: действующий уровень человека — максимум
-        из путей, а не последний назначенный. Выдаётся уровень в настройках самого проекта.
-      </Text>
+    <Section
+      title="Доступ в проекты"
+      description="Уровень команды складывается с поимённым участием: действующий уровень человека — максимум из путей, а не последний назначенный. Выдаётся уровень в настройках самого проекта.">
       {error ? <Failure error={error} /> : null}
-      {projects.length === 0 ? (
-        <EmptyState
-          title="Команда никуда не пущена"
-          description="Уровень выдаётся в настройках проекта, на вкладке «Команды»"
-        />
-      ) : (
-        <Table<ProjectTeam & Record<string, unknown>>
-          data={projects as (ProjectTeam & Record<string, unknown>)[]}
-          idKey="project_id"
-          density="compact"
-          columns={[
-            {key: 'project_key', header: 'Проект', width: proportional(2)},
-            {
-              key: 'level',
-              header: 'Уровень',
-              width: pixel(130),
-              renderCell: (p) => <Token label={p.level} size="sm" />,
-            },
-            {
-              key: 'created_at',
-              header: 'С',
-              width: pixel(160),
-              renderCell: (p) => <Timestamp value={p.created_at} />,
-            },
-            {
-              key: 'actions',
-              header: '',
-              width: pixel(110),
-              align: 'end',
-              renderCell: (p) => (
-                <Button size="sm" variant="ghost" label="Убрать" onClick={() => remove(p.project_key)} />
-              ),
-            },
-          ]}
-        />
-      )}
-    </VStack>
+      <DataTable<ProjectTeam>
+        data={projects}
+        idKey="project_id"
+        empty={
+          <EmptyState
+            title="Команда никуда не пущена"
+            description="Уровень выдаётся в настройках проекта, на вкладке «Команды»"
+          />
+        }
+        columns={[
+          {key: 'project_key', header: 'Проект'},
+          {key: 'level', header: 'Уровень', width: 130, renderCell: (p) => <Token label={p.level} />},
+          {
+            key: 'created_at',
+            header: 'С',
+            width: 160,
+            renderCell: (p) => <Timestamp value={p.created_at} />,
+          },
+          {
+            key: 'actions',
+            header: '',
+            width: 110,
+            align: 'end',
+            renderCell: (p) => (
+              <Button size="sm" variant="ghost" onClick={() => remove(p.project_key)}>
+                Убрать
+              </Button>
+            ),
+          },
+        ]}
+      />
+    </Section>
   );
 }
 
@@ -444,38 +392,28 @@ function IdPGroups({teamKey}: {teamKey: string}) {
   };
 
   return (
-    <VStack gap={3}>
-      <Heading level={2}>Группы провайдера</Heading>
-      <Text type="supporting" color="secondary">
-        Состав такой команды пересчитывается при каждом входе её участников: кого провайдер в
-        группе не вернул, того команда теряет. Лидов синхронизация не трогает — роль в команде
-        ставит человек. Команда без групп ведётся руками.
-      </Text>
+    <Section
+      title="Группы провайдера"
+      description="Состав такой команды пересчитывается при каждом входе её участников: кого провайдер в группе не вернул, того команда теряет. Лидов синхронизация не трогает — роль в команде ставит человек. Команда без групп ведётся руками.">
       {error ? <Failure error={error} /> : null}
       <Loaded resource={groups}>
         {(list) => (
-          <Card padding={4}>
-            <VStack gap={3}>
-              <TextInput
-                label="Группы"
-                description="через запятую, как они приходят в клейме groups"
-                value={text ?? list.join(', ')}
-                onChange={setText}
-                isOptional
-              />
-              <HStack gap={2}>
-                <Button
-                  variant="primary"
-                  label="Сохранить"
-                  isDisabled={text === undefined}
-                  onClick={() => save(text ?? '')}
-                />
-              </HStack>
-            </VStack>
+          <Card className="gap-3 p-4">
+            <TextInput
+              label="Группы"
+              description="через запятую, как они приходят в клейме groups"
+              value={text ?? list.join(', ')}
+              onChange={setText}
+            />
+            <div>
+              <Button disabled={text === undefined} onClick={() => save(text ?? '')}>
+                Сохранить
+              </Button>
+            </div>
           </Card>
         )}
       </Loaded>
-    </VStack>
+    </Section>
   );
 }
 
@@ -497,76 +435,70 @@ function Budgets({teamKey}: {teamKey: string}) {
   };
 
   return (
-    <VStack gap={3}>
-      <Heading level={2}>Бюджет</Heading>
-      <Text type="supporting" color="secondary">
-        Расход — стоимость прогонов в проектах, которыми команда владеет, за календарное окно.
-        Исчерпанный предел закрывает новые захваты задач; начатые прогоны доходят до конца. Ноль
-        снимает предел: «без ограничения» и «ноль долларов» — разные вещи.
-      </Text>
+    <Section
+      title="Бюджет"
+      description="Расход — стоимость прогонов в проектах, которыми команда владеет, за календарное окно. Исчерпанный предел закрывает новые захваты задач; начатые прогоны доходят до конца. Ноль снимает предел: «без ограничения» и «ноль долларов» — разные вещи.">
       {error ? <Failure error={error} /> : null}
       <Loaded resource={budgets}>
-        {(state) =>
-          state.budgets.length === 0 ? (
-            <EmptyState title="Пределов нет" description="Команда тратит столько, сколько нужно" />
-          ) : (
-            <Table
-              data={state.budgets.map((b) => ({...b, id: b.period ?? ''}))}
-              idKey="id"
-              density="compact"
-              columns={[
-                {
-                  key: 'period',
-                  header: 'Окно',
-                  width: pixel(140),
-                  renderCell: (b) => PERIODS.find((p) => p.value === b.period)?.label ?? String(b.period),
-                },
-                {
-                  key: 'limit_usd',
-                  header: 'Предел',
-                  width: pixel(120),
-                  renderCell: (b) => `$${Number(b.limit_usd ?? 0).toFixed(2)}`,
-                },
-                {
-                  key: 'spent_usd',
-                  header: 'Потрачено',
-                  width: pixel(120),
-                  renderCell: (b) => `$${Number(b.spent_usd).toFixed(2)}`,
-                },
-                {
-                  key: 'state',
-                  header: 'Состояние',
-                  width: pixel(140),
-                  renderCell: (b) =>
-                    b.spent_usd >= Number(b.limit_usd ?? 0) ? (
-                      <Badge variant="warning" label="исчерпан" />
-                    ) : (
-                      <Badge variant="success" label="в пределах" />
-                    ),
-                },
-              ]}
-            />
-          )
-        }
+        {(state) => (
+          <DataTable
+            data={state.budgets.map((b) => ({...b, id: b.period ?? ''}))}
+            idKey="id"
+            empty={
+              <EmptyState title="Пределов нет" description="Команда тратит столько, сколько нужно" />
+            }
+            columns={[
+              {
+                key: 'period',
+                header: 'Окно',
+                width: 140,
+                renderCell: (b) => PERIODS.find((p) => p.value === b.period)?.label ?? String(b.period),
+              },
+              {
+                key: 'limit_usd',
+                header: 'Предел',
+                width: 120,
+                renderCell: (b) => `$${Number(b.limit_usd ?? 0).toFixed(2)}`,
+              },
+              {
+                key: 'spent_usd',
+                header: 'Потрачено',
+                width: 120,
+                renderCell: (b) => `$${Number(b.spent_usd).toFixed(2)}`,
+              },
+              {
+                key: 'state',
+                header: 'Состояние',
+                width: 140,
+                renderCell: (b) =>
+                  b.spent_usd >= Number(b.limit_usd ?? 0) ? (
+                    <Badge variant="destructive">исчерпан</Badge>
+                  ) : (
+                    <Badge>в пределах</Badge>
+                  ),
+              },
+            ]}
+          />
+        )}
       </Loaded>
-      <Card padding={4}>
-        <VStack gap={3}>
-          <Heading level={3}>Поставить предел</Heading>
-          <FormLayout>
-            <Selector label="Окно" options={PERIODS} value={period} onChange={setPeriod} />
-            <TextInput
-              label="Предел, $"
-              description="ноль снимает предел"
-              value={limit}
-              onChange={setLimit}
-            />
-          </FormLayout>
-          <HStack gap={2}>
-            <Button variant="primary" label="Сохранить" isDisabled={limit.trim() === ''} onClick={save} />
-          </HStack>
-        </VStack>
+      <Card className="gap-3 p-4">
+        <h3 className="text-base font-semibold">Поставить предел</h3>
+        <FormLayout>
+          <Selector label="Окно" options={PERIODS} value={period} onChange={setPeriod} />
+          <TextInput
+            label="Предел, $"
+            description="ноль снимает предел"
+            value={limit}
+            onChange={setLimit}
+          />
+        </FormLayout>
+        <div>
+          <Button disabled={limit.trim() === ''} onClick={save}>
+            Сохранить
+          </Button>
+        </div>
       </Card>
-    </VStack>
+    </Section>
   );
 }
 
@@ -580,69 +512,53 @@ export function Principals() {
   const principals = useResource(() => api.listPrincipals(applied || undefined), [applied]);
 
   return (
-    <Section padding={6}>
-      <VStack gap={4}>
-        <Heading level={1}>Принципалы</Heading>
-        <Text color="secondary">
-          Аудит и права ссылаются на принципалов, а не на строки с именами. Человек заводится сам
-          при первом входе через провайдера, агент — при выдаче токена, но и добавить его в команду
-          можно заранее: принципал появится по хэндлу.
-        </Text>
-        <Card padding={4}>
-          <HStack gap={2} vAlign="end">
-            <TextInput
-              label="Поиск"
-              description="по хэндлу или имени"
-              value={search}
-              onChange={setSearch}
-              onEnter={() => setApplied(search.trim())}
-              isOptional
-            />
-            <Button label="Найти" onClick={() => setApplied(search.trim())} />
-          </HStack>
+    <Page>
+      <PageHeader
+        title="Принципалы"
+        description="Аудит и права ссылаются на принципалов, а не на строки с именами. Человек заводится сам при первом входе через провайдера, агент — при выдаче токена, но и добавить его в команду можно заранее: принципал появится по хэндлу."
+      />
+      <div className="space-y-4">
+        <Card className="p-4">
+          <div className="flex items-end gap-2">
+            <div className="flex-1">
+              <TextInput
+                label="Поиск"
+                description="по хэндлу или имени"
+                value={search}
+                onChange={setSearch}
+                onEnter={() => setApplied(search.trim())}
+              />
+            </div>
+            <Button onClick={() => setApplied(search.trim())}>Найти</Button>
+          </div>
         </Card>
         <Loaded resource={principals}>
-          {(list) =>
-            list.length === 0 ? (
-              <EmptyState title="Никого не нашлось" />
-            ) : (
-              <Table<Principal & Record<string, unknown>>
-                data={list as (Principal & Record<string, unknown>)[]}
-                idKey="id"
-                density="compact"
-                columns={[
-                  {
-                    key: 'handle',
-                    header: 'Хэндл',
-                    width: proportional(2),
-                    renderCell: (p) => `${p.kind}:${p.handle}`,
-                  },
-                  {key: 'display_name', header: 'Имя', width: proportional(2)},
-                  {
-                    key: 'email',
-                    header: 'Почта',
-                    width: proportional(2),
-                    renderCell: (p) => p.email ?? '—',
-                  },
-                  {
-                    key: 'is_admin',
-                    header: 'Права',
-                    width: pixel(160),
-                    renderCell: (p) =>
-                      p.is_admin ? <Token label="администратор системы" size="sm" /> : null,
-                  },
-                  {
-                    key: 'created_at',
-                    header: 'Заведён',
-                    width: pixel(160),
-                    renderCell: (p) => <Timestamp value={p.created_at} />,
-                  },
-                ]}
-              />
-            )
-          }
+          {(list) => (
+            <DataTable<Principal>
+              data={list}
+              idKey="id"
+              empty={<EmptyState title="Никого не нашлось" />}
+              columns={[
+                {key: 'handle', header: 'Хэндл', renderCell: (p) => `${p.kind}:${p.handle}`},
+                {key: 'display_name', header: 'Имя'},
+                {key: 'email', header: 'Почта', renderCell: (p) => p.email ?? '—'},
+                {
+                  key: 'is_admin',
+                  header: 'Права',
+                  width: 160,
+                  renderCell: (p) => (p.is_admin ? <Token label="администратор системы" /> : null),
+                },
+                {
+                  key: 'created_at',
+                  header: 'Заведён',
+                  width: 160,
+                  renderCell: (p) => <Timestamp value={p.created_at} />,
+                },
+              ]}
+            />
+          )}
         </Loaded>
-      </VStack>
-    </Section>
+      </div>
+    </Page>
   );
 }

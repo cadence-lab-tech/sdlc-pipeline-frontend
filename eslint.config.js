@@ -16,4 +16,11 @@ export default tseslint.config(
       'react-refresh/only-export-components': ['warn', {allowConstantExport: true}],
     },
   },
+  {
+    // Компоненты shadcn — вендорные исходники: они экспортируют рядом с
+    // компонентами варианты и хуки, и переписывать их под правило значит
+    // расходиться с тем, что положит следующий `shadcn add`.
+    files: ['src/components/ui/**', 'src/lib/theme.tsx'],
+    rules: {'react-refresh/only-export-components': 'off'},
+  },
 );

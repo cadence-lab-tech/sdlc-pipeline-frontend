@@ -1,25 +1,12 @@
 import {useState} from 'react';
 import {useParams} from 'react-router-dom';
-import {Badge} from '@astryxdesign/core/Badge';
-import {Banner} from '@astryxdesign/core/Banner';
-import {Button} from '@astryxdesign/core/Button';
-import {Card} from '@astryxdesign/core/Card';
-import {Divider} from '@astryxdesign/core/Divider';
-import {EmptyState} from '@astryxdesign/core/EmptyState';
-import {
-  HStack,
-  Layout,
-  LayoutContent,
-  LayoutHeader,
-  LayoutPanel,
-  VStack,
-} from '@astryxdesign/core/Layout';
-import {Item} from '@astryxdesign/core/Item';
-import {List} from '@astryxdesign/core/List';
-import {Switch} from '@astryxdesign/core/Switch';
-import {Heading, Text} from '@astryxdesign/core/Text';
-import {Timestamp} from '@astryxdesign/core/Timestamp';
-import {Token} from '@astryxdesign/core/Token';
+
+import {Badge} from '@/components/ui/badge';
+import {Button} from '@/components/ui/button';
+import {Card} from '@/components/ui/card';
+import {Separator} from '@/components/ui/separator';
+import {Switch} from '@/components/fields';
+import {EmptyState, Note, Row, Timestamp, Token} from '@/components/kit';
 
 import {ApiError, api} from '../api/client';
 import type {Role, RoleUsage, RoleVersion} from '../api/types';
@@ -46,55 +33,34 @@ export function Roles() {
   const selected = picked ?? roles.data[0]?.key;
 
   return (
-    <Layout
-      height="fill"
-      start={
-        <LayoutPanel width={300} hasDivider padding={0} isScrollable label="Роли">
-          <Layout
-            height="fill"
-            header={
-              <LayoutHeader hasDivider padding={3}>
-                <VStack gap={2}>
-                  <HStack hAlign="between" vAlign="center">
-                    <Heading level={2}>Роли</Heading>
-                    <Badge variant="neutral" label={String(roles.data.length)} />
-                  </HStack>
-                  <Switch
-                    size="sm"
-                    label="Показать архивные"
-                    value={includeArchived}
-                    onChange={setIncludeArchived}
-                  />
-                </VStack>
-              </LayoutHeader>
-            }
-            content={
-              <LayoutContent padding={0}>
-                <List hasDividers>
-                  {roles.data.map((role) => (
-                    <RoleRow
-                      key={role.id}
-                      role={role}
-                      isSelected={role.key === selected}
-                      onSelect={() => setPicked(role.key)}
-                    />
-                  ))}
-                </List>
-              </LayoutContent>
-            }
-          />
-        </LayoutPanel>
-      }
-      content={
-        <LayoutContent padding={4}>
-          {selected ? (
-            <RoleDetail projectKey={projectKey} roleKey={selected} onChanged={roles.reload} />
-          ) : (
-            <EmptyState title="Роли нет" description="Заведите роль, чтобы поставить её на статус" />
-          )}
-        </LayoutContent>
-      }
-    />
+    <div className="flex min-h-[calc(100svh-3.5rem)]">
+      <aside className="w-75 shrink-0 border-r">
+        <div className="space-y-2 border-b p-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold">Роли</h2>
+            <Badge variant="secondary">{roles.data.length}</Badge>
+          </div>
+          <Switch label="Показать архивные" value={includeArchived} onChange={setIncludeArchived} />
+        </div>
+        <div className="divide-border divide-y">
+          {roles.data.map((role) => (
+            <RoleRow
+              key={role.id}
+              role={role}
+              isSelected={role.key === selected}
+              onSelect={() => setPicked(role.key)}
+            />
+          ))}
+        </div>
+      </aside>
+      <div className="min-w-0 flex-1 p-4">
+        {selected ? (
+          <RoleDetail projectKey={projectKey} roleKey={selected} onChanged={roles.reload} />
+        ) : (
+          <EmptyState title="Роли нет" description="Заведите роль, чтобы поставить её на статус" />
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -108,21 +74,19 @@ function RoleRow({
   onSelect: () => void;
 }) {
   return (
-    <Item
-      label={role.name}
-      description={role.key}
+    <Row
       isSelected={isSelected}
       onClick={onSelect}
-      endContent={
+      end={
         role.archived_at ? (
-          <Token size="sm" label="в архиве" />
+          <Token label="в архиве" />
         ) : role.latest_version ? (
-          <Text type="supporting" color="secondary">
-            v{role.latest_version}
-          </Text>
+          <span className="text-muted-foreground text-xs">v{role.latest_version}</span>
         ) : null
-      }
-    />
+      }>
+      <p className="truncate font-medium">{role.name}</p>
+      <p className="text-muted-foreground truncate text-xs">{role.key}</p>
+    </Row>
   );
 }
 
@@ -157,21 +121,19 @@ function RoleDetail({
   };
 
   return (
-    <VStack gap={4}>
-      <HStack hAlign="between" vAlign="center" gap={3}>
-        <VStack gap={1}>
-          <Heading level={1}>{head.name}</Heading>
-          <Text color="secondary">{head.summary}</Text>
-        </VStack>
-        <HStack gap={2}>
-          <Button
-            variant="secondary"
-            label={head.archived_at ? 'Вернуть из архива' : 'В архив'}
-            onClick={() => archive(!head.archived_at)}
-          />
-          <Button variant="primary" label="Новая версия" onClick={() => setAdding(true)} />
-        </HStack>
-      </HStack>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold tracking-tight">{head.name}</h1>
+          <p className="text-muted-foreground text-sm">{head.summary}</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={() => archive(!head.archived_at)}>
+            {head.archived_at ? 'Вернуть из архива' : 'В архив'}
+          </Button>
+          <Button onClick={() => setAdding(true)}>Новая версия</Button>
+        </div>
+      </div>
 
       {error ? <ArchiveError error={error} /> : null}
 
@@ -191,18 +153,18 @@ function RoleDetail({
         />
       ) : null}
 
-      <Divider />
+      <Separator />
 
       {versions.length === 0 ? (
         <EmptyState title="Версий нет" description="Инструкция роли задаётся версией" />
       ) : (
-        <VStack gap={4}>
+        <div className="space-y-4">
           {versions.map((v) => (
             <VersionCard key={v.id} version={v} isLatest={v.id === latest?.id} />
           ))}
-        </VStack>
+        </div>
       )}
-    </VStack>
+    </div>
   );
 }
 
@@ -212,93 +174,71 @@ function ArchiveError({error}: {error: ApiError}) {
   const usedOn = (error.details as {used_on?: RoleUsage[]} | undefined)?.used_on ?? [];
 
   return (
-    <Banner
-      status="error"
-      collapsible={false}
-      title="Роль не заархивирована"
-      description={error.message}>
+    <Note tone="error" title="Роль не заархивирована" description={error.message}>
       {usedOn.length ? (
-        <HStack gap={1} wrap="wrap">
+        <div className="flex flex-wrap gap-1">
           {usedOn.map((u, i) => (
-            <Token key={i} size="sm" label={`${u.status_key} (${u.workflow_state})`} />
+            <Token key={i} label={`${u.status_key} (${u.workflow_state})`} />
           ))}
-        </HStack>
+        </div>
       ) : null}
-    </Banner>
+    </Note>
   );
 }
 
 function Usage({usage}: {usage: RoleUsage[]}) {
   if (usage.length === 0) {
-    return (
-      <Text type="supporting" color="secondary">
-        Роль не стоит ни на одном статусе
-      </Text>
-    );
+    return <p className="text-muted-foreground text-sm">Роль не стоит ни на одном статусе</p>;
   }
   return (
-    <VStack gap={1}>
-      <Text type="supporting" color="secondary">
-        Стоит на статусах
-      </Text>
-      <HStack gap={1} wrap="wrap">
+    <div className="space-y-1">
+      <p className="text-muted-foreground text-xs">Стоит на статусах</p>
+      <div className="flex flex-wrap gap-1">
         {usage.map((u, i) => (
           <Token
             key={i}
-            size="sm"
-            color={u.workflow_state === 'active' ? 'blue' : 'gray'}
+            color={u.workflow_state === 'active' ? 'blue' : 'default'}
             label={`${u.status_key}${u.is_primary ? ' · исполнитель' : ''}`}
           />
         ))}
-      </HStack>
-    </VStack>
+      </div>
+    </div>
   );
 }
 
 function VersionCard({version, isLatest}: {version: RoleVersion; isLatest: boolean}) {
   return (
-    <Card padding={4}>
-      <VStack gap={3}>
-        <HStack hAlign="between" vAlign="center" gap={2}>
-          <HStack gap={2} vAlign="center">
-            <Heading level={3}>Версия {version.version}</Heading>
-            {isLatest ? <Badge variant="success" label="актуальная" /> : null}
-          </HStack>
-          <Timestamp value={version.created_at} format="relative" color="secondary" />
-        </HStack>
-        {version.changelog ? <Text color="secondary">{version.changelog}</Text> : null}
+    <Card className="gap-3 p-4">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <h3 className="text-base font-semibold">Версия {version.version}</h3>
+          {isLatest ? <Badge>актуальная</Badge> : null}
+        </div>
+        <Timestamp value={version.created_at} format="relative" />
+      </div>
+      {version.changelog ? <p className="text-muted-foreground text-sm">{version.changelog}</p> : null}
 
-        <Text style={{whiteSpace: 'pre-wrap'}}>{version.instructions}</Text>
+      <p className="text-sm whitespace-pre-wrap">{version.instructions}</p>
 
-        <VStack gap={2}>
-          <Text type="supporting" color="secondary">
-            Контракт вывода
-          </Text>
-          <HStack gap={1} wrap="wrap">
-            {(version.output_contract ?? []).map((item) => (
-              <Token
-                key={item.kind}
-                size="sm"
-                color={item.required ? 'blue' : 'gray'}
-                label={item.kind}
-              />
+      <div className="space-y-1">
+        <p className="text-muted-foreground text-xs">Контракт вывода</p>
+        <div className="flex flex-wrap gap-1">
+          {(version.output_contract ?? []).map((item) => (
+            <Token key={item.kind} color={item.required ? 'blue' : 'default'} label={item.kind} />
+          ))}
+        </div>
+      </div>
+
+      {(version.input_kinds ?? []).length > 0 ? (
+        <div className="space-y-1">
+          <p className="text-muted-foreground text-xs">Что читает на входе</p>
+          <div className="flex flex-wrap gap-1">
+            {(version.input_kinds ?? []).map((kind) => (
+              <Token key={kind} label={kind} />
             ))}
-          </HStack>
-        </VStack>
-
-        {(version.input_kinds ?? []).length > 0 ? (
-          <VStack gap={2}>
-            <Text type="supporting" color="secondary">
-              Что читает на входе
-            </Text>
-            <HStack gap={1} wrap="wrap">
-              {(version.input_kinds ?? []).map((kind) => (
-                <Token key={kind} size="sm" label={kind} />
-              ))}
-            </HStack>
-          </VStack>
-        ) : null}
-      </VStack>
+          </div>
+        </div>
+      ) : null}
     </Card>
   );
 }

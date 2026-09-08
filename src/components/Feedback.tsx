@@ -1,22 +1,30 @@
-import {Banner} from '@astryxdesign/core/Banner';
-import {Center} from '@astryxdesign/core/Center';
-import {Spinner} from '@astryxdesign/core/Spinner';
+import {AlertCircle} from 'lucide-react';
+
+import {Alert, AlertDescription, AlertTitle} from '@/components/ui/alert';
+import {Spinner} from '@/components/kit';
 
 import type {ApiError} from '../api/client';
 import type {Resource} from '../api/useResource';
 
 export function Loading({label = 'Загрузка'}: {label?: string}) {
   return (
-    <Center padding={8}>
-      <Spinner size="lg" label={label} />
-    </Center>
+    <div className="text-muted-foreground flex items-center justify-center gap-2 p-8 text-sm">
+      <Spinner />
+      {label}
+    </div>
   );
 }
 
 // Сообщение бэкенда показывается как есть: оно уже написано для человека, а
 // код ошибки общий у REST и MCP, так что разбирать текст не нужно.
 export function Failure({error, title = 'Не получилось'}: {error: ApiError; title?: string}) {
-  return <Banner status="error" title={title} description={error.message} />;
+  return (
+    <Alert variant="destructive">
+      <AlertCircle />
+      <AlertTitle>{title}</AlertTitle>
+      <AlertDescription>{error.message}</AlertDescription>
+    </Alert>
+  );
 }
 
 // Ресурс отрисовывается только когда он загружен: до этого спиннер, при

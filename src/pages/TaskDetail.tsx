@@ -1,26 +1,13 @@
 import {useState} from 'react';
 import {Link, useParams} from 'react-router-dom';
-import {Badge} from '@astryxdesign/core/Badge';
-import {Button} from '@astryxdesign/core/Button';
-import {Card} from '@astryxdesign/core/Card';
-import {Divider} from '@astryxdesign/core/Divider';
-import {EmptyState} from '@astryxdesign/core/EmptyState';
-import {
-  HStack,
-  Layout,
-  LayoutContent,
-  LayoutHeader,
-  LayoutPanel,
-  VStack,
-} from '@astryxdesign/core/Layout';
-import {Item} from '@astryxdesign/core/Item';
-import {List} from '@astryxdesign/core/List';
-import {ProgressBar} from '@astryxdesign/core/ProgressBar';
-import {Section} from '@astryxdesign/core/Section';
-import {StatusDot} from '@astryxdesign/core/StatusDot';
-import {Tab, TabList} from '@astryxdesign/core/TabList';
-import {Heading, Text} from '@astryxdesign/core/Text';
-import {Timestamp} from '@astryxdesign/core/Timestamp';
+
+import {Badge} from '@/components/ui/badge';
+import {Button} from '@/components/ui/button';
+import {Card} from '@/components/ui/card';
+import {Progress} from '@/components/ui/progress';
+import {Separator} from '@/components/ui/separator';
+import {Tabs, TabsList, TabsTrigger} from '@/components/ui/tabs';
+import {EmptyState, Row, RowList, Section, StatusDot, Timestamp, type DotVariant} from '@/components/kit';
 
 import {ApiError, api} from '../api/client';
 import type {
@@ -47,7 +34,7 @@ export function TaskDetail() {
   const events = useResource(() => api.timeline(taskKey), [taskKey]);
   const [tab, setTab] = useState('stages');
 
-  if (task.error) return <Section padding={6}><Failure error={task.error} /></Section>;
+  if (task.error) return <div className="p-6"><Failure error={task.error} /></div>;
   if (!task.data) return <Loading />;
 
   const detail = task.data;
@@ -57,87 +44,80 @@ export function TaskDetail() {
   };
 
   return (
-    <Layout
-      height="fill"
-      header={
-        <LayoutHeader hasDivider padding={4}>
-          <VStack gap={2}>
-            <HStack gap={2} vAlign="center">
-              <Text type="supporting" color="secondary">
-                {detail.task.key}
-              </Text>
-              <Badge variant="neutral" label={detail.task.status_name} />
-              <Badge variant="info" label={taskType(detail.task)} />
-              {detail.task.priority !== 'normal' ? (
-                <Badge variant="warning" label={detail.task.priority} />
-              ) : null}
-              {detail.task.parent_key ? (
-                <Link
-                  to={`/p/${detail.task.project_key}/tasks/${detail.task.parent_key}`}
-                  style={{color: 'var(--color-text-accent)'}}>
-                  <Text type="supporting">↑ {detail.task.parent_key}</Text>
-                </Link>
-              ) : null}
-              {detail.task.assignee_handle ? (
-                <Text type="supporting" color="secondary">
-                  назначена: {detail.task.assignee_handle}
-                </Text>
-              ) : null}
-            </HStack>
-            <Heading level={1}>{detail.task.title}</Heading>
-            {detail.task.description ? (
-              <Text color="secondary">{detail.task.description}</Text>
-            ) : null}
-          </VStack>
-        </LayoutHeader>
-      }
-      content={
-        <LayoutContent padding={4}>
-          <VStack gap={4}>
-            <HStack hAlign="between" vAlign="center" gap={3}>
-              <TabList value={tab} onChange={setTab} hasDivider>
-                <Tab value="stages" label="Этапы и артефакты" />
+    <div className="flex min-h-[calc(100svh-3.5rem)] flex-col">
+      <div className="space-y-2 border-b p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-muted-foreground font-mono text-xs">{detail.task.key}</span>
+          <Badge variant="secondary">{detail.task.status_name}</Badge>
+          <Badge variant="outline">{taskType(detail.task)}</Badge>
+          {detail.task.priority !== 'normal' ? (
+            <Badge variant="outline" className="border-amber-500/30 text-amber-700 dark:text-amber-300">
+              {detail.task.priority}
+            </Badge>
+          ) : null}
+          {detail.task.parent_key ? (
+            <Link
+              to={`/p/${detail.task.project_key}/tasks/${detail.task.parent_key}`}
+              className="text-sm underline underline-offset-4">
+              ↑ {detail.task.parent_key}
+            </Link>
+          ) : null}
+          {detail.task.assignee_handle ? (
+            <span className="text-muted-foreground text-xs">
+              назначена: {detail.task.assignee_handle}
+            </span>
+          ) : null}
+        </div>
+        <h1 className="text-2xl font-semibold tracking-tight">{detail.task.title}</h1>
+        {detail.task.description ? (
+          <p className="text-muted-foreground text-sm">{detail.task.description}</p>
+        ) : null}
+      </div>
+
+      <div className="flex flex-1 flex-col xl:flex-row">
+        <div className="min-w-0 flex-1 space-y-4 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Tabs value={tab} onValueChange={setTab}>
+              <TabsList>
+                <TabsTrigger value="stages">Этапы и артефакты</TabsTrigger>
                 {detail.children.length > 0 ? (
-                  <Tab value="children" label={`Нарезка · ${detail.children.length}`} />
+                  <TabsTrigger value="children">Нарезка · {detail.children.length}</TabsTrigger>
                 ) : null}
-                <Tab value="timeline" label="Лента" />
-              </TabList>
-              <SubmitArtifactDialog
-                taskKey={detail.task.key}
-                transitions={detail.transitions}
-                onSubmitted={reload}
-              />
-            </HStack>
-            {tab === 'stages' ? (
-              <Stages detail={detail} onChanged={reload} />
-            ) : tab === 'children' ? (
-              <Children detail={detail} />
-            ) : (
-              <Timeline taskKey={taskKey} />
-            )}
-          </VStack>
-        </LayoutContent>
-      }
-      end={
-        <LayoutPanel width={400} hasDivider padding={4} isScrollable label="Движение задачи">
-          <VStack gap={4}>
-            <Transitions detail={detail} onChanged={reload} />
-            <Divider />
-            <AssigneePanel task={detail.task} onChanged={reload} />
-            <Divider />
-            <UsagePanel usage={detail.usage} hasChildren={detail.children.length > 0} />
-            {detail.links.length > 0 ? (
-              <>
-                <Divider />
-                <LinksPanel task={detail.task} links={detail.links} />
-              </>
-            ) : null}
-            <Divider />
-            <ScopePanel task={detail.task} onChanged={reload} />
-          </VStack>
-        </LayoutPanel>
-      }
-    />
+                <TabsTrigger value="timeline">Лента</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <SubmitArtifactDialog
+              taskKey={detail.task.key}
+              transitions={detail.transitions}
+              onSubmitted={reload}
+            />
+          </div>
+          {tab === 'stages' ? (
+            <Stages detail={detail} onChanged={reload} />
+          ) : tab === 'children' ? (
+            <Children detail={detail} />
+          ) : (
+            <Timeline taskKey={taskKey} />
+          )}
+        </div>
+
+        <aside className="w-full shrink-0 space-y-4 border-t p-4 xl:w-100 xl:border-t-0 xl:border-l">
+          <Transitions detail={detail} onChanged={reload} />
+          <Separator />
+          <AssigneePanel task={detail.task} onChanged={reload} />
+          <Separator />
+          <UsagePanel usage={detail.usage} hasChildren={detail.children.length > 0} />
+          {detail.links.length > 0 ? (
+            <>
+              <Separator />
+              <LinksPanel task={detail.task} links={detail.links} />
+            </>
+          ) : null}
+          <Separator />
+          <ScopePanel task={detail.task} onChanged={reload} />
+        </aside>
+      </div>
+    </div>
   );
 }
 
@@ -153,27 +133,31 @@ function Children({detail}: {detail: TaskDetailData}) {
   const closed = detail.children.filter((c) => c.closed_at).length;
 
   return (
-    <VStack gap={3}>
-      <HStack gap={2} vAlign="center">
-        <Heading level={3}>Дочерние задачи</Heading>
-        <Badge variant="neutral" label={`закрыто ${closed} из ${detail.children.length}`} />
-      </HStack>
-      <ProgressBar
-        label="Готовность нарезки"
-        value={detail.children.length === 0 ? 0 : (closed / detail.children.length) * 100}
-      />
-      <List hasDividers>
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <h3 className="text-base font-semibold">Дочерние задачи</h3>
+        <Badge variant="secondary">
+          закрыто {closed} из {detail.children.length}
+        </Badge>
+      </div>
+      <Progress value={detail.children.length === 0 ? 0 : (closed / detail.children.length) * 100} />
+      <RowList>
         {detail.children.map((child) => (
-          <Item
-            key={child.id}
-            label={`${child.key} · ${child.title}`}
-            description={child.assignee_handle ? `исполнитель: ${child.assignee_handle}` : undefined}
-            href={`/p/${child.project_key}/tasks/${child.key}`}
-            endContent={<Badge variant="neutral" label={child.status_name} />}
-          />
+          <Link key={child.id} to={`/p/${child.project_key}/tasks/${child.key}`} className="block">
+            <Row end={<Badge variant="secondary">{child.status_name}</Badge>}>
+              <p className="truncate font-medium">
+                {child.key} · {child.title}
+              </p>
+              {child.assignee_handle ? (
+                <p className="text-muted-foreground truncate text-xs">
+                  исполнитель: {child.assignee_handle}
+                </p>
+              ) : null}
+            </Row>
+          </Link>
         ))}
-      </List>
-    </VStack>
+      </RowList>
+    </div>
   );
 }
 
@@ -183,28 +167,29 @@ function UsagePanel({usage, hasChildren}: {usage: UsageSummary; hasChildren: boo
   const money = (v: number) => `${v.toFixed(2)} $`;
 
   return (
-    <VStack gap={2}>
-      <Heading level={3}>Стоимость</Heading>
-      <HStack hAlign="between">
-        <Text type="supporting" color="secondary">Своя</Text>
-        <Text hasTabularNumbers>{money(usage.cost_usd)}</Text>
-      </HStack>
-      {hasChildren ? (
-        <HStack hAlign="between">
-          <Text type="supporting" color="secondary">Вместе с дочерними</Text>
-          <Text hasTabularNumbers>{money(usage.subtree_cost_usd)}</Text>
-        </HStack>
-      ) : null}
-      <HStack hAlign="between">
-        <Text type="supporting" color="secondary">Токенов</Text>
-        <Text hasTabularNumbers>{usage.tokens.toLocaleString('ru')}</Text>
-      </HStack>
+    <Section title="Стоимость">
+      <dl className="space-y-1 text-sm">
+        <Line label="Своя" value={money(usage.cost_usd)} />
+        {hasChildren ? (
+          <Line label="Вместе с дочерними" value={money(usage.subtree_cost_usd)} />
+        ) : null}
+        <Line label="Токенов" value={usage.tokens.toLocaleString('ru')} />
+      </dl>
       {usage.silent_runs > 0 ? (
-        <Text type="supporting" color="secondary">
+        <p className="text-muted-foreground text-xs">
           Прогонов без отчёта: {usage.silent_runs} — их стоимость неизвестна
-        </Text>
+        </p>
       ) : null}
-    </VStack>
+    </Section>
+  );
+}
+
+function Line({label, value}: {label: string; value: string}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="tabular-nums">{value}</dd>
+    </div>
   );
 }
 
@@ -212,24 +197,27 @@ function UsagePanel({usage, hasChildren}: {usage: UsageSummary; hasChildren: boo
 // «эта блокирует» и «эту блокируют» — разные новости.
 function LinksPanel({task, links}: {task: Task; links: TaskLink[]}) {
   return (
-    <VStack gap={2}>
-      <Heading level={3}>Связи</Heading>
-      <List hasDividers>
+    <Section title="Связи">
+      <RowList>
         {links.map((link) => (
-          <Item
+          <Link
             key={`${link.rel}-${link.direction}-${link.task_id}`}
-            label={`${link.task_key} · ${link.task_title}`}
-            description={
-              link.direction === 'outgoing'
-                ? `${task.key} → ${link.rel}`
-                : `${link.rel} → ${task.key}`
-            }
-            href={`/p/${task.project_key}/tasks/${link.task_key}`}
-            endContent={<Text type="supporting" color="secondary">{link.status_key}</Text>}
-          />
+            to={`/p/${task.project_key}/tasks/${link.task_key}`}
+            className="block">
+            <Row end={<span className="text-muted-foreground text-xs">{link.status_key}</span>}>
+              <p className="truncate font-medium">
+                {link.task_key} · {link.task_title}
+              </p>
+              <p className="text-muted-foreground truncate text-xs">
+                {link.direction === 'outgoing'
+                  ? `${task.key} → ${link.rel}`
+                  : `${link.rel} → ${task.key}`}
+              </p>
+            </Row>
+          </Link>
         ))}
-      </List>
-    </VStack>
+      </RowList>
+    </Section>
   );
 }
 
@@ -239,7 +227,7 @@ function Stages({detail, onChanged}: {detail: TaskDetailData; onChanged: () => v
   const runs = [...detail.stage_runs].sort((a, b) => b.entered_at.localeCompare(a.entered_at));
 
   return (
-    <VStack gap={4}>
+    <div className="space-y-4">
       {runs.map((run) => (
         <StageCard
           key={run.id}
@@ -248,11 +236,11 @@ function Stages({detail, onChanged}: {detail: TaskDetailData; onChanged: () => v
           onChanged={onChanged}
         />
       ))}
-    </VStack>
+    </div>
   );
 }
 
-const RUN_VARIANT: Record<string, 'success' | 'warning' | 'error' | 'accent' | 'neutral'> = {
+const RUN_VARIANT: Record<string, DotVariant> = {
   passed: 'success',
   failed: 'error',
   abandoned: 'neutral',
@@ -273,29 +261,25 @@ function StageCard({
   onChanged: () => void;
 }) {
   return (
-    <Card padding={4}>
-      <VStack gap={3}>
-        <HStack hAlign="between" vAlign="center" gap={2}>
-          <HStack gap={2} vAlign="center">
-            <StatusDot variant={RUN_VARIANT[run.state] ?? 'neutral'} label={run.state} />
-            <Heading level={3}>{run.status_key}</Heading>
-            {run.attempt > 1 ? <Badge variant="neutral" label={`попытка ${run.attempt}`} /> : null}
-          </HStack>
-          <Timestamp value={run.entered_at} format="relative" color="secondary" />
-        </HStack>
-        {run.summary ? <Text color="secondary">{run.summary}</Text> : null}
-        {artifacts.length === 0 ? (
-          <Text type="supporting" color="secondary">
-            Артефактов на этой попытке нет
-          </Text>
-        ) : (
-          <List hasDividers>
-            {artifacts.map((a) => (
-              <ArtifactView key={a.id} artifact={a} onChanged={onChanged} />
-            ))}
-          </List>
-        )}
-      </VStack>
+    <Card className="gap-3 p-4">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <StatusDot variant={RUN_VARIANT[run.state] ?? 'neutral'} label={run.state} />
+          <h3 className="text-base font-semibold">{run.status_key}</h3>
+          {run.attempt > 1 ? <Badge variant="secondary">попытка {run.attempt}</Badge> : null}
+        </div>
+        <Timestamp value={run.entered_at} format="relative" />
+      </div>
+      {run.summary ? <p className="text-muted-foreground text-sm">{run.summary}</p> : null}
+      {artifacts.length === 0 ? (
+        <p className="text-muted-foreground text-sm">Артефактов на этой попытке нет</p>
+      ) : (
+        <div className="space-y-2">
+          {artifacts.map((a) => (
+            <ArtifactView key={a.id} artifact={a} onChanged={onChanged} />
+          ))}
+        </div>
+      )}
     </Card>
   );
 }
@@ -309,10 +293,9 @@ function Transitions({detail, onChanged}: {detail: TaskDetailData; onChanged: ()
   );
 
   return (
-    <VStack gap={3}>
-      <Heading level={3}>Переходы</Heading>
+    <Section title="Переходы">
       {detail.transitions.length === 0 ? (
-        <EmptyState isCompact title="Дальше некуда" description="Задача в терминальном статусе" />
+        <EmptyState title="Дальше некуда" description="Задача в терминальном статусе" />
       ) : (
         detail.transitions.map((t) => (
           <TransitionCard
@@ -324,7 +307,7 @@ function Transitions({detail, onChanged}: {detail: TaskDetailData; onChanged: ()
           />
         ))
       )}
-    </VStack>
+    </Section>
   );
 }
 
@@ -358,42 +341,36 @@ function TransitionCard({
   };
 
   return (
-    <Card padding={3}>
-      <VStack gap={3}>
-        <HStack hAlign="between" vAlign="center" gap={2}>
-          <VStack gap={0}>
-            <Text weight="medium">{transition.name}</Text>
-            <Text type="supporting" color="secondary">
-              → {transition.to_status}
-            </Text>
-          </VStack>
-          <Button
-            size="sm"
-            variant={transition.allowed ? 'primary' : 'secondary'}
-            isDisabled={!transition.allowed || busy}
-            label={transition.allowed ? 'Перевести' : 'Держат гейты'}
-            onClick={() => act(() => api.execute(taskKey, transition.key))}
-          />
-        </HStack>
-        {error ? <Failure error={error} title="Переход не выполнен" /> : null}
-        {transition.gates.length > 0 ? (
-          <VStack gap={3}>
-            <Divider />
-            {transition.gates.map((gate) => (
-              <GateRow
-                key={gate.gate_key}
-                check={gate}
-                gate={definition?.gates?.find((g) => g.key === gate.gate_key)}
-                onDecide={(status, details) =>
-                  act(() =>
-                    api.decideGate(taskKey, transition.key, gate.gate_key, {status, details}),
-                  )
-                }
-              />
-            ))}
-          </VStack>
-        ) : null}
-      </VStack>
+    <Card className="gap-3 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-medium">{transition.name}</p>
+          <p className="text-muted-foreground text-xs">→ {transition.to_status}</p>
+        </div>
+        <Button
+          size="sm"
+          variant={transition.allowed ? 'default' : 'secondary'}
+          disabled={!transition.allowed || busy}
+          onClick={() => act(() => api.execute(taskKey, transition.key))}>
+          {transition.allowed ? 'Перевести' : 'Держат гейты'}
+        </Button>
+      </div>
+      {error ? <Failure error={error} title="Переход не выполнен" /> : null}
+      {transition.gates.length > 0 ? (
+        <div className="space-y-3">
+          <Separator />
+          {transition.gates.map((gate) => (
+            <GateRow
+              key={gate.gate_key}
+              check={gate}
+              gate={definition?.gates?.find((g) => g.key === gate.gate_key)}
+              onDecide={(status, details) =>
+                act(() => api.decideGate(taskKey, transition.key, gate.gate_key, {status, details}))
+              }
+            />
+          ))}
+        </div>
+      ) : null}
     </Card>
   );
 }
@@ -405,15 +382,15 @@ function Timeline({taskKey}: {taskKey: string}) {
   if (!events.data) return <Loading />;
 
   return (
-    <List hasDividers>
+    <RowList>
       {events.data.map((e) => (
-        <Item
-          key={e.id}
-          label={e.type}
-          description={e.actor_handle ? `${e.actor_handle}` : undefined}
-          endContent={<Timestamp value={e.created_at} format="relative" color="secondary" />}
-        />
+        <Row key={e.id} end={<Timestamp value={e.created_at} format="relative" />}>
+          <p className="font-medium">{e.type}</p>
+          {e.actor_handle ? (
+            <p className="text-muted-foreground text-xs">{e.actor_handle}</p>
+          ) : null}
+        </Row>
       ))}
-    </List>
+    </RowList>
   );
 }

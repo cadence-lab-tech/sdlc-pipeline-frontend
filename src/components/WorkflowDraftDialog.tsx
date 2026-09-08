@@ -1,10 +1,15 @@
 import {useState} from 'react';
-import {Button} from '@astryxdesign/core/Button';
-import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
-import {FormLayout} from '@astryxdesign/core/FormLayout';
-import {HStack, VStack} from '@astryxdesign/core/Layout';
-import {MultiSelector} from '@astryxdesign/core/MultiSelector';
-import {TextInput} from '@astryxdesign/core/TextInput';
+
+import {Button} from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {FormLayout, MultiSelector, TextInput} from '@/components/fields';
 
 import {ApiError, api} from '../api/client';
 import type {Workflow} from '../api/types';
@@ -54,12 +59,14 @@ export function WorkflowDraftDialog({
   };
 
   return (
-    <Dialog isOpen={isOpen} onOpenChange={onClose} purpose="form" width={520} padding={5}>
-      <VStack gap={4}>
-        <DialogHeader
-          title="Название и типы задач"
-          subtitle="Активация выведет из работы прежние циклы этих типов"
-        />
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-[520px]">
+        <DialogHeader>
+          <DialogTitle>Название и типы задач</DialogTitle>
+          <DialogDescription>
+            Активация выведет из работы прежние циклы этих типов
+          </DialogDescription>
+        </DialogHeader>
         {error ? <Failure error={error} title="Черновик не изменён" /> : null}
         <FormLayout>
           <TextInput label="Название" value={name} onChange={setName} isRequired />
@@ -69,20 +76,18 @@ export function WorkflowDraftDialog({
             value={taskTypes}
             onChange={setTaskTypes}
             options={options}
-            triggerDisplay="labels"
             placeholder="Выберите тип задач"
           />
         </FormLayout>
-        <HStack gap={2} hAlign="end">
-          <Button variant="ghost" label="Отмена" onClick={onClose} />
-          <Button
-            variant="primary"
-            label="Сохранить"
-            isDisabled={!name || taskTypes.length === 0 || saving}
-            onClick={save}
-          />
-        </HStack>
-      </VStack>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>
+            Отмена
+          </Button>
+          <Button disabled={!name || taskTypes.length === 0 || saving} onClick={save}>
+            Сохранить
+          </Button>
+        </DialogFooter>
+      </DialogContent>
     </Dialog>
   );
 }

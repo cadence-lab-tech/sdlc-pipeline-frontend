@@ -1,13 +1,17 @@
 import {useState} from 'react';
 import {useNavigate} from 'react-router-dom';
-import {Button} from '@astryxdesign/core/Button';
-import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
-import {FormLayout} from '@astryxdesign/core/FormLayout';
-import {HStack, VStack} from '@astryxdesign/core/Layout';
-import {MultiSelector} from '@astryxdesign/core/MultiSelector';
-import {Selector} from '@astryxdesign/core/Selector';
-import {TextArea} from '@astryxdesign/core/TextArea';
-import {TextInput} from '@astryxdesign/core/TextInput';
+
+import {Button} from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import {FormLayout, MultiSelector, Selector, TextArea, TextInput} from '@/components/fields';
 
 import {ApiError, api} from '../api/client';
 import type {ProjectDetail} from '../api/types';
@@ -66,68 +70,65 @@ export function NewTaskDialog({
   };
 
   return (
-    <>
-      <Button
-        variant={parentKey ? 'secondary' : 'primary'}
-        label={parentKey ? 'Дочерняя задача' : 'Новая задача'}
-        onClick={() => setIsOpen(true)}
-      />
-      <Dialog isOpen={isOpen} onOpenChange={setIsOpen} purpose="form" width={560} padding={5}>
-        <VStack gap={4}>
-          <DialogHeader
-            title={parentKey ? `Дочерняя задача ${parentKey}` : 'Новая задача'}
-            subtitle={
-              parentKey
-                ? undefined
-                : 'Тип задачи выбирает цикл: эпик идёт планированием, задача — разработкой'
-            }
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <DialogTrigger asChild>
+        <Button variant={parentKey ? 'secondary' : 'default'}>
+          {parentKey ? 'Дочерняя задача' : 'Новая задача'}
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[560px]">
+        <DialogHeader>
+          <DialogTitle>{parentKey ? `Дочерняя задача ${parentKey}` : 'Новая задача'}</DialogTitle>
+          {parentKey ? null : (
+            <DialogDescription>
+              Тип задачи выбирает цикл: эпик идёт планированием, задача — разработкой
+            </DialogDescription>
+          )}
+        </DialogHeader>
+        {error ? <Failure error={error} title="Задача не создана" /> : null}
+        <FormLayout>
+          <TextInput label="Название" value={title} onChange={setTitle} isRequired />
+          {types.length > 1 ? (
+            <Selector
+              label="Тип"
+              description="По типу выбирается цикл, по которому пойдёт задача"
+              options={types.map((t) => ({value: t, label: t}))}
+              value={taskType}
+              onChange={setTaskType}
+            />
+          ) : null}
+          <TextArea label="Описание" value={description} onChange={setDescription} rows={4} />
+          <Selector label="Приоритет" options={PRIORITIES} value={priority} onChange={setPriority} />
+          <MultiSelector
+            label="Область по репозиториям"
+            description="Одна задача — один репозиторий, если не включена мультирепозиторность"
+            value={repositories}
+            onChange={setRepositories}
+            options={project.repositories.map((r) => ({
+              value: `${r.owner}/${r.name}`,
+              label: `${r.owner}/${r.name}`,
+            }))}
           />
-          {error ? <Failure error={error} title="Задача не создана" /> : null}
-          <FormLayout>
-            <TextInput label="Название" value={title} onChange={setTitle} isRequired />
-            {types.length > 1 ? (
-              <Selector
-                label="Тип"
-                description="По типу выбирается цикл, по которому пойдёт задача"
-                options={types.map((t) => ({value: t, label: t}))}
-                value={taskType}
-                onChange={(v) => setTaskType(v as string)}
+          {project.task_property_defs
+            .filter((def) => def.key !== 'type')
+            .map((def) => (
+              <PropertyField
+                key={def.id}
+                def={def}
+                value={properties[def.key]}
+                onChange={(value) => setProperties((prev) => ({...prev, [def.key]: value}))}
               />
-            ) : null}
-            <TextArea label="Описание" value={description} onChange={setDescription} rows={4} />
-            <Selector label="Приоритет" options={PRIORITIES} value={priority} onChange={(v) => setPriority(v as string)} />
-            <MultiSelector
-              label="Область по репозиториям"
-              description="Одна задача — один репозиторий, если не включена мультирепозиторность"
-              value={repositories}
-              onChange={setRepositories}
-              options={project.repositories.map((r) => ({
-                value: `${r.owner}/${r.name}`,
-                label: `${r.owner}/${r.name}`,
-              }))}
-            />
-            {project.task_property_defs
-              .filter((def) => def.key !== 'type')
-              .map((def) => (
-                <PropertyField
-                  key={def.id}
-                  def={def}
-                  value={properties[def.key]}
-                  onChange={(value) => setProperties((prev) => ({...prev, [def.key]: value}))}
-                />
-              ))}
-          </FormLayout>
-          <HStack gap={2} hAlign="end">
-            <Button variant="ghost" label="Отмена" onClick={() => setIsOpen(false)} />
-            <Button
-              variant="primary"
-              label="Создать"
-              isDisabled={!title || saving}
-              onClick={submit}
-            />
-          </HStack>
-        </VStack>
-      </Dialog>
-    </>
+            ))}
+        </FormLayout>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => setIsOpen(false)}>
+            Отмена
+          </Button>
+          <Button disabled={!title || saving} onClick={submit}>
+            Создать
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

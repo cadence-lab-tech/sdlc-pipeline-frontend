@@ -1,13 +1,14 @@
 import {useState} from 'react';
-import {Button} from '@astryxdesign/core/Button';
-import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
-import {FormLayout} from '@astryxdesign/core/FormLayout';
-import {HStack, VStack} from '@astryxdesign/core/Layout';
-import {Selector} from '@astryxdesign/core/Selector';
-import {Switch} from '@astryxdesign/core/Switch';
-import {TextArea} from '@astryxdesign/core/TextArea';
-import {TextInput} from '@astryxdesign/core/TextInput';
-import {Text} from '@astryxdesign/core/Text';
+
+import {Button} from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {FormLayout, Selector, Switch, TextArea, TextInput} from '@/components/fields';
 
 import {ApiError, api} from '../api/client';
 import type {Gate, UUID} from '../api/types';
@@ -136,9 +137,11 @@ export function GateDialog({
   };
 
   return (
-    <Dialog isOpen={isOpen} onOpenChange={onClose} purpose="form" width={560} padding={5}>
-      <VStack gap={4}>
-        <DialogHeader title={gate ? `Гейт ${gate.key}` : 'Новый гейт'} />
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[560px]">
+        <DialogHeader>
+          <DialogTitle>{gate ? `Гейт ${gate.key}` : 'Новый гейт'}</DialogTitle>
+        </DialogHeader>
         {error ? <Failure error={error} title="Гейт не сохранён" /> : null}
         <FormLayout>
           <TextInput
@@ -153,7 +156,7 @@ export function GateDialog({
             label="Тип"
             options={GATE_TYPES.map((t) => ({value: t.value, label: t.label}))}
             value={type}
-            onChange={(v) => pickType(v as string)}
+            onChange={pickType}
           />
           <Switch
             label="Блокирующий"
@@ -169,19 +172,18 @@ export function GateDialog({
             rows={8}
           />
         </FormLayout>
-        <Text type="supporting" color="secondary">
+        <p className="text-muted-foreground text-sm">
           Гейты типов, которых движок ещё не умеет, при активации всплывут предупреждением.
-        </Text>
-        <HStack gap={2} hAlign="end">
-          <Button variant="ghost" label="Отмена" onClick={onClose} />
-          <Button
-            variant="primary"
-            label="Сохранить"
-            isDisabled={!key || !name || busy}
-            onClick={submit}
-          />
-        </HStack>
-      </VStack>
+        </p>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>
+            Отмена
+          </Button>
+          <Button disabled={!key || !name || busy} onClick={submit}>
+            Сохранить
+          </Button>
+        </DialogFooter>
+      </DialogContent>
     </Dialog>
   );
 }

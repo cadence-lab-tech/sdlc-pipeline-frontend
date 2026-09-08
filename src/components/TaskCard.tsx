@@ -1,14 +1,12 @@
-import {Card} from '@astryxdesign/core/Card';
-import {HStack, VStack} from '@astryxdesign/core/Layout';
-import {Text} from '@astryxdesign/core/Text';
-import {Token} from '@astryxdesign/core/Token';
+import {Card} from '@/components/ui/card';
+import {Token, type TokenColor} from '@/components/kit';
 
 import type {Task} from '../api/types';
 
-const PRIORITY_COLOR: Record<string, 'red' | 'orange' | 'gray'> = {
+const PRIORITY_COLOR: Record<string, TokenColor> = {
   urgent: 'red',
   high: 'orange',
-  low: 'gray',
+  low: 'default',
 };
 
 // Карточка задачи на доске. Область задачи — набор репозиториев, а не один:
@@ -23,40 +21,28 @@ export function TaskCard({
   const multiRepo = task.properties.multi_repo === true;
 
   return (
-    <Card padding={3}>
-      <VStack gap={2}>
-        <HStack hAlign="between" vAlign="center" gap={2}>
-          <Text type="supporting" color="secondary" hasTabularNumbers>
-            {task.key}
-          </Text>
-          {task.priority !== 'normal' ? (
-            <Token
-              size="sm"
-              label={task.priority}
-              color={PRIORITY_COLOR[task.priority] ?? 'gray'}
-            />
-          ) : null}
-        </HStack>
-        <Text weight="medium" maxLines={3}>
-          {task.title}
-        </Text>
-        <HStack gap={1} wrap="wrap">
-          {task.repositories.map((r) => (
-            <Token key={r.repository_id} size="sm" label={r.name} />
-          ))}
-          {multiRepo ? <Token size="sm" label="мультирепо" color="blue" /> : null}
-          {isOnOldWorkflow ? <Token size="sm" label="прежняя версия цикла" color="orange" /> : null}
-        </HStack>
-        {task.labels.length > 0 ? (
-          <HStack gap={1} wrap="wrap">
-            {task.labels.map((l) => (
-              <Text key={l} type="supporting" color="secondary">
-                #{l}
-              </Text>
-            ))}
-          </HStack>
+    <Card className="hover:border-foreground/20 gap-2 p-3 transition-colors">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-muted-foreground font-mono text-xs tabular-nums">{task.key}</span>
+        {task.priority !== 'normal' ? (
+          <Token label={task.priority} color={PRIORITY_COLOR[task.priority] ?? 'default'} />
         ) : null}
-      </VStack>
+      </div>
+      <p className="line-clamp-3 text-sm font-medium">{task.title}</p>
+      <div className="flex flex-wrap gap-1">
+        {task.repositories.map((r) => (
+          <Token key={r.repository_id} label={r.name} />
+        ))}
+        {multiRepo ? <Token label="мультирепо" color="blue" /> : null}
+        {isOnOldWorkflow ? <Token label="прежняя версия цикла" color="orange" /> : null}
+      </div>
+      {task.labels.length > 0 ? (
+        <div className="text-muted-foreground flex flex-wrap gap-1 text-xs">
+          {task.labels.map((l) => (
+            <span key={l}>#{l}</span>
+          ))}
+        </div>
+      ) : null}
     </Card>
   );
 }

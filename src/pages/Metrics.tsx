@@ -1,13 +1,10 @@
 import {useState} from 'react';
 import {useParams} from 'react-router-dom';
-import {Card} from '@astryxdesign/core/Card';
-import {EmptyState} from '@astryxdesign/core/EmptyState';
-import {Grid} from '@astryxdesign/core/Grid';
-import {HStack, VStack} from '@astryxdesign/core/Layout';
-import {Section} from '@astryxdesign/core/Section';
-import {SegmentedControl, SegmentedControlItem} from '@astryxdesign/core/SegmentedControl';
-import {Table, pixel, proportional} from '@astryxdesign/core/Table';
-import {Heading, Text} from '@astryxdesign/core/Text';
+
+import {Card} from '@/components/ui/card';
+import {ToggleGroup, ToggleGroupItem} from '@/components/ui/toggle-group';
+import {DataTable} from '@/components/DataTable';
+import {EmptyState, Page, PageHeader, Section} from '@/components/kit';
 
 import {api} from '../api/client';
 import type {CostMetric, DriftMetric, GateMetric, StatusMetric} from '../api/types';
@@ -29,192 +26,159 @@ export function Metrics() {
   const metrics = useResource(() => api.metrics(projectKey, period), [projectKey, period]);
 
   return (
-    <Section padding={6}>
-      <VStack gap={5}>
-        <HStack hAlign="between" vAlign="center">
-          <Heading level={1}>Метрики цикла</Heading>
-          <SegmentedControl label="Период" value={period} onChange={setPeriod} size="sm">
+    <Page>
+      <PageHeader
+        title="Метрики цикла"
+        actions={
+          <ToggleGroup
+            type="single"
+            size="sm"
+            variant="outline"
+            value={period}
+            onValueChange={(next) => next && setPeriod(next)}
+            aria-label="Период">
             {PERIODS.map((p) => (
-              <SegmentedControlItem key={p.value} value={p.value} label={p.label} />
+              <ToggleGroupItem key={p.value} value={p.value}>
+                {p.label}
+              </ToggleGroupItem>
             ))}
-          </SegmentedControl>
-        </HStack>
+          </ToggleGroup>
+        }
+      />
 
-        <Loaded resource={metrics}>
-          {(m) => (
-            <VStack gap={5}>
-              <Grid columns={{minWidth: 180}} gap={3}>
-                <Stat label="Создано задач" value={m.throughput.created} />
-                <Stat label="Закрыто" value={m.throughput.closed} />
-                <Stat label="Отменено" value={m.throughput.cancelled} />
-                <Stat label="Среднее время до закрытия" value={hours(m.throughput.avg_lead_hours)} />
-                <Stat label="Перепроверок" value={m.throughput.review_runs} />
-                <Stat label="Из них с возвратом" value={m.throughput.review_fails} />
-              </Grid>
+      <Loaded resource={metrics}>
+        {(m) => (
+          <div className="space-y-6">
+            <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-6">
+              <Stat label="Создано задач" value={m.throughput.created} />
+              <Stat label="Закрыто" value={m.throughput.closed} />
+              <Stat label="Отменено" value={m.throughput.cancelled} />
+              <Stat label="Среднее время до закрытия" value={hours(m.throughput.avg_lead_hours)} />
+              <Stat label="Перепроверок" value={m.throughput.review_runs} />
+              <Stat label="Из них с возвратом" value={m.throughput.review_fails} />
+            </div>
 
-              <VStack gap={2}>
-                <Heading level={2}>По статусам</Heading>
-                <Text type="supporting" color="secondary">
-                  Длительность завершённых попыток этапа за период. Откаты и повторные попытки
-                  показывают, где задачи разворачиваются.
-                </Text>
-                {m.statuses.length === 0 ? (
-                  <EmptyState title="Ни одна попытка этапа не завершилась за период" />
-                ) : (
-                  <Table<StatusMetric & Record<string, unknown>>
-                    data={m.statuses as (StatusMetric & Record<string, unknown>)[]}
-                    idKey="status"
-                    density="compact"
-                    columns={[
-                      {key: 'status_name', header: 'Статус', width: proportional(2)},
-                      {key: 'open_tasks', header: 'Сейчас', width: pixel(90), align: 'end'},
-                      {key: 'finished_runs', header: 'Попыток', width: pixel(90), align: 'end'},
-                      {
-                        key: 'median_hours',
-                        header: 'Медиана',
-                        width: pixel(110),
-                        align: 'end',
-                        renderCell: (row) => hours(row.median_hours),
-                      },
-                      {
-                        key: 'avg_hours',
-                        header: 'Среднее',
-                        width: pixel(110),
-                        align: 'end',
-                        renderCell: (row) => hours(row.avg_hours),
-                      },
-                      {
-                        key: 'max_hours',
-                        header: 'Максимум',
-                        width: pixel(110),
-                        align: 'end',
-                        renderCell: (row) => hours(row.max_hours),
-                      },
-                      {key: 'rejections', header: 'Откатов', width: pixel(90), align: 'end'},
-                      {key: 'repeated_runs', header: 'Повторных', width: pixel(100), align: 'end'},
-                      {key: 'expired_leases', header: 'Аренд истекло', width: pixel(120), align: 'end'},
-                    ]}
-                  />
-                )}
-              </VStack>
+            <Section
+              title="По статусам"
+              description="Длительность завершённых попыток этапа за период. Откаты и повторные попытки показывают, где задачи разворачиваются.">
+              <DataTable<StatusMetric>
+                data={m.statuses}
+                idKey="status"
+                empty={<EmptyState title="Ни одна попытка этапа не завершилась за период" />}
+                columns={[
+                  {key: 'status_name', header: 'Статус'},
+                  {key: 'open_tasks', header: 'Сейчас', width: 90, align: 'end'},
+                  {key: 'finished_runs', header: 'Попыток', width: 90, align: 'end'},
+                  {
+                    key: 'median_hours',
+                    header: 'Медиана',
+                    width: 110,
+                    align: 'end',
+                    renderCell: (row) => hours(row.median_hours),
+                  },
+                  {
+                    key: 'avg_hours',
+                    header: 'Среднее',
+                    width: 110,
+                    align: 'end',
+                    renderCell: (row) => hours(row.avg_hours),
+                  },
+                  {
+                    key: 'max_hours',
+                    header: 'Максимум',
+                    width: 110,
+                    align: 'end',
+                    renderCell: (row) => hours(row.max_hours),
+                  },
+                  {key: 'rejections', header: 'Откатов', width: 90, align: 'end'},
+                  {key: 'repeated_runs', header: 'Повторных', width: 100, align: 'end'},
+                  {key: 'expired_leases', header: 'Аренд истекло', width: 120, align: 'end'},
+                ]}
+              />
+            </Section>
 
-              <VStack gap={2}>
-                <Heading level={2}>Гейты</Heading>
-                <Text type="supporting" color="secondary">
-                  Вердикты по гейтам за период. Гейт, который валится чаще других, — либо самое
-                  полезное условие цикла, либо неверно настроенное.
-                </Text>
-                {m.gates.length === 0 ? (
-                  <EmptyState title="Гейты за период не прогонялись" />
-                ) : (
-                  <Table<GateMetric & Record<string, unknown>>
-                    data={m.gates as (GateMetric & Record<string, unknown>)[]}
-                    idKey={(g) => `${g.transition}/${g.gate}`}
-                    density="compact"
-                    columns={[
-                      {key: 'transition', header: 'Переход', width: proportional(1)},
-                      {key: 'gate_name', header: 'Гейт', width: proportional(2)},
-                      {key: 'type', header: 'Тип', width: proportional(1)},
-                      {key: 'passed', header: 'Прошёл', width: pixel(90), align: 'end'},
-                      {key: 'failed', header: 'Не прошёл', width: pixel(100), align: 'end'},
-                      {key: 'waived', header: 'Снят', width: pixel(80), align: 'end'},
-                      {key: 'pending', header: 'Ждёт', width: pixel(80), align: 'end'},
-                    ]}
-                  />
-                )}
-              </VStack>
+            <Section
+              title="Гейты"
+              description="Вердикты по гейтам за период. Гейт, который валится чаще других, — либо самое полезное условие цикла, либо неверно настроенное.">
+              <DataTable<GateMetric>
+                data={m.gates}
+                idKey={(g) => `${g.transition}/${g.gate}`}
+                empty={<EmptyState title="Гейты за период не прогонялись" />}
+                columns={[
+                  {key: 'transition', header: 'Переход'},
+                  {key: 'gate_name', header: 'Гейт'},
+                  {key: 'type', header: 'Тип'},
+                  {key: 'passed', header: 'Прошёл', width: 90, align: 'end'},
+                  {key: 'failed', header: 'Не прошёл', width: 100, align: 'end'},
+                  {key: 'waived', header: 'Снят', width: 80, align: 'end'},
+                  {key: 'pending', header: 'Ждёт', width: 80, align: 'end'},
+                ]}
+              />
+            </Section>
 
-              <VStack gap={2}>
-                <Heading level={2}>Стоимость</Heading>
-                <Text type="supporting" color="secondary">
-                  Что стоила работа агентов за период — по статусам, ролям и моделям. Считается по
-                  самоотчётам: прогон, о котором не отчитались, стоит «неизвестно», а не ноль,
-                  и такие прогоны показаны отдельным счётчиком.
-                </Text>
-                {m.cost.length === 0 ? (
-                  <EmptyState title="О стоимости за период никто не отчитался" />
-                ) : (
-                  <Table<CostMetric & Record<string, unknown>>
-                    data={m.cost as (CostMetric & Record<string, unknown>)[]}
-                    idKey={(c) => `${c.dimension}/${c.key}`}
-                    density="compact"
-                    columns={[
-                      {key: 'dimension', header: 'Разрез', width: pixel(90)},
-                      {
-                        key: 'key',
-                        header: 'Значение',
-                        width: proportional(2),
-                        renderCell: (row) => row.name || row.key,
-                      },
-                      {key: 'runs', header: 'Прогонов', width: pixel(100), align: 'end'},
-                      {
-                        key: 'silent_runs',
-                        header: 'Без отчёта',
-                        width: pixel(110),
-                        align: 'end',
-                      },
-                      {
-                        key: 'cost_usd',
-                        header: 'Стоимость',
-                        width: pixel(110),
-                        align: 'end',
-                        renderCell: (row) => money(row.cost_usd),
-                      },
-                      {
-                        key: 'avg_cost_usd',
-                        header: 'Средняя',
-                        width: pixel(110),
-                        align: 'end',
-                        renderCell: (row) => money(row.avg_cost_usd),
-                      },
-                      {
-                        key: 'tokens',
-                        header: 'Токенов',
-                        width: pixel(120),
-                        align: 'end',
-                        renderCell: (row) => row.tokens.toLocaleString('ru'),
-                      },
-                    ]}
-                  />
-                )}
-              </VStack>
+            <Section
+              title="Стоимость"
+              description="Что стоила работа агентов за период — по статусам, ролям и моделям. Считается по самоотчётам: прогон, о котором не отчитались, стоит «неизвестно», а не ноль, и такие прогоны показаны отдельным счётчиком.">
+              <DataTable<CostMetric>
+                data={m.cost}
+                idKey={(c) => `${c.dimension}/${c.key}`}
+                empty={<EmptyState title="О стоимости за период никто не отчитался" />}
+                columns={[
+                  {key: 'dimension', header: 'Разрез', width: 90},
+                  {key: 'key', header: 'Значение', renderCell: (row) => row.name || row.key},
+                  {key: 'runs', header: 'Прогонов', width: 100, align: 'end'},
+                  {key: 'silent_runs', header: 'Без отчёта', width: 110, align: 'end'},
+                  {
+                    key: 'cost_usd',
+                    header: 'Стоимость',
+                    width: 110,
+                    align: 'end',
+                    renderCell: (row) => money(row.cost_usd),
+                  },
+                  {
+                    key: 'avg_cost_usd',
+                    header: 'Средняя',
+                    width: 110,
+                    align: 'end',
+                    renderCell: (row) => money(row.avg_cost_usd),
+                  },
+                  {
+                    key: 'tokens',
+                    header: 'Токенов',
+                    width: 120,
+                    align: 'end',
+                    renderCell: (row) => row.tokens.toLocaleString('ru'),
+                  },
+                ]}
+              />
+            </Section>
 
-              <VStack gap={2}>
-                <Heading level={2}>Дрейф</Heading>
-                {m.drift.length === 0 ? (
-                  <EmptyState title="Сигналов дрейфа за период не было" />
-                ) : (
-                  <Table<DriftMetric & Record<string, unknown>>
-                    data={m.drift as (DriftMetric & Record<string, unknown>)[]}
-                    idKey={(d) => `${d.kind}/${d.severity}`}
-                    density="compact"
-                    columns={[
-                      {key: 'kind', header: 'Вид', width: proportional(1)},
-                      {key: 'severity', header: 'Уровень', width: proportional(1)},
-                      {key: 'open', header: 'Открыто', width: pixel(90), align: 'end'},
-                      {key: 'resolved', header: 'Разобрано', width: pixel(100), align: 'end'},
-                      {key: 'dismissed', header: 'Отклонено', width: pixel(100), align: 'end'},
-                    ]}
-                  />
-                )}
-              </VStack>
-            </VStack>
-          )}
-        </Loaded>
-      </VStack>
-    </Section>
+            <Section title="Дрейф">
+              <DataTable<DriftMetric>
+                data={m.drift}
+                idKey={(d) => `${d.kind}/${d.severity}`}
+                empty={<EmptyState title="Сигналов дрейфа за период не было" />}
+                columns={[
+                  {key: 'kind', header: 'Вид'},
+                  {key: 'severity', header: 'Уровень'},
+                  {key: 'open', header: 'Открыто', width: 90, align: 'end'},
+                  {key: 'resolved', header: 'Разобрано', width: 100, align: 'end'},
+                  {key: 'dismissed', header: 'Отклонено', width: 100, align: 'end'},
+                ]}
+              />
+            </Section>
+          </div>
+        )}
+      </Loaded>
+    </Page>
   );
 }
 
 function Stat({label, value}: {label: string; value: number | string}) {
   return (
-    <Card padding={3}>
-      <VStack gap={1}>
-        <Text type="supporting" color="secondary">
-          {label}
-        </Text>
-        <Heading level={3}>{String(value)}</Heading>
-      </VStack>
+    <Card className="gap-1 p-3">
+      <p className="text-muted-foreground text-xs">{label}</p>
+      <p className="text-xl font-semibold tabular-nums">{String(value)}</p>
     </Card>
   );
 }

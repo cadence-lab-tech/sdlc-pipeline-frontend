@@ -1,7 +1,4 @@
-import {NumberInput} from '@astryxdesign/core/NumberInput';
-import {Selector} from '@astryxdesign/core/Selector';
-import {Switch} from '@astryxdesign/core/Switch';
-import {TextInput} from '@astryxdesign/core/TextInput';
+import {NumberInput, Selector, Switch, TextInput} from '@/components/fields';
 
 import type {TaskPropertyDef} from '../api/types';
 
@@ -43,8 +40,8 @@ export function PropertyField({
           description={def.description}
           hasClear
           options={(def.enum_values ?? []).map((v) => ({value: v, label: v}))}
-          value={typeof value === 'string' ? value : null}
-          onChange={(v) => onChange(v)}
+          value={typeof value === 'string' ? value : ''}
+          onChange={(v) => onChange(v === '' ? undefined : v)}
         />
       );
     default:

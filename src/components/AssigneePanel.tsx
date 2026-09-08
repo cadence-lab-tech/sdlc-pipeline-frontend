@@ -1,9 +1,8 @@
 import {useState} from 'react';
-import {Button} from '@astryxdesign/core/Button';
-import {HStack, VStack} from '@astryxdesign/core/Layout';
-import {Selector} from '@astryxdesign/core/Selector';
-import {TextInput} from '@astryxdesign/core/TextInput';
-import {Heading, Text} from '@astryxdesign/core/Text';
+
+import {Button} from '@/components/ui/button';
+import {Selector, TextInput} from '@/components/fields';
+import {Section} from '@/components/kit';
 
 import {ApiError, api} from '../api/client';
 import type {Task} from '../api/types';
@@ -45,13 +44,12 @@ export function AssigneePanel({task, onChanged}: {task: Task; onChanged: () => v
   }
 
   return (
-    <VStack gap={2}>
-      <Heading level={3}>Исполнитель</Heading>
-      <Text type="supporting" color="secondary">
+    <Section title="Исполнитель">
+      <p className="text-muted-foreground text-sm">
         {task.assignee_handle
           ? `Задачу заберёт только ${task.assignee_handle}`
           : 'Задачу заберёт любой агент подходящей роли'}
-      </Text>
+      </p>
       {error ? <Failure error={error} title="Назначение не изменилось" /> : null}
       {options.length > 0 ? (
         <Selector
@@ -60,7 +58,7 @@ export function AssigneePanel({task, onChanged}: {task: Task; onChanged: () => v
           placeholder="Выберите принципала"
           options={options}
           value={handle}
-          onChange={(v) => setHandle(v as string)}
+          onChange={setHandle}
         />
       ) : (
         <TextInput
@@ -71,22 +69,22 @@ export function AssigneePanel({task, onChanged}: {task: Task; onChanged: () => v
           onChange={setHandle}
         />
       )}
-      <HStack gap={2}>
+      <div className="flex gap-2">
         <Button
           size="sm"
           variant="secondary"
-          label="Назначить"
-          isDisabled={!handle || busy || handle === task.assignee_handle}
-          onClick={() => assign(handle)}
-        />
+          disabled={!handle || busy || handle === task.assignee_handle}
+          onClick={() => assign(handle)}>
+          Назначить
+        </Button>
         <Button
           size="sm"
           variant="ghost"
-          label="Снять назначение"
-          isDisabled={!task.assignee_handle || busy}
-          onClick={() => assign('')}
-        />
-      </HStack>
-    </VStack>
+          disabled={!task.assignee_handle || busy}
+          onClick={() => assign('')}>
+          Снять назначение
+        </Button>
+      </div>
+    </Section>
   );
 }

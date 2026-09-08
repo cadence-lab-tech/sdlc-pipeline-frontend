@@ -1,9 +1,8 @@
 import {useState} from 'react';
-import {Button} from '@astryxdesign/core/Button';
-import {HStack, VStack} from '@astryxdesign/core/Layout';
-import {MultiSelector} from '@astryxdesign/core/MultiSelector';
-import {Heading, Text} from '@astryxdesign/core/Text';
-import {Token} from '@astryxdesign/core/Token';
+
+import {Button} from '@/components/ui/button';
+import {MultiSelector} from '@/components/fields';
+import {Section, Token} from '@/components/kit';
 
 import {ApiError, api} from '../api/client';
 import type {Task} from '../api/types';
@@ -36,28 +35,24 @@ export function ScopePanel({task, onChanged}: {task: Task; onChanged: () => void
   };
 
   return (
-    <VStack gap={3}>
-      <Heading level={3}>Область и свойства</Heading>
+    <Section title="Область и свойства">
       {error ? <Failure error={error} title="Область не изменена" /> : null}
 
-      <VStack gap={1}>
-        <Text type="supporting" color="secondary">
-          Репозитории задачи
-        </Text>
-        <HStack gap={1} wrap="wrap">
+      <div className="space-y-1">
+        <p className="text-muted-foreground text-xs">Репозитории задачи</p>
+        <div className="flex flex-wrap gap-1">
           {task.repositories.map((r) => (
             <Token
               key={r.repository_id}
-              size="sm"
               label={`${r.owner}/${r.name}`}
-              color={r.is_primary ? 'blue' : 'gray'}
+              color={r.is_primary ? 'blue' : 'default'}
             />
           ))}
-        </HStack>
-      </VStack>
+        </div>
+      </div>
 
       {project.data ? (
-        <>
+        <div className="space-y-4">
           {project.data.task_property_defs.map((def) => (
             <PropertyField
               key={def.id}
@@ -76,16 +71,12 @@ export function ScopePanel({task, onChanged}: {task: Task; onChanged: () => void
               .map((r) => ({value: `${r.owner}/${r.name}`, label: `${r.owner}/${r.name}`}))}
           />
           {add.length > 0 ? (
-            <Button
-              size="sm"
-              variant="secondary"
-              isDisabled={busy}
-              label="Расширить область"
-              onClick={() => save({add_repositories: add})}
-            />
+            <Button size="sm" variant="secondary" disabled={busy} onClick={() => save({add_repositories: add})}>
+              Расширить область
+            </Button>
           ) : null}
-        </>
+        </div>
       ) : null}
-    </VStack>
+    </Section>
   );
 }

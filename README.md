@@ -9,12 +9,12 @@
 
 ## Стек
 
-Vite, React 19, TypeScript, [Astryx](https://github.com/facebook/astryx) 0.5.0
-(`@astryxdesign/core` + `@astryxdesign/theme-neutral`).
+Vite, React 19, TypeScript, Tailwind CSS 4 и
+[shadcn/ui](https://ui.shadcn.com) на примитивах Radix.
 
-Astryx требует React 19 и не нуждается в сборочных плагинах — компоненты
-приезжают пре-собранными. Порядок импорта CSS важен: `reset.css` →
-`astryx.css` → `theme.css`.
+Компоненты shadcn лежат в `src/components/ui/` исходниками, а не приезжают
+зависимостью: их правят под себя, а новые добавляют командой
+`npx shadcn@latest add <имя>`. Тема светлая и тёмная, переключатель — в шапке.
 
 ## Запуск
 

@@ -24,9 +24,12 @@ for (const kind of ['analysis.brief', 'analysis.acceptance_criteria']) {
     return true;
   `);
   await run(`
-    // выбрать вид артефакта в выпадающем списке
-    const sel = all('button, [role=combobox]').find(b => (b.innerText||'').includes('Select') || (b.innerText||'').includes('Вид'));
-    (sel || byText('Select')).click();
+    // выбрать вид артефакта в выпадающем списке: поле ищется по подписи,
+    // как и текстовые, — у списка это кнопка, а не input
+    const lbl = all('label').find(l => l.innerText.trim().startsWith('Вид'));
+    const sel = lbl && document.getElementById(lbl.getAttribute('for'));
+    if (!sel) throw new Error('поле «Вид» не найдено');
+    sel.click();
     await sleep(400);
     const option = all('[role=option], li, button').find(o => (o.innerText||'').trim() === '${kind}');
     if (!option) throw new Error('нет варианта ${kind}');
@@ -61,7 +64,7 @@ check('отмена доступна', t.includes('Перевести') && t.inc
 check('задача всё ещё в аналитике', t.includes('analysis') && !t.includes('Cancelled'), t.slice(0, 300));
 
 console.log('лента событий');
-await run('await clickExact("Лента", "button, [role=tab]"); return true;');
+await run('await press("Лента"); return true;');
 await new Promise((r) => setTimeout(r, 800));
 t = await run('return texts();');
 check('лента показывает события', t.includes('task.') || t.includes('artifact.'), t.slice(0, 400));

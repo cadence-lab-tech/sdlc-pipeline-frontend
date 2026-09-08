@@ -1,11 +1,14 @@
 import {useState} from 'react';
-import {Button} from '@astryxdesign/core/Button';
-import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
-import {FormLayout} from '@astryxdesign/core/FormLayout';
-import {HStack, VStack} from '@astryxdesign/core/Layout';
-import {Selector} from '@astryxdesign/core/Selector';
-import {Switch} from '@astryxdesign/core/Switch';
-import {TextInput} from '@astryxdesign/core/TextInput';
+
+import {Button} from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {FormLayout, Selector, Switch, TextInput} from '@/components/fields';
 
 import {ApiError, api} from '../api/client';
 import type {Status, Transition, UUID} from '../api/types';
@@ -44,8 +47,8 @@ export function TransitionDialog({
   const [key, setKey] = useState(transition?.key ?? '');
   const [name, setName] = useState(transition?.name ?? '');
   const [from, setFrom] = useState<string>(fromKey);
-  const [to, setTo] = useState<string | null>(
-    transition ? (statuses.find((s) => s.id === transition.to_status_id)?.key ?? null) : null,
+  const [to, setTo] = useState(
+    transition ? (statuses.find((s) => s.id === transition.to_status_id)?.key ?? '') : '',
   );
   const [kind, setKind] = useState(transition?.kind ?? 'advance');
   const [auto, setAuto] = useState(transition?.auto ?? false);
@@ -82,9 +85,11 @@ export function TransitionDialog({
   const statusOptions = statuses.map((s) => ({value: s.key, label: s.name}));
 
   return (
-    <Dialog isOpen={isOpen} onOpenChange={onClose} purpose="form" width={520} padding={5}>
-      <VStack gap={4}>
-        <DialogHeader title={transition ? `Переход ${transition.key}` : 'Новый переход'} />
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-[520px]">
+        <DialogHeader>
+          <DialogTitle>{transition ? `Переход ${transition.key}` : 'Новый переход'}</DialogTitle>
+        </DialogHeader>
         {error ? <Failure error={error} title="Переход не сохранён" /> : null}
         <FormLayout>
           <TextInput
@@ -100,17 +105,10 @@ export function TransitionDialog({
             description="«Из любого статуса» — переход, доступный отовсюду"
             options={[{value: ANY_STATUS, label: 'из любого статуса'}, ...statusOptions]}
             value={from}
-            onChange={(v) => setFrom((v as string) ?? ANY_STATUS)}
+            onChange={(v) => setFrom(v || ANY_STATUS)}
           />
-          <Selector
-            label="Куда"
-            options={statusOptions}
-            value={to}
-            onChange={setTo}
-            hasClear
-            isRequired
-          />
-          <Selector label="Вид" options={KINDS} value={kind} onChange={(v) => setKind(v as string)} />
+          <Selector label="Куда" options={statusOptions} value={to} onChange={setTo} hasClear />
+          <Selector label="Вид" options={KINDS} value={kind} onChange={setKind} />
           <Switch
             label="Автоматический"
             description="Движок выполнит переход сам, как только гейты пройдут"
@@ -118,16 +116,15 @@ export function TransitionDialog({
             onChange={setAuto}
           />
         </FormLayout>
-        <HStack gap={2} hAlign="end">
-          <Button variant="ghost" label="Отмена" onClick={onClose} />
-          <Button
-            variant="primary"
-            label="Сохранить"
-            isDisabled={!key || !name || !to || busy}
-            onClick={submit}
-          />
-        </HStack>
-      </VStack>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>
+            Отмена
+          </Button>
+          <Button disabled={!key || !name || !to || busy} onClick={submit}>
+            Сохранить
+          </Button>
+        </DialogFooter>
+      </DialogContent>
     </Dialog>
   );
 }

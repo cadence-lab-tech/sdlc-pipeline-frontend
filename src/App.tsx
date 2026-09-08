@@ -1,20 +1,44 @@
 import {useEffect, useState} from 'react';
-import {Navigate, Route, Routes, useLocation, useNavigate, useParams} from 'react-router-dom';
+import {Link, Navigate, Route, Routes, useLocation, useNavigate, useParams} from 'react-router-dom';
 import {BrowserRouter} from 'react-router-dom';
-import {AppShell} from '@astryxdesign/core/AppShell';
-import {Button} from '@astryxdesign/core/Button';
-import {LinkProvider} from '@astryxdesign/core/Link';
-import {Icon} from '@astryxdesign/core/Icon';
-import {HStack, VStack} from '@astryxdesign/core/Layout';
-import {NavIcon} from '@astryxdesign/core/NavIcon';
-import {Section} from '@astryxdesign/core/Section';
-import {SideNav, SideNavHeading, SideNavItem, SideNavSection} from '@astryxdesign/core/SideNav';
-import {Text} from '@astryxdesign/core/Text';
+import {
+  BarChart3,
+  Columns3,
+  FolderKanban,
+  LogOut,
+  Moon,
+  Settings2,
+  Sun,
+  Users,
+  UserSquare,
+  Workflow,
+  Wrench,
+} from 'lucide-react';
+
+import {Button} from '@/components/ui/button';
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarInset,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarRail,
+  SidebarTrigger,
+} from '@/components/ui/sidebar';
+import {Separator} from '@/components/ui/separator';
+import {TooltipProvider} from '@/components/ui/tooltip';
+import {ThemeProvider, useTheme} from '@/lib/theme';
 
 import {ApiError, UNAUTHENTICATED_EVENT, api, currentToken, setCurrentToken} from './api/client';
 import type {Me} from './api/types';
-import {Loading} from './components/Feedback';
-import {RouterLink} from './router';
+import {Failure, Loading} from './components/Feedback';
 import {Principals, Teams} from './pages/Admin';
 import {Board} from './pages/Board';
 import {Login} from './pages/Login';
@@ -27,24 +51,28 @@ import {WorkflowEditor} from './pages/WorkflowEditor';
 
 export function App() {
   return (
-    <BrowserRouter>
-      <LinkProvider component={RouterLink}>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/" element={<Navigate to="/projects" replace />} />
-          <Route path="/projects" element={<Shell page="projects"><Projects /></Shell>} />
-          <Route path="/teams" element={<Shell page="teams"><Teams /></Shell>} />
-          <Route path="/principals" element={<Shell page="principals"><Principals /></Shell>} />
-          <Route path="/p/:projectKey" element={<Navigate to="board" replace />} />
-          <Route path="/p/:projectKey/board" element={<Shell page="board"><Board /></Shell>} />
-          <Route path="/p/:projectKey/roles" element={<Shell page="roles"><Roles /></Shell>} />
-          <Route path="/p/:projectKey/workflow" element={<Shell page="workflow"><WorkflowEditor /></Shell>} />
-          <Route path="/p/:projectKey/metrics" element={<Shell page="metrics"><Metrics /></Shell>} />
-          <Route path="/p/:projectKey/settings" element={<Shell page="settings"><Settings /></Shell>} />
-          <Route path="/p/:projectKey/tasks/:taskKey" element={<Shell page="board"><TaskDetail /></Shell>} />
-        </Routes>
-      </LinkProvider>
-    </BrowserRouter>
+    <ThemeProvider>
+      {/* Подсказки Radix требуют провайдера над собой — он один на всё
+          приложение, а не по одному на каждую подсказку. */}
+      <TooltipProvider delayDuration={300}>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/" element={<Navigate to="/projects" replace />} />
+            <Route path="/projects" element={<Shell page="projects"><Projects /></Shell>} />
+            <Route path="/teams" element={<Shell page="teams"><Teams /></Shell>} />
+            <Route path="/principals" element={<Shell page="principals"><Principals /></Shell>} />
+            <Route path="/p/:projectKey" element={<Navigate to="board" replace />} />
+            <Route path="/p/:projectKey/board" element={<Shell page="board"><Board /></Shell>} />
+            <Route path="/p/:projectKey/roles" element={<Shell page="roles"><Roles /></Shell>} />
+            <Route path="/p/:projectKey/workflow" element={<Shell page="workflow"><WorkflowEditor /></Shell>} />
+            <Route path="/p/:projectKey/metrics" element={<Shell page="metrics"><Metrics /></Shell>} />
+            <Route path="/p/:projectKey/settings" element={<Shell page="settings"><Settings /></Shell>} />
+            <Route path="/p/:projectKey/tasks/:taskKey" element={<Shell page="board"><TaskDetail /></Shell>} />
+          </Routes>
+        </BrowserRouter>
+      </TooltipProvider>
+    </ThemeProvider>
   );
 }
 
@@ -57,6 +85,17 @@ type Page =
   | 'workflow'
   | 'metrics'
   | 'settings';
+
+const TITLES: Record<Page, string> = {
+  projects: 'Проекты',
+  teams: 'Команды',
+  principals: 'Принципалы',
+  board: 'Доска',
+  roles: 'Роли',
+  workflow: 'Цикл',
+  metrics: 'Метрики',
+  settings: 'Настройки',
+};
 
 // Shell спрашивает бэкенд, кто мы, и в режиме токенов без действующего токена
 // уводит на вход. В режиме header формы входа нет: актор назван заголовком,
@@ -112,112 +151,175 @@ function Shell({page, children}: {page: Page; children: React.ReactNode}) {
   };
 
   return (
-    <AppShell
-      contentPadding={0}
-      sideNav={
-        <SideNav
-          aria-label="Разделы"
-          header={
-            <SideNavHeading
-              icon={<NavIcon icon={<Icon icon="wrench" />} />}
-              heading="SDLC Pipeline"
-              headingHref="/projects"
-            />
-          }>
-          <SideNavSection title="Всё" isHeaderHidden>
-            <SideNavItem
-              label="Проекты"
-              icon="viewColumns"
-              href="/projects"
-              isSelected={page === 'projects'}
-            />
-            {/* Команды живут над проектами: уровень доступа сразу в несколько,
-                владение и бюджет (решение 0027). */}
-            <SideNavItem
-              label="Команды"
-              icon="info"
-              href="/teams"
-              isSelected={page === 'teams'}
-            />
-            {me?.principal.is_admin ? (
-              <SideNavItem
-                label="Принципалы"
-                icon="info"
-                href="/principals"
-                isSelected={page === 'principals'}
-              />
+    <SidebarProvider>
+      <Nav page={page} projectKey={projectKey} me={me} onLogout={logout} />
+      <SidebarInset className="min-w-0 overflow-x-hidden">
+        <header className="bg-background/80 sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b px-4 backdrop-blur">
+          <SidebarTrigger />
+          <Separator orientation="vertical" className="mr-1 h-4" />
+          <span className="text-sm font-medium">
+            {projectKey ? `${projectKey} · ${TITLES[page]}` : TITLES[page]}
+          </span>
+          <div className="ml-auto">
+            <ThemeToggle />
+          </div>
+        </header>
+        {failed ? (
+          <div className="p-6">
+            <Failure error={failed} title="Сервис недоступен" />
+          </div>
+        ) : me ? (
+          children
+        ) : (
+          <Loading />
+        )}
+      </SidebarInset>
+    </SidebarProvider>
+  );
+}
+
+type NavEntry = {
+  page: Page;
+  label: string;
+  href: string;
+  icon: React.ComponentType<{className?: string}>;
+};
+
+function Nav({
+  page,
+  projectKey,
+  me,
+  onLogout,
+}: {
+  page: Page;
+  projectKey?: string;
+  me?: Me;
+  onLogout: () => void;
+}) {
+  const global: NavEntry[] = [
+    {page: 'projects', label: 'Проекты', icon: FolderKanban, href: '/projects'},
+    // Команды живут над проектами: уровень доступа сразу в несколько,
+    // владение и бюджет (решение 0027).
+    {page: 'teams', label: 'Команды', icon: Users, href: '/teams'},
+  ];
+  if (me?.principal.is_admin) {
+    global.push({page: 'principals', label: 'Принципалы', icon: UserSquare, href: '/principals'});
+  }
+
+  const inProject: NavEntry[] = projectKey
+    ? [
+        {page: 'board', label: 'Доска', icon: Columns3, href: `/p/${projectKey}/board`},
+        {page: 'roles', label: 'Роли', icon: UserSquare, href: `/p/${projectKey}/roles`},
+        {page: 'workflow', label: 'Цикл', icon: Workflow, href: `/p/${projectKey}/workflow`},
+        {page: 'metrics', label: 'Метрики', icon: BarChart3, href: `/p/${projectKey}/metrics`},
+        {page: 'settings', label: 'Настройки', icon: Settings2, href: `/p/${projectKey}/settings`},
+      ]
+    : [];
+
+  return (
+    <Sidebar collapsible="icon">
+      <SidebarHeader>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton asChild size="lg">
+              <Link to="/projects">
+                <div className="bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg">
+                  <Wrench className="size-4" />
+                </div>
+                <div className="grid flex-1 text-left text-sm leading-tight">
+                  <span className="truncate font-semibold">SDLC Pipeline</span>
+                  <span className="text-muted-foreground truncate text-xs">цикл разработки</span>
+                </div>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarHeader>
+      <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {global.map((item) => (
+                <NavItem key={item.page} {...item} isActive={page === item.page} />
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        {inProject.length > 0 ? (
+          <SidebarGroup>
+            <SidebarGroupLabel>{projectKey}</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {inProject.map((item) => (
+                  <NavItem key={item.page} {...item} isActive={page === item.page} />
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ) : null}
+      </SidebarContent>
+      {me ? (
+        <SidebarFooter>
+          <div className="group-data-[collapsible=icon]:hidden space-y-1 px-2 py-1 text-xs">
+            <p className="font-medium">
+              {me.principal.kind}:{me.principal.handle}
+              {me.principal.is_admin ? ' · администратор' : ''}
+            </p>
+            {me.teams.length > 0 ? (
+              <p className="text-muted-foreground">команды: {me.teams.map((t) => t.team_key).join(', ')}</p>
             ) : null}
-          </SideNavSection>
-          {projectKey ? (
-            <SideNavSection title={projectKey}>
-              <SideNavItem
-                label="Доска"
-                icon="viewColumns"
-                href={`/p/${projectKey}/board`}
-                isSelected={page === 'board'}
-              />
-              <SideNavItem
-                label="Роли"
-                icon="info"
-                href={`/p/${projectKey}/roles`}
-                isSelected={page === 'roles'}
-              />
-              <SideNavItem
-                label="Цикл"
-                icon="wrench"
-                href={`/p/${projectKey}/workflow`}
-                isSelected={page === 'workflow'}
-              />
-              <SideNavItem
-                label="Метрики"
-                icon="info"
-                href={`/p/${projectKey}/metrics`}
-                isSelected={page === 'metrics'}
-              />
-              <SideNavItem
-                label="Настройки"
-                icon="wrench"
-                href={`/p/${projectKey}/settings`}
-                isSelected={page === 'settings'}
-              />
-            </SideNavSection>
+            <p className="text-muted-foreground">
+              {me.mode === 'token' ? 'вход по токену' : 'режим отладки: актор из заголовка'}
+            </p>
+          </div>
+          {me.mode === 'token' || currentToken() ? (
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton onClick={onLogout} tooltip="Выйти">
+                  <LogOut />
+                  <span>Выйти</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
           ) : null}
-          {me ? (
-            <SideNavSection title="Вы">
-              <Section padding={3} variant="transparent">
-                <VStack gap={2}>
-                  <Text type="supporting">
-                    {me.principal.kind}:{me.principal.handle}
-                    {me.principal.is_admin ? ' · администратор' : ''}
-                  </Text>
-                  {me.teams.length > 0 ? (
-                    <Text type="supporting" color="secondary">
-                      команды: {me.teams.map((t) => t.team_key).join(', ')}
-                    </Text>
-                  ) : null}
-                  <Text type="supporting" color="secondary">
-                    {me.mode === 'token' ? 'вход по токену' : 'режим отладки: актор из заголовка'}
-                  </Text>
-                  {me.mode === 'token' || currentToken() ? (
-                    <HStack>
-                      <Button size="sm" variant="ghost" label="Выйти" onClick={logout} />
-                    </HStack>
-                  ) : null}
-                </VStack>
-              </Section>
-            </SideNavSection>
-          ) : null}
-        </SideNav>
-      }>
-      {failed ? (
-        <Section padding={6}>
-          <Text color="secondary">Сервис недоступен: {failed.message}</Text>
-        </Section>
-      ) : me ? (
-        children
-      ) : (
-        <Loading />
-      )}
-    </AppShell>
+        </SidebarFooter>
+      ) : null}
+      <SidebarRail />
+    </Sidebar>
+  );
+}
+
+function NavItem({
+  label,
+  href,
+  icon: Icon,
+  isActive,
+}: {
+  label: string;
+  href: string;
+  icon: React.ComponentType<{className?: string}>;
+  isActive: boolean;
+}) {
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton asChild isActive={isActive} tooltip={label}>
+        <Link to={href}>
+          <Icon />
+          <span>{label}</span>
+        </Link>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+}
+
+// Переключатель темы гоняет по кругу: светлая → тёмная → системная.
+function ThemeToggle() {
+  const {theme, setTheme} = useTheme();
+  const next = theme === 'light' ? 'dark' : theme === 'dark' ? 'system' : 'light';
+  const title = {light: 'Тема: светлая', dark: 'Тема: тёмная', system: 'Тема: системная'}[theme];
+  return (
+    <Button variant="ghost" size="icon-sm" onClick={() => setTheme(next)} title={title} aria-label={title}>
+      {theme === 'dark' ? <Moon /> : theme === 'light' ? <Sun /> : <Sun className="opacity-50" />}
+    </Button>
   );
 }

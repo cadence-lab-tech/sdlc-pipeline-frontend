@@ -74,6 +74,18 @@ export const helpers = `
     await sleep(250);
     return true;
   };
+  // Вкладки Radix переключаются по mousedown, а не по click: el.click() их
+  // не трогает. press повторяет то, что делает мышь человека.
+  const press = async (t, sel = '[role=tab], button') => {
+    const el = all(sel).find((e) => (e.innerText || '').trim() === t);
+    if (!el) throw new Error('не найдено: ' + t);
+    const opts = {bubbles: true, cancelable: true, button: 0};
+    el.dispatchEvent(new MouseEvent('mousedown', opts));
+    el.dispatchEvent(new MouseEvent('mouseup', opts));
+    el.click();
+    await sleep(700);
+    return true;
+  };
   const clickExact = async (t, sel = 'button, [role=button]') => {
     const el = all(sel).find((e) => (e.innerText || '').trim() === t);
     if (!el) throw new Error('не найдено точно: ' + t);

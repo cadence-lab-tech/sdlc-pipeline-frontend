@@ -1,14 +1,22 @@
 import {useState} from 'react';
-import {Button} from '@astryxdesign/core/Button';
-import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
-import {FormLayout} from '@astryxdesign/core/FormLayout';
-import {HStack, VStack} from '@astryxdesign/core/Layout';
-import {MultiSelector} from '@astryxdesign/core/MultiSelector';
-import {NumberInput} from '@astryxdesign/core/NumberInput';
-import {Selector} from '@astryxdesign/core/Selector';
-import {Switch} from '@astryxdesign/core/Switch';
-import {TextArea} from '@astryxdesign/core/TextArea';
-import {TextInput} from '@astryxdesign/core/TextInput';
+
+import {Button} from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  FormLayout,
+  MultiSelector,
+  NumberInput,
+  Selector,
+  Switch,
+  TextArea,
+  TextInput,
+} from '@/components/fields';
 
 import {ApiError, api} from '../api/client';
 import type {Role, Status, UUID} from '../api/types';
@@ -45,7 +53,7 @@ export function StatusDialog({
   const [wipLimit, setWipLimit] = useState<number | undefined>(status?.wip_limit);
   const [color, setColor] = useState(status?.color ?? '');
   const [primaryRole, setPrimaryRole] = useState(
-    status?.roles?.find((r) => r.is_primary)?.role_key ?? null,
+    status?.roles?.find((r) => r.is_primary)?.role_key ?? '',
   );
   const [checkers, setCheckers] = useState(
     (status?.roles ?? []).filter((r) => !r.is_primary).map((r) => r.role_key),
@@ -92,9 +100,11 @@ export function StatusDialog({
   const options = roles.map((r) => ({value: r.key, label: r.name}));
 
   return (
-    <Dialog isOpen={isOpen} onOpenChange={onClose} purpose="form" width={560} padding={5}>
-      <VStack gap={4}>
-        <DialogHeader title={status ? `Статус ${status.key}` : 'Новый статус'} />
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[560px]">
+        <DialogHeader>
+          <DialogTitle>{status ? `Статус ${status.key}` : 'Новый статус'}</DialogTitle>
+        </DialogHeader>
         {error ? <Failure error={error} title="Статус не сохранён" /> : null}
         <FormLayout>
           <TextInput
@@ -107,12 +117,7 @@ export function StatusDialog({
           />
           <TextInput label="Название" value={name} onChange={setName} isRequired />
           <TextArea label="Описание" value={description} onChange={setDescription} rows={2} />
-          <Selector
-            label="Категория"
-            options={CATEGORIES}
-            value={category}
-            onChange={(v) => setCategory(v as string)}
-          />
+          <Selector label="Категория" options={CATEGORIES} value={category} onChange={setCategory} />
           <Selector
             label="Исполнитель"
             description="Роль, которая работает на этом статусе"
@@ -137,16 +142,15 @@ export function StatusDialog({
           <Switch label="Начальный" value={isInitial} onChange={setIsInitial} />
           <Switch label="Терминальный" value={isTerminal} onChange={setIsTerminal} />
         </FormLayout>
-        <HStack gap={2} hAlign="end">
-          <Button variant="ghost" label="Отмена" onClick={onClose} />
-          <Button
-            variant="primary"
-            label="Сохранить"
-            isDisabled={!key || !name || busy}
-            onClick={submit}
-          />
-        </HStack>
-      </VStack>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>
+            Отмена
+          </Button>
+          <Button disabled={!key || !name || busy} onClick={submit}>
+            Сохранить
+          </Button>
+        </DialogFooter>
+      </DialogContent>
     </Dialog>
   );
 }

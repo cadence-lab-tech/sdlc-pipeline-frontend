@@ -1,12 +1,8 @@
 import {useState} from 'react';
-import {Button} from '@astryxdesign/core/Button';
-import {Card} from '@astryxdesign/core/Card';
-import {FormLayout} from '@astryxdesign/core/FormLayout';
-import {HStack, VStack} from '@astryxdesign/core/Layout';
-import {Switch} from '@astryxdesign/core/Switch';
-import {TextArea} from '@astryxdesign/core/TextArea';
-import {TextInput} from '@astryxdesign/core/TextInput';
-import {Heading, Text} from '@astryxdesign/core/Text';
+
+import {Button} from '@/components/ui/button';
+import {Card} from '@/components/ui/card';
+import {FormLayout, Switch, TextArea, TextInput} from '@/components/fields';
 
 import {ApiError, api} from '../api/client';
 import type {OutputContractItem, RoleVersion} from '../api/types';
@@ -57,46 +53,37 @@ export function RoleVersionForm({
   };
 
   return (
-    <Card padding={4}>
-      <VStack gap={4}>
-        <Heading level={3}>
-          Новая версия {base ? `после v${base.version}` : ''}
-        </Heading>
-        {error ? <Failure error={error} title="Версия не создана" /> : null}
-        <FormLayout>
-          <TextArea
-            label="Инструкция"
-            description="Что делает роль и по каким правилам"
-            value={instructions}
-            onChange={setInstructions}
-            rows={14}
-            isRequired
-          />
-          <TextInput
-            label="Что читает на входе"
-            description="Виды артефактов через запятую"
-            value={inputKinds}
-            onChange={setInputKinds}
-          />
-          <TextInput
-            label="Что изменилось"
-            value={changelog}
-            onChange={setChangelog}
-          />
-        </FormLayout>
+    <Card className="gap-4 p-4">
+      <h3 className="text-base font-semibold">Новая версия {base ? `после v${base.version}` : ''}</h3>
+      {error ? <Failure error={error} title="Версия не создана" /> : null}
+      <FormLayout>
+        <TextArea
+          label="Инструкция"
+          description="Что делает роль и по каким правилам"
+          value={instructions}
+          onChange={setInstructions}
+          rows={14}
+          isRequired
+        />
+        <TextInput
+          label="Что читает на входе"
+          description="Виды артефактов через запятую"
+          value={inputKinds}
+          onChange={setInputKinds}
+        />
+        <TextInput label="Что изменилось" value={changelog} onChange={setChangelog} />
+      </FormLayout>
 
-        <ContractEditor items={contract} onChange={setContract} />
+      <ContractEditor items={contract} onChange={setContract} />
 
-        <HStack gap={2} hAlign="end">
-          <Button variant="ghost" label="Отмена" onClick={onCancel} />
-          <Button
-            variant="primary"
-            label="Сохранить версию"
-            isDisabled={!instructions || busy}
-            onClick={submit}
-          />
-        </HStack>
-      </VStack>
+      <div className="flex justify-end gap-2">
+        <Button variant="ghost" onClick={onCancel}>
+          Отмена
+        </Button>
+        <Button disabled={!instructions || busy} onClick={submit}>
+          Сохранить версию
+        </Button>
+      </div>
     </Card>
   );
 }
@@ -114,51 +101,38 @@ function ContractEditor({
     onChange(items.map((item, i) => (i === index ? {...item, ...next} : item)));
 
   return (
-    <VStack gap={3}>
-      <Text weight="medium">Контракт вывода</Text>
+    <div className="space-y-3">
+      <p className="text-sm font-medium">Контракт вывода</p>
       {items.map((item, i) => (
-        <HStack key={i} gap={2} vAlign="end" wrap="wrap">
-          <TextInput
-            label="Вид"
-            value={item.kind}
-            onChange={(kind) => patch(i, {kind})}
-            width={220}
-            isRequired
-          />
-          <TextInput
-            label="Название"
-            value={item.title ?? ''}
-            onChange={(title) => patch(i, {title})}
-            width={220}
-          />
-          <TextInput
-            label="Формат"
-            value={item.format ?? ''}
-            onChange={(format) => patch(i, {format})}
-            width={140}
-          />
-          <Switch
-            label="Обязателен"
-            value={item.required ?? false}
-            onChange={(required) => patch(i, {required})}
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            label="Убрать"
-            onClick={() => onChange(items.filter((_, j) => j !== i))}
-          />
-        </HStack>
+        <div key={i} className="flex flex-wrap items-end gap-2 rounded-lg border p-3">
+          <div className="w-55">
+            <TextInput label="Вид" value={item.kind} onChange={(kind) => patch(i, {kind})} isRequired />
+          </div>
+          <div className="w-55">
+            <TextInput label="Название" value={item.title ?? ''} onChange={(title) => patch(i, {title})} />
+          </div>
+          <div className="w-35">
+            <TextInput label="Формат" value={item.format ?? ''} onChange={(format) => patch(i, {format})} />
+          </div>
+          <div className="pb-2">
+            <Switch
+              label="Обязателен"
+              value={item.required ?? false}
+              onChange={(required) => patch(i, {required})}
+            />
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => onChange(items.filter((_, j) => j !== i))}>
+            Убрать
+          </Button>
+        </div>
       ))}
-      <HStack>
-        <Button
-          variant="secondary"
-          size="sm"
-          label="Добавить артефакт"
-          onClick={() => onChange([...items, {kind: '', format: 'markdown', required: true}])}
-        />
-      </HStack>
-    </VStack>
+      <Button
+        variant="secondary"
+        size="sm"
+        onClick={() => onChange([...items, {kind: '', format: 'markdown', required: true}])}>
+        Добавить артефакт
+      </Button>
+    </div>
   );
 }
 
