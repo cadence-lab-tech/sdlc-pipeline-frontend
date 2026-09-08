@@ -42,6 +42,14 @@ npm run build
 npm run e2e      # сквозные проверки в headless-Chrome поверх живого бэкенда
 ```
 
+Продовый образ — `Dockerfile`: сборка Vite, статика в Caddy с откатом на
+`index.html` для маршрутов React Router. Адрес API в бандл не вморожен:
+клиент ходит в `/v1` того же origin, к сервису его ведёт внешний Caddy из
+`backend/deploy`. Пуш в `main` собирает образ в GHCR и выкладывает его
+(`.github/workflows/deploy.yml`); как устроен стек —
+[deploy/README.md](https://github.com/stepaKaziatko/sdlc-pipeline-backend/blob/main/deploy/README.md)
+в репозитории бэкенда.
+
 ## Страницы
 
 | Страница | Назначение |

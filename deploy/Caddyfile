@@ -1,0 +1,16 @@
+# Статика интерфейса внутри контейнера ui. TLS и маршрутизация к сервису —
+# у внешнего Caddy (backend/deploy/Caddyfile), сюда приходит уже http.
+:80 {
+	root * /srv
+	encode zstd gzip
+
+	# Маршруты живут в React Router: /projects/SDLC/tasks/42 — это index.html.
+	try_files {path} /index.html
+	file_server
+
+	# Хэшированные ассеты Vite можно кэшировать вечно, index.html — нет:
+	# иначе после выкладки браузер держит старый бандл.
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+	header /index.html Cache-Control "no-cache"
+}

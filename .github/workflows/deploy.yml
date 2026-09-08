@@ -1,0 +1,105 @@
+# Сборка образа интерфейса и выкладка на машину в Timeweb.
+#
+# Стек целиком описан в репозитории бэкенда (deploy/); здесь только образ
+# интерфейса. Тот же deploy.sh на сервере подменяет IMAGE_FRONTEND и
+# поднимает контейнер ui — сервис при этом не трогается.
+name: deploy
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "README.md"
+      - "CLAUDE.md"
+      - ".claude/**"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Готовый тег образа для отката (короткий SHA). Пусто — собрать текущий main."
+        required: false
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: ${{ !inputs.tag }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      registry: ${{ steps.meta.outputs.registry }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: meta
+        run: |
+          echo "tag=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "registry=ghcr.io/$owner" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.registry }}/sdlc-pipeline-frontend:${{ steps.meta.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: [build]
+    # Пока машина не настроена (нет переменной SDLC_DOMAIN — она ставится
+    # вместе с секретами ssh), выкладки нет: образ собирается и лежит в GHCR,
+    # прогон остаётся зелёным. Секреты в условии job'а недоступны, переменные
+    # — да, поэтому гейт именно на ней.
+    if: ${{ always() && vars.SDLC_DOMAIN != '' && needs.build.result != 'failure' && needs.build.result != 'cancelled' }}
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: ssh-ключ
+        env:
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      # Токен прогона читает пакет, привязанный к этому репозиторию; уходит
+      # на машину через stdin и живёт до конца прогона.
+      - name: выложить
+        env:
+          TARGET: ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}
+          TAG: ${{ inputs.tag || needs.build.outputs.tag }}
+          REGISTRY: ${{ needs.build.outputs.registry || 'ghcr.io/stepakaziatko' }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | ssh -p "${{ vars.SSH_PORT || 22 }}" "$TARGET" \
+            "docker login ghcr.io -u '${{ github.actor }}' --password-stdin"
+          ssh -p "${{ vars.SSH_PORT || 22 }}" "$TARGET" \
+            "REGISTRY='$REGISTRY' /opt/sdlc/deploy.sh frontend '$TAG'"
+
+      - name: проверить снаружи
+        run: |
+          for _ in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "https://${{ vars.SDLC_DOMAIN }}/" || true)
+            [ "$code" = 200 ] && { echo "интерфейс: $code"; exit 0; }
+            sleep 5
+          done
+          echo "✗ https://${{ vars.SDLC_DOMAIN }}/ не ответил 200 (последний код: $code)"
+          echo "  откат: gh workflow run deploy.yml -f tag=<предыдущий короткий SHA>"
+          exit 1
