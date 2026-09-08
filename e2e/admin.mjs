@@ -1,0 +1,122 @@
+import {session, helpers} from './driver.mjs';
+
+// Команды, принципалы и настройки доступа проекта (решения 0027 и 0028).
+// Бэкенд поднят в режиме header: права не проверяются, поэтому проверяется
+// проводка — команда заводится, получает участника и уровень в проекте, а
+// настройки GitHub сохраняются и проверяются по кнопке.
+const BASE = process.env.SDLC_UI_URL ?? 'http://localhost:5173';
+let ok = 0, fail = 0;
+const check = (name, cond, extra = '') => {
+  if (cond) { ok++; console.log('  ✓', name); }
+  else { fail++; console.log('  ✗', name, extra); }
+};
+
+const s = await session(BASE + '/teams');
+const run = (body) => s.evaluate(helpers + body);
+// Значение поля ввода в innerText не попадает: сохранённое читается из самого
+// input, а не из текста страницы.
+const valueOf = (label) => run(`
+  const lbl = all('label').find((l) => l.innerText.trim().startsWith(${JSON.stringify(label)}));
+  const field = lbl && document.getElementById(lbl.getAttribute('for'));
+  return field ? field.value : '';
+`);
+await new Promise((r) => setTimeout(r, 2500));
+
+console.log('команды');
+let t = await run('return texts();');
+check('раздел открылся', t.includes('Команды'), t.slice(0, 300));
+
+await run(`
+  await clickExact("Завести команду");
+  await sleep(400);
+  await fill("Ключ", "e2e-team");
+  await fill("Название", "Команда e2e");
+  await sleep(200);
+  await clickExact("Завести");
+  await sleep(1500);
+`);
+t = await run('return texts();');
+check('команда заведена', t.includes('Команда e2e'), t.slice(0, 600));
+check('создатель стал лидом', t.includes('лид'), t.slice(0, 900));
+check('разделы команды на месте',
+  t.includes('Состав') && t.includes('Доступ в проекты') && t.includes('Группы провайдера') && t.includes('Бюджет'),
+  t.slice(0, 900));
+
+console.log('состав');
+await run(`
+  await fill("Принципал", "user:e2e-lead");
+  await sleep(200);
+  await clickIn("Добавить или изменить роль", "Сохранить");
+  await sleep(1500);
+`);
+t = await run('return texts();');
+check('участник добавлен', t.includes('user:e2e-lead'), t.slice(0, 900));
+
+console.log('группы провайдера и бюджет');
+await run(`
+  await fill("Группы", "sdlc-платформа, sdlc-все");
+  await sleep(200);
+  await clickIn("Группы провайдера", "Сохранить");
+  await sleep(1500);
+`);
+// Страница перечитывается целиком: так проверяется, что группы легли в базу,
+// а не остались в поле ввода.
+await s.goto(BASE + '/teams');
+await new Promise((r) => setTimeout(r, 2500));
+// Порядок задаёт база (ORDER BY idp_group), а не поле ввода, поэтому
+// сравнивается набор.
+const savedGroups = (await valueOf('Группы')).split(',').map((g) => g.trim()).sort();
+check('группы сохранены', savedGroups.join('|') === 'sdlc-все|sdlc-платформа', savedGroups.join('|'));
+
+await run(`
+  await fill("Предел, $", "25");
+  await sleep(200);
+  await clickIn("Поставить предел", "Сохранить");
+  await sleep(1500);
+`);
+t = await run('return texts();');
+check('предел показан вместе с расходом', t.includes('$25.00') && t.includes('Потрачено'), t.slice(0, 1200));
+check('состояние бюджета названо', t.includes('в пределах') || t.includes('исчерпан'), t.slice(0, 1200));
+
+console.log('принципалы');
+await s.goto(BASE + '/principals');
+await new Promise((r) => setTimeout(r, 2000));
+t = await run('return texts();');
+check('список принципалов открылся', t.includes('Принципалы') && t.includes('user:e2e-lead'), t.slice(0, 600));
+await run('await fill("Поиск", "e2e-lead"); await sleep(200); await clickExact("Найти"); await sleep(1200);');
+t = await run('return texts();');
+check('поиск сузил список', t.includes('e2e-lead') && !t.includes('system:'), t.slice(0, 600));
+
+console.log('команда в проекте');
+await s.goto(BASE + '/p/SDLC/settings');
+await new Promise((r) => setTimeout(r, 2500));
+await run(`
+  await fill("Ключ команды", "e2e-team");
+  await sleep(200);
+  await clickIn("Пустить команду или изменить уровень", "Сохранить");
+  await sleep(1500);
+`);
+t = await run('return texts();');
+check('команда пущена в проект', t.includes('Команда e2e') && t.includes('viewer'), t.slice(0, 1500));
+
+console.log('доступ к GitHub');
+await run(`
+  await fill("Установка приложения", "424242");
+  await sleep(200);
+  await clickIn("Доступ к GitHub", "Сохранить");
+  await sleep(1500);
+  await clickExact("Проверить доступ");
+  await sleep(2500);
+`);
+t = await run('return texts();');
+check('установка сохранена', (await valueOf('Установка приложения')) === '424242',
+  await valueOf('Установка приложения'));
+// Приложения у dev-инстанса нет, и проверка обязана сказать это прямо, а не
+// молча показать зелёные галочки.
+check('проверка отчиталась по репозиториям',
+  t.includes('Приложение у инстанса не настроено') || t.includes('Репозиторий'),
+  t.slice(0, 1500));
+
+s.close();
+console.log(`\n${ok} ok, ${fail} fail`);
+process.exit(fail ? 1 : 0);

@@ -9,9 +9,73 @@ export interface Project {
   name: string;
   description?: string;
   settings: Record<string, unknown>;
+  // Команда-владелец: её лид — администратор проекта по умолчанию.
+  owner_team_id?: UUID;
+  owner_team_key?: string;
+  // Ссылка на установку GitHub App и имя секрета для запасного пути; сами
+  // секреты в базе не лежат (решение 0028).
+  github_installation_id?: number;
+  github_credential_ref?: string;
   created_at: string;
   updated_at: string;
   archived_at?: string;
+}
+
+// Команды (решение 0027). Уровень в проекте у команды тот же, что у человека,
+// и действующий уровень участника — максимум из путей: поимённо, через команду
+// и через владение проектом.
+export interface Team {
+  id: UUID;
+  key: string;
+  name: string;
+  description?: string;
+  can_create_projects: boolean;
+  created_at: string;
+  updated_at: string;
+  archived_at?: string;
+}
+
+export type TeamRole = 'member' | 'lead';
+
+export interface TeamMember {
+  team_id: UUID;
+  team_key: string;
+  principal_id: UUID;
+  handle: string;
+  kind: 'user' | 'agent' | 'system';
+  display_name: string;
+  role: TeamRole;
+  created_at: string;
+}
+
+export interface ProjectTeam {
+  project_id: UUID;
+  project_key: string;
+  team_id: UUID;
+  team_key: string;
+  team_name: string;
+  level: MemberRole;
+  created_at: string;
+}
+
+export interface TeamDetail {
+  team: Team;
+  members: TeamMember[];
+  projects: ProjectTeam[];
+}
+
+// Расход считается по проектам, которыми команда владеет, за календарное окно.
+// Предела может не быть — тогда есть только расход.
+export interface BudgetState {
+  team_key?: string;
+  period?: 'day' | 'week' | 'month';
+  limit_usd?: number;
+  spent_usd: number;
+}
+
+export interface TeamBudgets {
+  team: Team;
+  budgets: BudgetState[];
 }
 
 export interface Repository {
@@ -40,6 +104,21 @@ export interface TaskPropertyDef {
   is_system: boolean;
   expose_to_agent: boolean;
   position: number;
+}
+
+// Настройки доступа к GitHub у проекта (решение 0028): в базе ссылки, а не
+// секреты — идентификатор установки приложения либо имя секрета в окружении.
+export interface GitHubStatus {
+  installation_id?: number;
+  credential_ref?: string;
+  app_configured: boolean;
+  repositories: RepoAccess[];
+}
+
+export interface RepoAccess {
+  repository: string;
+  ok: boolean;
+  error?: string;
 }
 
 export interface ProjectDetail {
@@ -379,6 +458,29 @@ export interface Me {
   principal: Principal;
   token?: AccessToken;
   memberships: ProjectMember[];
+  // Команды показываются отдельно: права из них приходят в проекты, которых
+  // в memberships нет.
+  teams: TeamMember[];
+}
+
+// Вход через корпоративного провайдера (решение 0027). Адреса приходят из
+// discovery-документа: фронтенд их не выдумывает.
+export interface OIDCSettings {
+  enabled: boolean;
+  issuer?: string;
+  client_id?: string;
+  authorization_endpoint?: string;
+  token_endpoint?: string;
+  end_session_endpoint?: string;
+  scopes?: string;
+}
+
+// Сессия — обычный токен с коротким сроком, а не второй транспорт.
+export interface Session {
+  token: string;
+  expires_at: string;
+  principal: Principal;
+  record: AccessToken;
 }
 
 export interface IssuedToken {

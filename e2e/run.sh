@@ -30,4 +30,7 @@ node e2e/task.mjs
 node e2e/epic.mjs
 node e2e/roles.mjs
 node e2e/settings.mjs
+# Команды заводятся до правки цикла: сценарий цикла активирует новую версию,
+# после чего прежние экраны идут уже по другому циклу.
+node e2e/admin.mjs
 node e2e/workflow.mjs

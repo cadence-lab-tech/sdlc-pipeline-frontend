@@ -8,8 +8,11 @@ import type {
   Bundle,
   ImportReport,
   IssuedToken,
+  GitHubStatus,
   Me,
   Metrics,
+  OIDCSettings,
+  Principal,
   Project,
   ProjectDocument,
   ProjectMember,
@@ -17,10 +20,16 @@ import type {
   Role,
   RoleVersion,
   RoleWithVersions,
+  Session,
   Status,
   Task,
   TaskDetail,
   TaskEvent,
+  Team,
+  TeamBudgets,
+  TeamDetail,
+  TeamMember,
+  ProjectTeam,
   Transition,
   TransitionOption,
   UUID,
@@ -176,7 +185,18 @@ const del = (): RequestInit => ({method: 'DELETE'});
 
 export const api = {
   // ── кто я, токены, участники ──────────────────────────────────────────────
-  me: () => request<Me>('/auth/me').then((m) => ({...m, memberships: m.memberships ?? []})),
+  me: () =>
+    request<Me>('/auth/me').then((m) => ({...m, memberships: m.memberships ?? [], teams: m.teams ?? []})),
+
+  // ── вход через корпоративного провайдера ──────────────────────────────────
+  // Обе ручки открытые: у того, кто входит, токена ещё нет.
+  oidcSettings: () => request<OIDCSettings>('/auth/oidc'),
+
+  oidcLogin: (idToken: string) => request<Session>('/auth/oidc/login', post({id_token: idToken})),
+
+  // Выход отзывает предъявленную сессию на бэкенде; токен, выданный руками,
+  // так не отзывается — он отзывается по имени из списка.
+  logout: () => request<void>('/auth/logout', post()),
 
   listTokens: (projectKey?: string) =>
     request<{tokens: AccessToken[]}>(`/auth/tokens${projectKey ? `?project=${projectKey}` : ''}`).then(
@@ -203,6 +223,77 @@ export const api = {
 
   removeMember: (projectKey: string, handle: string) =>
     request<void>(`/projects/${projectKey}/members/${encodeURIComponent(handle)}`, del()),
+
+  // ── команды ───────────────────────────────────────────────────────────────
+  listPrincipals: (search?: string) =>
+    request<{principals: Principal[]}>(
+      `/principals${search ? `?q=${encodeURIComponent(search)}` : ''}`,
+    ).then((r) => r.principals ?? []),
+
+  listTeams: () => request<{teams: Team[]}>('/teams').then((r) => r.teams ?? []),
+
+  getTeam: (teamKey: string) =>
+    request<TeamDetail>(`/teams/${teamKey}`).then((d) => ({
+      ...d,
+      members: d.members ?? [],
+      projects: d.projects ?? [],
+    })),
+
+  createTeam: (body: {key: string; name: string; description?: string; can_create_projects?: boolean}) =>
+    request<Team>('/teams', post(body)),
+
+  // Незаполненное поле не меняется: «снять право» отличается от «не трогать».
+  updateTeam: (teamKey: string, body: {name?: string; description?: string; can_create_projects?: boolean}) =>
+    request<Team>(`/teams/${teamKey}`, patch(body)),
+
+  archiveTeam: (teamKey: string) => request<void>(`/teams/${teamKey}`, del()),
+
+  setTeamMember: (teamKey: string, principal: string, role: string) =>
+    request<TeamMember>(`/teams/${teamKey}/members`, put({principal, role})),
+
+  removeTeamMember: (teamKey: string, handle: string) =>
+    request<void>(`/teams/${teamKey}/members/${encodeURIComponent(handle)}`, del()),
+
+  // Группы провайдера, ведущие в команду: состав такой команды пересчитывается
+  // при каждом входе её участников.
+  teamIdPGroups: (teamKey: string) =>
+    request<{groups: string[]}>(`/teams/${teamKey}/idp-groups`).then((r) => r.groups ?? []),
+
+  setTeamIdPGroups: (teamKey: string, groups: string[]) =>
+    request<{groups: string[]}>(`/teams/${teamKey}/idp-groups`, put({groups})).then(
+      (r) => r.groups ?? [],
+    ),
+
+  teamBudgets: (teamKey: string) =>
+    request<TeamBudgets>(`/teams/${teamKey}/budgets`).then((b) => ({...b, budgets: b.budgets ?? []})),
+
+  // Ноль снимает предел: «без ограничения» и «ноль долларов» — разные вещи.
+  setTeamBudget: (teamKey: string, period: string, limitUSD: number) =>
+    request<TeamBudgets>(`/teams/${teamKey}/budgets`, put({period, limit_usd: limitUSD})).then((b) => ({
+      ...b,
+      budgets: b.budgets ?? [],
+    })),
+
+  listProjectTeams: (projectKey: string) =>
+    request<{teams: ProjectTeam[]}>(`/projects/${projectKey}/teams`).then((r) => r.teams ?? []),
+
+  setProjectTeam: (projectKey: string, team: string, level: string) =>
+    request<ProjectTeam>(`/projects/${projectKey}/teams`, put({team, level})),
+
+  removeProjectTeam: (projectKey: string, teamKey: string) =>
+    request<void>(`/projects/${projectKey}/teams/${teamKey}`, del()),
+
+  // ── доступ к GitHub у проекта ─────────────────────────────────────────────
+  setProjectGitHub: (projectKey: string, body: {installation_id?: number | null; credential_ref?: string | null}) =>
+    request<Project>(`/projects/${projectKey}/github`, put(body)),
+
+  // Ходит в провайдера по каждому репозиторию проекта — поэтому только по
+  // кнопке, а не при открытии страницы.
+  checkProjectGitHub: (projectKey: string) =>
+    request<GitHubStatus>(`/projects/${projectKey}/github/check`).then((s) => ({
+      ...s,
+      repositories: s.repositories ?? [],
+    })),
 
   // ── перенос правил ────────────────────────────────────────────────────────
   exportBundle: (projectKey: string) => request<Bundle>(`/projects/${projectKey}/export`),
@@ -241,7 +332,9 @@ export const api = {
       active_workflows: d.active_workflows ?? [],
     })),
 
-  createProject: (body: {key: string; name: string; description?: string}) =>
+  // Заводит проект администратор системы или лид команды с правом на это;
+  // команда-владелец подставляется бэкендом, если она у лида одна.
+  createProject: (body: {key: string; name: string; description?: string; owner_team?: string}) =>
     request<Project>('/projects', post(body)),
 
   // ── цикл ──────────────────────────────────────────────────────────────────

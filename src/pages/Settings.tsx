@@ -18,7 +18,15 @@ import {TextInput} from '@astryxdesign/core/TextInput';
 import {Token} from '@astryxdesign/core/Token';
 
 import {ApiError, api} from '../api/client';
-import type {AccessToken, ImportEntry, ImportReport, Me, ProjectMember} from '../api/types';
+import type {
+  AccessToken,
+  GitHubStatus,
+  ImportEntry,
+  ImportReport,
+  Me,
+  ProjectMember,
+  ProjectTeam,
+} from '../api/types';
 import {useResource} from '../api/useResource';
 import {Failure, Loaded} from '../components/Feedback';
 
@@ -51,6 +59,10 @@ export function Settings() {
                 />
               ) : null}
               <Members projectKey={projectKey} />
+              <Divider />
+              <Teams projectKey={projectKey} />
+              <Divider />
+              <GitHubAccess projectKey={projectKey} />
               <Divider />
               <Tokens projectKey={projectKey} me={who} />
               <Divider />
@@ -161,6 +173,242 @@ function Members({projectKey}: {projectKey: string}) {
           </HStack>
         </VStack>
       </Card>
+    </VStack>
+  );
+}
+
+// ── команды в проекте ───────────────────────────────────────────────────────
+
+// Уровень команды складывается с поимённым участием: действующий уровень
+// человека — максимум из путей (решение 0027). Команда-владелец отдельно: её
+// лид — администратор проекта по умолчанию, и убрать его отсюда нельзя.
+function Teams({projectKey}: {projectKey: string}) {
+  const teams = useResource(() => api.listProjectTeams(projectKey), [projectKey]);
+  const project = useResource(() => api.getProject(projectKey), [projectKey]);
+  const [team, setTeam] = useState('');
+  const [level, setLevel] = useState('viewer');
+  const [error, setError] = useState<ApiError>();
+
+  const act = async (fn: () => Promise<unknown>) => {
+    setError(undefined);
+    try {
+      await fn();
+      teams.reload();
+    } catch (err) {
+      setError(err instanceof ApiError ? err : new ApiError('internal', String(err)));
+    }
+  };
+
+  const ownerTeam = project.data?.project.owner_team_key;
+
+  return (
+    <VStack gap={3}>
+      <Heading level={2}>Команды</Heading>
+      <Text type="supporting" color="secondary">
+        Команда получает уровень в проекте так же, как человек. Её участники приходят с этим
+        уровнем, даже если поимённо в проекте не состоят.
+        {ownerTeam ? ` Проект завела команда ${ownerTeam}: её лид — администратор проекта.` : ''}
+      </Text>
+      {error ? <Failure error={error} /> : null}
+      <Loaded resource={teams}>
+        {(list) =>
+          list.length === 0 ? (
+            <EmptyState
+              title="Команд в проекте нет"
+              description="Права раздаются поимённо; команду можно пустить сюда целиком"
+            />
+          ) : (
+            <Table<ProjectTeam & Record<string, unknown>>
+              data={list as (ProjectTeam & Record<string, unknown>)[]}
+              idKey="team_id"
+              density="compact"
+              columns={[
+                {key: 'team_name', header: 'Команда', width: proportional(2)},
+                {key: 'team_key', header: 'Ключ', width: proportional(1)},
+                {
+                  key: 'level',
+                  header: 'Уровень',
+                  width: pixel(130),
+                  renderCell: (t) => <Token label={t.level} size="sm" />,
+                },
+                {
+                  key: 'actions',
+                  header: '',
+                  width: pixel(110),
+                  align: 'end',
+                  renderCell: (t) => (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      label="Убрать"
+                      onClick={() => act(() => api.removeProjectTeam(projectKey, t.team_key))}
+                    />
+                  ),
+                },
+              ]}
+            />
+          )
+        }
+      </Loaded>
+      <Card padding={4}>
+        <VStack gap={3}>
+          <Heading level={3}>Пустить команду или изменить уровень</Heading>
+          <FormLayout>
+            <TextInput
+              label="Ключ команды"
+              description="как в разделе «Команды»: platform"
+              value={team}
+              onChange={setTeam}
+            />
+            <Selector label="Уровень" options={LEVELS} value={level} onChange={setLevel} />
+          </FormLayout>
+          <HStack gap={2}>
+            <Button
+              variant="primary"
+              label="Сохранить"
+              isDisabled={team.trim() === ''}
+              onClick={() =>
+                act(async () => {
+                  await api.setProjectTeam(projectKey, team.trim(), level);
+                  setTeam('');
+                })
+              }
+            />
+          </HStack>
+        </VStack>
+      </Card>
+    </VStack>
+  );
+}
+
+// ── доступ к GitHub ─────────────────────────────────────────────────────────
+
+// В базе лежат ссылки, а не секреты (решение 0028): идентификатор установки
+// приложения и имя секрета, значение которого приезжает из окружения
+// (SDLC_GITHUB_TOKEN_<ИМЯ>). Проверка доступа ходит в провайдера, поэтому
+// делается по кнопке, а не при открытии страницы.
+function GitHubAccess({projectKey}: {projectKey: string}) {
+  const project = useResource(() => api.getProject(projectKey), [projectKey]);
+  const [installation, setInstallation] = useState<string>();
+  const [credential, setCredential] = useState<string>();
+  const [status, setStatus] = useState<GitHubStatus>();
+  const [error, setError] = useState<ApiError>();
+  const [busy, setBusy] = useState(false);
+
+  const run = async (fn: () => Promise<void>) => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      await fn();
+    } catch (err) {
+      setError(err instanceof ApiError ? err : new ApiError('internal', String(err)));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <VStack gap={3}>
+      <Heading level={2}>Доступ к GitHub</Heading>
+      <Text type="supporting" color="secondary">
+        Учётные данные выбираются от частного к общему: секрет репозитория, установка приложения у
+        проекта, секрет проекта, общий токен инстанса. Здесь задаётся уровень проекта — ссылки, а
+        не секреты: значение именованного секрета живёт в окружении сервиса.
+      </Text>
+      {error ? <Failure error={error} /> : null}
+      <Loaded resource={project}>
+        {(detail) => (
+          <Card padding={4}>
+            <VStack gap={3}>
+              <FormLayout>
+                <TextInput
+                  label="Установка приложения"
+                  description="installation_id из адреса установки GitHub App в организации"
+                  value={installation ?? (detail.project.github_installation_id?.toString() ?? '')}
+                  onChange={setInstallation}
+                  isOptional
+                />
+                <TextInput
+                  label="Секрет доступа"
+                  description="запасной путь: имя секрета, значение которого приезжает из SDLC_GITHUB_TOKEN_<ИМЯ>"
+                  value={credential ?? (detail.project.github_credential_ref ?? '')}
+                  onChange={setCredential}
+                  isOptional
+                />
+              </FormLayout>
+              <HStack gap={2}>
+                <Button
+                  variant="primary"
+                  label="Сохранить"
+                  isDisabled={busy || (installation === undefined && credential === undefined)}
+                  onClick={() =>
+                    run(async () => {
+                      const id = (installation ?? '').trim();
+                      const ref = (credential ?? '').trim();
+                      await api.setProjectGitHub(projectKey, {
+                        installation_id: id === '' ? null : Number(id),
+                        credential_ref: ref === '' ? null : ref,
+                      });
+                      setInstallation(undefined);
+                      setCredential(undefined);
+                      setStatus(undefined);
+                      project.reload();
+                    })
+                  }
+                />
+                <Button
+                  label="Проверить доступ"
+                  isDisabled={busy}
+                  onClick={() => run(async () => setStatus(await api.checkProjectGitHub(projectKey)))}
+                />
+              </HStack>
+              {status ? <AccessReport status={status} /> : null}
+            </VStack>
+          </Card>
+        )}
+      </Loaded>
+    </VStack>
+  );
+}
+
+function AccessReport({status}: {status: GitHubStatus}) {
+  return (
+    <VStack gap={2}>
+      {status.app_configured ? null : (
+        <Banner
+          status="info"
+          title="Приложение у инстанса не настроено"
+          description="Без SDLC_GITHUB_APP_ID и ключа установку прописывать некуда: доступ пойдёт именованным секретом или общим токеном."
+          collapsible={false}
+        />
+      )}
+      {status.repositories.length === 0 ? (
+        <EmptyState
+          title="Проверять нечего"
+          description="У проекта нет репозиториев GitHub в области"
+        />
+      ) : (
+        <Table
+          data={status.repositories.map((r) => ({...r, id: r.repository}))}
+          idKey="id"
+          density="compact"
+          columns={[
+            {key: 'repository', header: 'Репозиторий', width: proportional(2)},
+            {
+              key: 'ok',
+              header: 'Доступ',
+              width: pixel(120),
+              renderCell: (r) =>
+                r.ok ? (
+                  <Badge variant="success" label="есть" />
+                ) : (
+                  <Badge variant="warning" label="нет" />
+                ),
+            },
+            {key: 'error', header: 'Что не так', width: proportional(3)},
+          ]}
+        />
+      )}
     </VStack>
   );
 }

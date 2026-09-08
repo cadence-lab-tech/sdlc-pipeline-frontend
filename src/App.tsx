@@ -15,6 +15,7 @@ import {ApiError, UNAUTHENTICATED_EVENT, api, currentToken, setCurrentToken} fro
 import type {Me} from './api/types';
 import {Loading} from './components/Feedback';
 import {RouterLink} from './router';
+import {Principals, Teams} from './pages/Admin';
 import {Board} from './pages/Board';
 import {Login} from './pages/Login';
 import {Metrics} from './pages/Metrics';
@@ -32,6 +33,8 @@ export function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/" element={<Navigate to="/projects" replace />} />
           <Route path="/projects" element={<Shell page="projects"><Projects /></Shell>} />
+          <Route path="/teams" element={<Shell page="teams"><Teams /></Shell>} />
+          <Route path="/principals" element={<Shell page="principals"><Principals /></Shell>} />
           <Route path="/p/:projectKey" element={<Navigate to="board" replace />} />
           <Route path="/p/:projectKey/board" element={<Shell page="board"><Board /></Shell>} />
           <Route path="/p/:projectKey/roles" element={<Shell page="roles"><Roles /></Shell>} />
@@ -45,7 +48,15 @@ export function App() {
   );
 }
 
-type Page = 'projects' | 'board' | 'roles' | 'workflow' | 'metrics' | 'settings';
+type Page =
+  | 'projects'
+  | 'teams'
+  | 'principals'
+  | 'board'
+  | 'roles'
+  | 'workflow'
+  | 'metrics'
+  | 'settings';
 
 // Shell спрашивает бэкенд, кто мы, и в режиме токенов без действующего токена
 // уводит на вход. В режиме header формы входа нет: актор назван заголовком,
@@ -87,7 +98,15 @@ function Shell({page, children}: {page: Page; children: React.ReactNode}) {
     return () => window.removeEventListener(UNAUTHENTICATED_EVENT, onUnauthenticated);
   }, [navigate, location.pathname]);
 
-  const logout = () => {
+  // Выход отзывает сессию на бэкенде: забыть токен в браузере мало — тот же
+  // токен остался бы действующим. Отказ игнорируем: не отозвалась сессия —
+  // уводить со страницы всё равно нужно.
+  const logout = async () => {
+    try {
+      await api.logout();
+    } catch {
+      // токен мог протухнуть сам — тогда отзывать уже нечего
+    }
     setCurrentToken(null);
     navigate('/login', {replace: true});
   };
@@ -112,6 +131,22 @@ function Shell({page, children}: {page: Page; children: React.ReactNode}) {
               href="/projects"
               isSelected={page === 'projects'}
             />
+            {/* Команды живут над проектами: уровень доступа сразу в несколько,
+                владение и бюджет (решение 0027). */}
+            <SideNavItem
+              label="Команды"
+              icon="info"
+              href="/teams"
+              isSelected={page === 'teams'}
+            />
+            {me?.principal.is_admin ? (
+              <SideNavItem
+                label="Принципалы"
+                icon="info"
+                href="/principals"
+                isSelected={page === 'principals'}
+              />
+            ) : null}
           </SideNavSection>
           {projectKey ? (
             <SideNavSection title={projectKey}>
@@ -155,6 +190,11 @@ function Shell({page, children}: {page: Page; children: React.ReactNode}) {
                     {me.principal.kind}:{me.principal.handle}
                     {me.principal.is_admin ? ' · администратор' : ''}
                   </Text>
+                  {me.teams.length > 0 ? (
+                    <Text type="supporting" color="secondary">
+                      команды: {me.teams.map((t) => t.team_key).join(', ')}
+                    </Text>
+                  ) : null}
                   <Text type="supporting" color="secondary">
                     {me.mode === 'token' ? 'вход по токену' : 'режим отладки: актор из заголовка'}
                   </Text>
