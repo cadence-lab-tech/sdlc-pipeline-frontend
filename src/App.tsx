@@ -7,6 +7,7 @@ import {
   FolderKanban,
   LogOut,
   Moon,
+  Search,
   Settings2,
   Sun,
   Users,
@@ -42,6 +43,7 @@ import {Failure, Loading} from './components/Feedback';
 import {Principals, Teams} from './pages/Admin';
 import {Board} from './pages/Board';
 import {Login} from './pages/Login';
+import {Knowledge} from './pages/Knowledge';
 import {Metrics} from './pages/Metrics';
 import {Projects} from './pages/Projects';
 import {Roles} from './pages/Roles';
@@ -66,6 +68,7 @@ export function App() {
             <Route path="/p/:projectKey/board" element={<Shell page="board"><Board /></Shell>} />
             <Route path="/p/:projectKey/roles" element={<Shell page="roles"><Roles /></Shell>} />
             <Route path="/p/:projectKey/workflow" element={<Shell page="workflow"><WorkflowEditor /></Shell>} />
+            <Route path="/p/:projectKey/search" element={<Shell page="search"><Knowledge /></Shell>} />
             <Route path="/p/:projectKey/metrics" element={<Shell page="metrics"><Metrics /></Shell>} />
             <Route path="/p/:projectKey/settings" element={<Shell page="settings"><Settings /></Shell>} />
             <Route path="/p/:projectKey/tasks/:taskKey" element={<Shell page="board"><TaskDetail /></Shell>} />
@@ -83,6 +86,7 @@ type Page =
   | 'board'
   | 'roles'
   | 'workflow'
+  | 'search'
   | 'metrics'
   | 'settings';
 
@@ -93,6 +97,7 @@ const TITLES: Record<Page, string> = {
   board: 'Доска',
   roles: 'Роли',
   workflow: 'Цикл',
+  search: 'Поиск',
   metrics: 'Метрики',
   settings: 'Настройки',
 };
@@ -211,6 +216,7 @@ function Nav({
         {page: 'board', label: 'Доска', icon: Columns3, href: `/p/${projectKey}/board`},
         {page: 'roles', label: 'Роли', icon: UserSquare, href: `/p/${projectKey}/roles`},
         {page: 'workflow', label: 'Цикл', icon: Workflow, href: `/p/${projectKey}/workflow`},
+        {page: 'search', label: 'Поиск', icon: Search, href: `/p/${projectKey}/search`},
         {page: 'metrics', label: 'Метрики', icon: BarChart3, href: `/p/${projectKey}/metrics`},
         {page: 'settings', label: 'Настройки', icon: Settings2, href: `/p/${projectKey}/settings`},
       ]

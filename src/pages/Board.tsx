@@ -77,6 +77,9 @@ export function Board() {
     [projectKey, taskType, parent],
   );
   const epics = useResource(() => api.listTasks(projectKey, {type: EPIC_TYPE}), [projectKey]);
+  // Очередь показывает, кто держит задачу прямо сейчас: аренда лежит на
+  // прогоне этапа, а не на задаче, поэтому в списке задач её нет.
+  const queue = useResource(() => api.queue(projectKey), [projectKey]);
 
   if (workflow.error) return <div className="p-6"><Failure error={workflow.error} /></div>;
   if (tasks.error) return <div className="p-6"><Failure error={tasks.error} /></div>;
@@ -86,7 +89,18 @@ export function Board() {
     tasks.reload();
     workflow.reload();
     epics.reload();
+    queue.reload();
   };
+
+  // По задаче берётся тот прогон, который кто-то забрал: остальные стоят
+  // свободными, и говорить о них «в работе» было бы неправдой.
+  const holders = new Map<string, {handle: string; live: boolean}>();
+  for (const entry of queue.data ?? []) {
+    const handle = entry.stage_run.claimed_by_handle;
+    if (!handle) continue;
+    const expires = entry.stage_run.lease_expires_at;
+    holders.set(entry.task.id, {handle, live: Boolean(expires && new Date(expires) > new Date())});
+  }
 
   // Задачи раскладываются по ключу статуса, а не по его идентификатору:
   // задача, начатая на прежней версии цикла, доходит по ней, и у её статуса
@@ -162,24 +176,31 @@ export function Board() {
             activeWorkflowID={workflow.data!.id}
             tasks={byStatusKey.get(status.key) ?? []}
             projectKey={projectKey}
+            holders={holders}
           />
         ))}
-        {outside.length > 0 ? <OutsideColumn tasks={outside} projectKey={projectKey} /> : null}
+        {outside.length > 0 ? (
+          <OutsideColumn tasks={outside} projectKey={projectKey} holders={holders} />
+        ) : null}
       </div>
     </div>
   );
 }
+
+type Holders = Map<string, {handle: string; live: boolean}>;
 
 function Column({
   status,
   tasks,
   projectKey,
   activeWorkflowID,
+  holders,
 }: {
   status: Status;
   tasks: Task[];
   projectKey: string;
   activeWorkflowID: string;
+  holders: Holders;
 }) {
   const role = primaryRole(status);
   // Лимит WIP — предупреждение проекту, а не запрет: переход держат гейты,
@@ -213,7 +234,11 @@ function Column({
         ) : (
           tasks.map((task) => (
             <Link key={task.id} to={`/p/${projectKey}/tasks/${task.key}`} className="block">
-              <TaskCard task={task} isOnOldWorkflow={task.workflow_id !== activeWorkflowID} />
+              <TaskCard
+                task={task}
+                isOnOldWorkflow={task.workflow_id !== activeWorkflowID}
+                holder={holders.get(task.id)}
+              />
             </Link>
           ))
         )}
@@ -225,7 +250,15 @@ function Column({
 // Колонка для задач, чей статус в действующей версии цикла не существует.
 // Такое бывает после активации версии, из которой статус убрали: задача
 // доходит по своей версии, и спрятать её было бы враньём.
-function OutsideColumn({tasks, projectKey}: {tasks: Task[]; projectKey: string}) {
+function OutsideColumn({
+  tasks,
+  projectKey,
+  holders,
+}: {
+  tasks: Task[];
+  projectKey: string;
+  holders: Holders;
+}) {
   return (
     <div className="bg-muted/40 flex h-full w-75 shrink-0 flex-col rounded-lg border">
       <div className="space-y-1 border-b p-3">
@@ -240,7 +273,7 @@ function OutsideColumn({tasks, projectKey}: {tasks: Task[]; projectKey: string})
       <div className="flex-1 space-y-2 overflow-y-auto p-2">
         {tasks.map((task) => (
           <Link key={task.id} to={`/p/${projectKey}/tasks/${task.key}`} className="block">
-            <TaskCard task={task} isOnOldWorkflow />
+            <TaskCard task={task} isOnOldWorkflow holder={holders.get(task.id)} />
           </Link>
         ))}
       </div>

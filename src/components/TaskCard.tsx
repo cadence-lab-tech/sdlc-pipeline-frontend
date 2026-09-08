@@ -14,9 +14,13 @@ const PRIORITY_COLOR: Record<string, TokenColor> = {
 export function TaskCard({
   task,
   isOnOldWorkflow = false,
+  holder,
 }: {
   task: Task;
   isOnOldWorkflow?: boolean;
+  // Кто держит задачу прямо сейчас: хэндл и жива ли аренда. Истёкшая аренда
+  // показывается тоже — она объясняет, почему задача стоит.
+  holder?: {handle: string; live: boolean};
 }) {
   const multiRepo = task.properties.multi_repo === true;
 
@@ -29,6 +33,14 @@ export function TaskCard({
         ) : null}
       </div>
       <p className="line-clamp-3 text-sm font-medium">{task.title}</p>
+      {holder ? (
+        <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
+          <span
+            className={holder.live ? 'size-2 shrink-0 rounded-full bg-blue-500' : 'bg-muted-foreground size-2 shrink-0 rounded-full'}
+          />
+          {holder.live ? 'в работе у' : 'аренда истекла у'} {holder.handle}
+        </p>
+      ) : null}
       <div className="flex flex-wrap gap-1">
         {task.repositories.map((r) => (
           <Token key={r.repository_id} label={r.name} />

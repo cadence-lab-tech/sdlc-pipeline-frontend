@@ -27,6 +27,12 @@ node e2e/board.mjs
 curl -s -X POST "$API/v1/tasks/SDLC-1/transitions/start" \
   -H 'Content-Type: application/json' -H 'X-SDLC-Actor: e2e' -d '{}' >/dev/null
 node e2e/task.mjs
+# Аренду берёт настоящий агент: экран показывает то, что лежит на прогоне
+# аналитики SDLC-1, и подделывать это в браузере нечем.
+curl -s -X POST "$API/v1/tasks/SDLC-1/claim" \
+  -H 'Content-Type: application/json' -H 'X-SDLC-Actor: agent:analyst-bot' \
+  -d '{"role":"analyst"}' >/dev/null
+node e2e/knowledge.mjs
 node e2e/epic.mjs
 node e2e/roles.mjs
 node e2e/settings.mjs

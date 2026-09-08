@@ -237,13 +237,26 @@ export interface StageRun {
   task_id: UUID;
   status_id: UUID;
   status_key: string;
+  // stage — обычный прогон этапа, review — вложенная перепроверка
+  // (решение 0017).
+  kind: string;
   role_id?: UUID;
+  role_key?: string;
   role_version_id?: UUID;
   attempt: number;
   state: string;
   claimed_by?: UUID;
+  claimed_by_handle?: string;
   claimed_at?: string;
   lease_expires_at?: string;
+  heartbeat_at?: string;
+  agent_session_ref?: string;
+  // Заполнены только у перепроверки: чей результат она проверяет и по какому
+  // гейту запущена.
+  parent_run_id?: UUID;
+  gate_id?: UUID;
+  // Этап, который откатил задачу сюда.
+  rejected_from_run_id?: UUID;
   entered_at: string;
   finished_at?: string;
   outcome?: string;
@@ -584,4 +597,98 @@ export interface Metrics {
   gates: GateMetric[];
   drift: DriftMetric[];
   cost: CostMetric[];
+}
+
+// ── дрейф кодовой базы ──────────────────────────────────────────────────────
+
+export interface TaskBaseline {
+  repository: string;
+  branch: string;
+  commit: string;
+  set_at: string;
+}
+
+export interface DriftSignal {
+  id: UUID;
+  task_id: UUID;
+  kind: string;
+  severity: string;
+  state: string;
+  repository?: string;
+  from_commit?: string;
+  to_commit?: string;
+  related_task?: string;
+  overlap?: unknown;
+  detected_at: string;
+  resolution?: string;
+  resolved_at?: string;
+}
+
+export interface Drift {
+  baselines: TaskBaseline[];
+  signals: DriftSignal[];
+}
+
+// ── индекс и поиск ──────────────────────────────────────────────────────────
+
+// Строка на репозиторий по последнему прогону индексации. Отношение reused к
+// indexed показывает, во что обошлась инкрементальность.
+export interface IndexStatusRow {
+  repository: string;
+  index_enabled: boolean;
+  watch_branches: string[];
+  last_indexed_at?: string;
+  branch?: string;
+  commit?: string;
+  state?: string;
+  kind?: string;
+  files_indexed?: number;
+  files_reused?: number;
+  chunks_indexed?: number;
+  chunks_reused?: number;
+  chunks_embedded?: number;
+  attempt?: number;
+  error?: string;
+  finished_at?: string;
+}
+
+export interface SearchHit {
+  scope: string;
+  score: number;
+  match: string;
+  repository?: string;
+  path?: string;
+  lang?: string;
+  commit?: string;
+  start_line?: number;
+  end_line?: number;
+  symbol_fqn?: string;
+  artifact_id?: UUID;
+  document_id?: UUID;
+  task?: string;
+  stage?: string;
+  kind?: string;
+  title?: string;
+  text: string;
+}
+
+export interface SearchResult {
+  query: string;
+  // hybrid — вектор плюс полнотекст, text — только полнотекст: провайдер
+  // эмбеддингов выключен или недоступен, и находится заметно меньше.
+  mode: string;
+  scopes: string[];
+  results: SearchHit[];
+}
+
+// ── очередь работы ──────────────────────────────────────────────────────────
+
+// Незакрытый прогон проекта: и этап, и перепроверка. Отсюда доска узнаёт, кто
+// держит задачу прямо сейчас.
+export interface QueueEntry {
+  task: Task;
+  stage_run: StageRun;
+  role_key?: string;
+  role_name?: string;
+  claimable: boolean;
 }

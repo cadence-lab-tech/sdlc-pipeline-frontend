@@ -6,6 +6,10 @@ import type {
   ActivationResult,
   Artifact,
   Bundle,
+  Drift,
+  IndexStatusRow,
+  QueueEntry,
+  SearchResult,
   ImportReport,
   IssuedToken,
   GitHubStatus,
@@ -504,4 +508,35 @@ export const api = {
       `/tasks/${taskKey}/transitions/${transitionKey}/gates/${gateKey}/decision`,
       post(body),
     ),
+
+  // ── дрейф ─────────────────────────────────────────────────────────────────
+
+  // По умолчанию бэкенд отдаёт открытые и принятые к сведению сигналы;
+  // разобранные нужны, только когда их спрашивают явно.
+  taskDrift: (taskKey: string, states?: string[]) =>
+    request<Drift>(
+      `/tasks/${taskKey}/drift${states?.length ? `?state=${states.join(',')}` : ''}`,
+    ).then((d) => ({baselines: d.baselines ?? [], signals: d.signals ?? []})),
+
+  // resolved — расхождение разобрано, dismissed — признано неважным. Разница
+  // видна в метриках, поэтому «закрыть и забыть» одной кнопкой быть не должно.
+  resolveDrift: (signalID: UUID, resolution: 'resolved' | 'dismissed', note?: string) =>
+    request<unknown>(`/drift-signals/${signalID}/resolve`, post({resolution, note})),
+
+  // ── индекс, поиск и очередь ───────────────────────────────────────────────
+
+  indexStatus: (projectKey: string) =>
+    request<{repositories: IndexStatusRow[]}>(`/projects/${projectKey}/index`).then(
+      (r) => r.repositories ?? [],
+    ),
+
+  search: (projectKey: string, body: {query: string; scope?: string[]; top_k?: number}) =>
+    request<SearchResult>(`/projects/${projectKey}/search`, post(body)).then((r) => ({
+      ...r,
+      scopes: r.scopes ?? [],
+      results: r.results ?? [],
+    })),
+
+  queue: (projectKey: string) =>
+    request<{queue: QueueEntry[]}>(`/projects/${projectKey}/queue`).then((r) => r.queue ?? []),
 };

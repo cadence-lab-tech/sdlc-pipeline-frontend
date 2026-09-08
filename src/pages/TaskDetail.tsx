@@ -1,4 +1,4 @@
-import {useState} from 'react';
+import {useEffect, useState} from 'react';
 import {Link, useParams} from 'react-router-dom';
 
 import {Badge} from '@/components/ui/badge';
@@ -7,7 +7,16 @@ import {Card} from '@/components/ui/card';
 import {Progress} from '@/components/ui/progress';
 import {Separator} from '@/components/ui/separator';
 import {Tabs, TabsList, TabsTrigger} from '@/components/ui/tabs';
-import {EmptyState, Row, RowList, Section, StatusDot, Timestamp, type DotVariant} from '@/components/kit';
+import {
+  EmptyState,
+  Row,
+  RowList,
+  Section,
+  StatusDot,
+  Timestamp,
+  Token,
+  type DotVariant,
+} from '@/components/kit';
 
 import {ApiError, api} from '../api/client';
 import type {
@@ -25,14 +34,28 @@ import {Failure, Loading} from '../components/Feedback';
 import {GateRow} from '../components/Gates';
 import {ArtifactView} from '../components/ArtifactView';
 import {AssigneePanel} from '../components/AssigneePanel';
+import {DriftPanel} from '../components/DriftPanel';
 import {ScopePanel} from '../components/ScopePanel';
 import {SubmitArtifactDialog} from '../components/SubmitArtifactDialog';
+
+// Пока аренда жива, за карточкой стоит агент на другой машине: он сдаёт
+// артефакты и продлевает аренду, а страница об этом узнаёт только перезапросом.
+const LIVE_POLL_MS = 10_000;
 
 export function TaskDetail() {
   const {taskKey = ''} = useParams();
   const task = useResource(() => api.getTask(taskKey), [taskKey]);
   const events = useResource(() => api.timeline(taskKey), [taskKey]);
   const [tab, setTab] = useState('stages');
+
+  const live = (task.data?.stage_runs ?? []).some(isLeaseLive);
+  useEffect(() => {
+    if (!live) return;
+    const timer = setInterval(() => task.reload(), LIVE_POLL_MS);
+    return () => clearInterval(timer);
+    // Опрос заводится на время живой аренды, а не на каждый рендер карточки.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live, taskKey]);
 
   if (task.error) return <div className="p-6"><Failure error={task.error} /></div>;
   if (!task.data) return <Loading />;
@@ -113,6 +136,7 @@ export function TaskDetail() {
               <LinksPanel task={detail.task} links={detail.links} />
             </>
           ) : null}
+          <DriftPanel taskKey={detail.task.key} />
           <Separator />
           <ScopePanel task={detail.task} onChanged={reload} />
         </aside>
@@ -223,8 +247,22 @@ function LinksPanel({task, links}: {task: Task; links: TaskLink[]}) {
 
 // Этапы идут попытками: повторный заход после отката — новая попытка, а не
 // перезапись прежней, поэтому «аналитика делалась дважды» видно целиком.
+//
+// Перепроверка ролью-ревьюером — не отдельный этап, а вложенный прогон того же
+// (решение 0017), поэтому она показана внутри своего родителя: пока она идёт,
+// родительский прогон стоит в gating и работать в нём некому.
 function Stages({detail, onChanged}: {detail: TaskDetailData; onChanged: () => void}) {
-  const runs = [...detail.stage_runs].sort((a, b) => b.entered_at.localeCompare(a.entered_at));
+  const nested = new Map<string, StageRun[]>();
+  for (const run of detail.stage_runs) {
+    if (!run.parent_run_id) continue;
+    const list = nested.get(run.parent_run_id);
+    if (list) list.push(run);
+    else nested.set(run.parent_run_id, [run]);
+  }
+
+  const runs = detail.stage_runs
+    .filter((r) => !r.parent_run_id)
+    .sort((a, b) => b.entered_at.localeCompare(a.entered_at));
 
   return (
     <div className="space-y-4">
@@ -232,7 +270,9 @@ function Stages({detail, onChanged}: {detail: TaskDetailData; onChanged: () => v
         <StageCard
           key={run.id}
           run={run}
+          reviews={(nested.get(run.id) ?? []).sort((a, b) => a.entered_at.localeCompare(b.entered_at))}
           artifacts={detail.artifacts.filter((a) => a.stage_run_id === run.id)}
+          allArtifacts={detail.artifacts}
           onChanged={onChanged}
         />
       ))}
@@ -251,13 +291,23 @@ const RUN_VARIANT: Record<string, DotVariant> = {
   gating: 'warning',
 };
 
+// Аренда жива, пока не истекла: агент продлевает её heartbeat'ом, и по этому
+// же признаку карточка решает, перезапрашивать ли себя.
+function isLeaseLive(run: StageRun): boolean {
+  return Boolean(run.lease_expires_at && new Date(run.lease_expires_at) > new Date());
+}
+
 function StageCard({
   run,
+  reviews,
   artifacts,
+  allArtifacts,
   onChanged,
 }: {
   run: StageRun;
+  reviews: StageRun[];
   artifacts: Artifact[];
+  allArtifacts: Artifact[];
   onChanged: () => void;
 }) {
   return (
@@ -266,10 +316,12 @@ function StageCard({
         <div className="flex items-center gap-2">
           <StatusDot variant={RUN_VARIANT[run.state] ?? 'neutral'} label={run.state} />
           <h3 className="text-base font-semibold">{run.status_key}</h3>
+          {run.role_key ? <Token label={run.role_key} /> : null}
           {run.attempt > 1 ? <Badge variant="secondary">попытка {run.attempt}</Badge> : null}
         </div>
         <Timestamp value={run.entered_at} format="relative" />
       </div>
+      <Lease run={run} />
       {run.summary ? <p className="text-muted-foreground text-sm">{run.summary}</p> : null}
       {artifacts.length === 0 ? (
         <p className="text-muted-foreground text-sm">Артефактов на этой попытке нет</p>
@@ -280,7 +332,76 @@ function StageCard({
           ))}
         </div>
       )}
+      {reviews.length > 0 ? (
+        <div className="space-y-2 border-l-2 pl-3">
+          <p className="text-muted-foreground text-xs">Перепроверка</p>
+          {reviews.map((review) => (
+            <ReviewRun
+              key={review.id}
+              run={review}
+              artifacts={allArtifacts.filter((a) => a.stage_run_id === review.id)}
+              onChanged={onChanged}
+            />
+          ))}
+        </div>
+      ) : null}
     </Card>
+  );
+}
+
+// Вложенный прогон перепроверки: своя роль, своя аренда, свой вердикт.
+function ReviewRun({
+  run,
+  artifacts,
+  onChanged,
+}: {
+  run: StageRun;
+  artifacts: Artifact[];
+  onChanged: () => void;
+}) {
+  return (
+    <div className="space-y-2 rounded-lg border p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <StatusDot variant={RUN_VARIANT[run.state] ?? 'neutral'} label={run.state} />
+          {run.role_key ? <Token label={run.role_key} /> : null}
+          {run.outcome ? <Badge variant="secondary">{run.outcome}</Badge> : null}
+        </div>
+        <Timestamp value={run.entered_at} format="relative" />
+      </div>
+      <Lease run={run} />
+      {run.summary ? <p className="text-muted-foreground text-sm">{run.summary}</p> : null}
+      {artifacts.map((a) => (
+        <ArtifactView key={a.id} artifact={a} onChanged={onChanged} />
+      ))}
+    </div>
+  );
+}
+
+// Аренда: кто забрал прогон, когда подавал признаки жизни и сколько ей
+// осталось. Истёкшую аренду подметает воркер, но до тех пор она видна как
+// истёкшая, а не как пустая: разница объясняет, почему задачу никто не берёт.
+function Lease({run}: {run: StageRun}) {
+  if (!run.claimed_by_handle) return null;
+  const live = isLeaseLive(run);
+  return (
+    <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+      <span className="inline-flex items-center gap-1.5">
+        <StatusDot variant={live ? 'accent' : 'neutral'} />
+        {live ? 'в работе у' : 'аренда истекла у'} {run.claimed_by_handle}
+      </span>
+      {run.lease_expires_at ? (
+        <span>
+          аренда {live ? 'истекает' : 'истекла'}{' '}
+          <Timestamp value={run.lease_expires_at} format="relative" className="text-xs" />
+        </span>
+      ) : null}
+      {run.heartbeat_at ? (
+        <span>
+          подал признаки жизни <Timestamp value={run.heartbeat_at} format="relative" className="text-xs" />
+        </span>
+      ) : null}
+    </div>
   );
 }
 
