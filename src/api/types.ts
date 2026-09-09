@@ -35,14 +35,14 @@ export interface Team {
   archived_at?: string;
 }
 
-export type TeamRole = 'member' | 'lead';
+export type TeamRole = "member" | "lead";
 
 export interface TeamMember {
   team_id: UUID;
   team_key: string;
   principal_id: UUID;
   handle: string;
-  kind: 'user' | 'agent' | 'system';
+  kind: "user" | "agent" | "system";
   display_name: string;
   role: TeamRole;
   created_at: string;
@@ -70,7 +70,7 @@ export interface TeamDetail {
 // Предела может не быть — тогда есть только расход.
 export interface BudgetState {
   team_key?: string;
-  period?: 'day' | 'week' | 'month';
+  period?: "day" | "week" | "month";
   limit_usd?: number;
   spent_usd: number;
 }
@@ -179,7 +179,7 @@ export interface Transition {
   gates?: Gate[];
 }
 
-export type WorkflowState = 'draft' | 'active' | 'retired';
+export type WorkflowState = "draft" | "active" | "retired";
 
 export interface WorkflowHead {
   id: UUID;
@@ -221,7 +221,7 @@ export interface Task {
   status_id: UUID;
   status_key: string;
   status_name: string;
-  priority: 'low' | 'normal' | 'high' | 'urgent';
+  priority: "low" | "normal" | "high" | "urgent";
   assignee_id?: UUID;
   assignee_handle?: string;
   external_ref: Record<string, unknown>;
@@ -291,7 +291,7 @@ export interface GateCheck {
   gate_name: string;
   type: string;
   blocking: boolean;
-  status: 'pending' | 'passed' | 'failed' | 'waived' | 'skipped';
+  status: "pending" | "passed" | "failed" | "waived" | "skipped";
   reason?: string;
   details?: Record<string, unknown>;
 }
@@ -309,7 +309,7 @@ export interface TransitionOption {
 // dependencies_closed, остальные отношения — контекст.
 export interface TaskLink {
   rel: string;
-  direction: 'outgoing' | 'incoming';
+  direction: "outgoing" | "incoming";
   task_id: UUID;
   task_key: string;
   task_title: string;
@@ -426,11 +426,11 @@ export interface ActivationResult {
 
 // ── фаза 4: аутентификация, участники, перенос правил, метрики ─────────────
 
-export type MemberRole = 'viewer' | 'agent' | 'maintainer' | 'admin';
+export type MemberRole = "viewer" | "agent" | "maintainer" | "admin";
 
 export interface Principal {
   id: UUID;
-  kind: 'user' | 'agent' | 'system';
+  kind: "user" | "agent" | "system";
   handle: string;
   display_name: string;
   email?: string;
@@ -443,7 +443,7 @@ export interface ProjectMember {
   project_key: string;
   principal_id: UUID;
   handle: string;
-  kind: 'user' | 'agent' | 'system';
+  kind: "user" | "agent" | "system";
   display_name: string;
   role: MemberRole;
   // Роли специалистов, которые участник может забирать (решение 0030).
@@ -456,7 +456,7 @@ export interface AccessToken {
   id: UUID;
   principal_id: UUID;
   handle: string;
-  kind: 'user' | 'agent' | 'system';
+  kind: "user" | "agent" | "system";
   project_id?: UUID;
   project_key?: string;
   name: string;
@@ -471,7 +471,7 @@ export interface AccessToken {
 // Ответ /auth/me. mode = header означает, что актор назван заголовком и не
 // проверен; в этом режиме форма входа не нужна.
 export interface Me {
-  mode: 'header' | 'token';
+  mode: "header" | "token";
   authenticated: boolean;
   principal: Principal;
   token?: AccessToken;
@@ -519,12 +519,32 @@ export interface IssuedToken {
   record: AccessToken;
 }
 
+// Запрос входа CLI (решение 0032): clab показал код, человек подтверждает
+// его здесь. Секрета в записи нет.
+export interface CLILoginRequest {
+  id: UUID;
+  user_code: string;
+  label: string;
+  token_days: number;
+  created_at: string;
+  expires_at: string;
+  approved_handle?: string;
+  approved_at?: string;
+  denied_at?: string;
+  consumed_at?: string;
+}
+
+export interface CLILoginView {
+  request: CLILoginRequest;
+  status: "pending" | "approved" | "denied" | "expired" | "consumed";
+}
+
 export interface ProjectDocument {
   id: UUID;
   project_id: UUID;
   kind: string;
   title: string;
-  source: 'inline' | 'url' | 'repo_path';
+  source: "inline" | "url" | "repo_path";
   url?: string;
   repository?: string;
   repo_path?: string;
@@ -534,11 +554,12 @@ export interface ProjectDocument {
 
 // Связка переноса правил (решение 0022). Форма открытая: UI показывает и
 // передаёт её как JSON, не разбирая по полям.
-export type Bundle = Record<string, unknown> & {version: number};
+export type Bundle = Record<string, unknown> & { version: number };
 
 export interface ImportEntry {
   key: string;
-  outcome: 'created' | 'updated' | 'unchanged' | 'new_version' | 'draft_created';
+  outcome:
+    "created" | "updated" | "unchanged" | "new_version" | "draft_created";
   detail?: string;
   id?: string;
 }
@@ -589,7 +610,7 @@ export interface DriftMetric {
 // Стоимость в одном разрезе: по статусу, по роли, по модели. Прогоны без
 // отчёта считаются отдельно — «неизвестно» не то же самое, что ноль.
 export interface CostMetric {
-  dimension: 'status' | 'role' | 'model';
+  dimension: "status" | "role" | "model";
   key: string;
   name?: string;
   runs: number;

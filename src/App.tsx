@@ -1,6 +1,14 @@
-import {useEffect, useState} from 'react';
-import {Link, Navigate, Route, Routes, useLocation, useNavigate, useParams} from 'react-router-dom';
-import {BrowserRouter} from 'react-router-dom';
+import { useEffect, useState } from "react";
+import {
+  Link,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  useParams,
+} from "react-router-dom";
+import { BrowserRouter } from "react-router-dom";
 import {
   BarChart3,
   Columns3,
@@ -14,9 +22,9 @@ import {
   UserSquare,
   Workflow,
   Wrench,
-} from 'lucide-react';
+} from "lucide-react";
 
-import {Button} from '@/components/ui/button';
+import { Button } from "@/components/ui/button";
 import {
   Sidebar,
   SidebarContent,
@@ -32,24 +40,31 @@ import {
   SidebarProvider,
   SidebarRail,
   SidebarTrigger,
-} from '@/components/ui/sidebar';
-import {Separator} from '@/components/ui/separator';
-import {TooltipProvider} from '@/components/ui/tooltip';
-import {ThemeProvider, useTheme} from '@/lib/theme';
+} from "@/components/ui/sidebar";
+import { Separator } from "@/components/ui/separator";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { ThemeProvider, useTheme } from "@/lib/theme";
 
-import {ApiError, UNAUTHENTICATED_EVENT, api, currentToken, setCurrentToken} from './api/client';
-import type {Me} from './api/types';
-import {Failure, Loading} from './components/Feedback';
-import {Principals, Teams} from './pages/Admin';
-import {Board} from './pages/Board';
-import {GITHUB_RETURN_PATH, Login} from './pages/Login';
-import {Knowledge} from './pages/Knowledge';
-import {Metrics} from './pages/Metrics';
-import {Projects} from './pages/Projects';
-import {Roles} from './pages/Roles';
-import {Settings} from './pages/Settings';
-import {TaskDetail} from './pages/TaskDetail';
-import {WorkflowEditor} from './pages/WorkflowEditor';
+import {
+  ApiError,
+  UNAUTHENTICATED_EVENT,
+  api,
+  currentToken,
+  setCurrentToken,
+} from "./api/client";
+import type { Me } from "./api/types";
+import { Failure, Loading } from "./components/Feedback";
+import { Principals, Teams } from "./pages/Admin";
+import { Board } from "./pages/Board";
+import { CLILogin, CLI_LOGIN_PATH } from "./pages/CLILogin";
+import { GITHUB_RETURN_PATH, Login } from "./pages/Login";
+import { Knowledge } from "./pages/Knowledge";
+import { Metrics } from "./pages/Metrics";
+import { Projects } from "./pages/Projects";
+import { Roles } from "./pages/Roles";
+import { Settings } from "./pages/Settings";
+import { TaskDetail } from "./pages/TaskDetail";
+import { WorkflowEditor } from "./pages/WorkflowEditor";
 
 export function App() {
   return (
@@ -61,18 +76,92 @@ export function App() {
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path={GITHUB_RETURN_PATH} element={<Login />} />
+            <Route path={CLI_LOGIN_PATH} element={<CLILogin />} />
             <Route path="/" element={<Navigate to="/projects" replace />} />
-            <Route path="/projects" element={<Shell page="projects"><Projects /></Shell>} />
-            <Route path="/teams" element={<Shell page="teams"><Teams /></Shell>} />
-            <Route path="/principals" element={<Shell page="principals"><Principals /></Shell>} />
-            <Route path="/p/:projectKey" element={<Navigate to="board" replace />} />
-            <Route path="/p/:projectKey/board" element={<Shell page="board"><Board /></Shell>} />
-            <Route path="/p/:projectKey/roles" element={<Shell page="roles"><Roles /></Shell>} />
-            <Route path="/p/:projectKey/workflow" element={<Shell page="workflow"><WorkflowEditor /></Shell>} />
-            <Route path="/p/:projectKey/search" element={<Shell page="search"><Knowledge /></Shell>} />
-            <Route path="/p/:projectKey/metrics" element={<Shell page="metrics"><Metrics /></Shell>} />
-            <Route path="/p/:projectKey/settings" element={<Shell page="settings"><Settings /></Shell>} />
-            <Route path="/p/:projectKey/tasks/:taskKey" element={<Shell page="board"><TaskDetail /></Shell>} />
+            <Route
+              path="/projects"
+              element={
+                <Shell page="projects">
+                  <Projects />
+                </Shell>
+              }
+            />
+            <Route
+              path="/teams"
+              element={
+                <Shell page="teams">
+                  <Teams />
+                </Shell>
+              }
+            />
+            <Route
+              path="/principals"
+              element={
+                <Shell page="principals">
+                  <Principals />
+                </Shell>
+              }
+            />
+            <Route
+              path="/p/:projectKey"
+              element={<Navigate to="board" replace />}
+            />
+            <Route
+              path="/p/:projectKey/board"
+              element={
+                <Shell page="board">
+                  <Board />
+                </Shell>
+              }
+            />
+            <Route
+              path="/p/:projectKey/roles"
+              element={
+                <Shell page="roles">
+                  <Roles />
+                </Shell>
+              }
+            />
+            <Route
+              path="/p/:projectKey/workflow"
+              element={
+                <Shell page="workflow">
+                  <WorkflowEditor />
+                </Shell>
+              }
+            />
+            <Route
+              path="/p/:projectKey/search"
+              element={
+                <Shell page="search">
+                  <Knowledge />
+                </Shell>
+              }
+            />
+            <Route
+              path="/p/:projectKey/metrics"
+              element={
+                <Shell page="metrics">
+                  <Metrics />
+                </Shell>
+              }
+            />
+            <Route
+              path="/p/:projectKey/settings"
+              element={
+                <Shell page="settings">
+                  <Settings />
+                </Shell>
+              }
+            />
+            <Route
+              path="/p/:projectKey/tasks/:taskKey"
+              element={
+                <Shell page="board">
+                  <TaskDetail />
+                </Shell>
+              }
+            />
           </Routes>
         </BrowserRouter>
       </TooltipProvider>
@@ -81,33 +170,33 @@ export function App() {
 }
 
 type Page =
-  | 'projects'
-  | 'teams'
-  | 'principals'
-  | 'board'
-  | 'roles'
-  | 'workflow'
-  | 'search'
-  | 'metrics'
-  | 'settings';
+  | "projects"
+  | "teams"
+  | "principals"
+  | "board"
+  | "roles"
+  | "workflow"
+  | "search"
+  | "metrics"
+  | "settings";
 
 const TITLES: Record<Page, string> = {
-  projects: 'Проекты',
-  teams: 'Команды',
-  principals: 'Принципалы',
-  board: 'Доска',
-  roles: 'Роли',
-  workflow: 'Цикл',
-  search: 'Поиск',
-  metrics: 'Метрики',
-  settings: 'Настройки',
+  projects: "Проекты",
+  teams: "Команды",
+  principals: "Принципалы",
+  board: "Доска",
+  roles: "Роли",
+  workflow: "Цикл",
+  search: "Поиск",
+  metrics: "Метрики",
+  settings: "Настройки",
 };
 
 // Shell спрашивает бэкенд, кто мы, и в режиме токенов без действующего токена
 // уводит на вход. В режиме header формы входа нет: актор назван заголовком,
 // и проверять там нечего.
-function Shell({page, children}: {page: Page; children: React.ReactNode}) {
-  const {projectKey} = useParams();
+function Shell({ page, children }: { page: Page; children: React.ReactNode }) {
+  const { projectKey } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const [me, setMe] = useState<Me>();
@@ -119,11 +208,16 @@ function Shell({page, children}: {page: Page; children: React.ReactNode}) {
       (who) => live && setMe(who),
       (err: unknown) => {
         if (!live) return;
-        if (err instanceof ApiError && err.code === 'unauthenticated') {
-          navigate('/login', {replace: true, state: {from: location.pathname}});
+        if (err instanceof ApiError && err.code === "unauthenticated") {
+          navigate("/login", {
+            replace: true,
+            state: { from: location.pathname },
+          });
           return;
         }
-        setFailed(err instanceof ApiError ? err : new ApiError('internal', String(err)));
+        setFailed(
+          err instanceof ApiError ? err : new ApiError("internal", String(err)),
+        );
       },
     );
     return () => {
@@ -137,10 +231,11 @@ function Shell({page, children}: {page: Page; children: React.ReactNode}) {
   useEffect(() => {
     const onUnauthenticated = () => {
       setCurrentToken(null);
-      navigate('/login', {replace: true, state: {from: location.pathname}});
+      navigate("/login", { replace: true, state: { from: location.pathname } });
     };
     window.addEventListener(UNAUTHENTICATED_EVENT, onUnauthenticated);
-    return () => window.removeEventListener(UNAUTHENTICATED_EVENT, onUnauthenticated);
+    return () =>
+      window.removeEventListener(UNAUTHENTICATED_EVENT, onUnauthenticated);
   }, [navigate, location.pathname]);
 
   // Выход отзывает сессию на бэкенде: забыть токен в браузере мало — тот же
@@ -153,7 +248,7 @@ function Shell({page, children}: {page: Page; children: React.ReactNode}) {
       // токен мог протухнуть сам — тогда отзывать уже нечего
     }
     setCurrentToken(null);
-    navigate('/login', {replace: true});
+    navigate("/login", { replace: true });
   };
 
   return (
@@ -188,7 +283,7 @@ type NavEntry = {
   page: Page;
   label: string;
   href: string;
-  icon: React.ComponentType<{className?: string}>;
+  icon: React.ComponentType<{ className?: string }>;
 };
 
 function Nav({
@@ -203,23 +298,63 @@ function Nav({
   onLogout: () => void;
 }) {
   const global: NavEntry[] = [
-    {page: 'projects', label: 'Проекты', icon: FolderKanban, href: '/projects'},
+    {
+      page: "projects",
+      label: "Проекты",
+      icon: FolderKanban,
+      href: "/projects",
+    },
     // Команды живут над проектами: уровень доступа сразу в несколько,
     // владение и бюджет (решение 0027).
-    {page: 'teams', label: 'Команды', icon: Users, href: '/teams'},
+    { page: "teams", label: "Команды", icon: Users, href: "/teams" },
   ];
   if (me?.principal.is_admin) {
-    global.push({page: 'principals', label: 'Принципалы', icon: UserSquare, href: '/principals'});
+    global.push({
+      page: "principals",
+      label: "Принципалы",
+      icon: UserSquare,
+      href: "/principals",
+    });
   }
 
   const inProject: NavEntry[] = projectKey
     ? [
-        {page: 'board', label: 'Доска', icon: Columns3, href: `/p/${projectKey}/board`},
-        {page: 'roles', label: 'Роли', icon: UserSquare, href: `/p/${projectKey}/roles`},
-        {page: 'workflow', label: 'Цикл', icon: Workflow, href: `/p/${projectKey}/workflow`},
-        {page: 'search', label: 'Поиск', icon: Search, href: `/p/${projectKey}/search`},
-        {page: 'metrics', label: 'Метрики', icon: BarChart3, href: `/p/${projectKey}/metrics`},
-        {page: 'settings', label: 'Настройки', icon: Settings2, href: `/p/${projectKey}/settings`},
+        {
+          page: "board",
+          label: "Доска",
+          icon: Columns3,
+          href: `/p/${projectKey}/board`,
+        },
+        {
+          page: "roles",
+          label: "Роли",
+          icon: UserSquare,
+          href: `/p/${projectKey}/roles`,
+        },
+        {
+          page: "workflow",
+          label: "Цикл",
+          icon: Workflow,
+          href: `/p/${projectKey}/workflow`,
+        },
+        {
+          page: "search",
+          label: "Поиск",
+          icon: Search,
+          href: `/p/${projectKey}/search`,
+        },
+        {
+          page: "metrics",
+          label: "Метрики",
+          icon: BarChart3,
+          href: `/p/${projectKey}/metrics`,
+        },
+        {
+          page: "settings",
+          label: "Настройки",
+          icon: Settings2,
+          href: `/p/${projectKey}/settings`,
+        },
       ]
     : [];
 
@@ -235,7 +370,9 @@ function Nav({
                 </div>
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-semibold">Cadence Lab</span>
-                  <span className="text-muted-foreground truncate text-xs">цикл разработки</span>
+                  <span className="text-muted-foreground truncate text-xs">
+                    цикл разработки
+                  </span>
                 </div>
               </Link>
             </SidebarMenuButton>
@@ -247,7 +384,11 @@ function Nav({
           <SidebarGroupContent>
             <SidebarMenu>
               {global.map((item) => (
-                <NavItem key={item.page} {...item} isActive={page === item.page} />
+                <NavItem
+                  key={item.page}
+                  {...item}
+                  isActive={page === item.page}
+                />
               ))}
             </SidebarMenu>
           </SidebarGroupContent>
@@ -258,7 +399,11 @@ function Nav({
             <SidebarGroupContent>
               <SidebarMenu>
                 {inProject.map((item) => (
-                  <NavItem key={item.page} {...item} isActive={page === item.page} />
+                  <NavItem
+                    key={item.page}
+                    {...item}
+                    isActive={page === item.page}
+                  />
                 ))}
               </SidebarMenu>
             </SidebarGroupContent>
@@ -270,16 +415,20 @@ function Nav({
           <div className="group-data-[collapsible=icon]:hidden space-y-1 px-2 py-1 text-xs">
             <p className="font-medium">
               {me.principal.kind}:{me.principal.handle}
-              {me.principal.is_admin ? ' · администратор' : ''}
+              {me.principal.is_admin ? " · администратор" : ""}
             </p>
             {me.teams.length > 0 ? (
-              <p className="text-muted-foreground">команды: {me.teams.map((t) => t.team_key).join(', ')}</p>
+              <p className="text-muted-foreground">
+                команды: {me.teams.map((t) => t.team_key).join(", ")}
+              </p>
             ) : null}
             <p className="text-muted-foreground">
-              {me.mode === 'token' ? 'вход по токену' : 'режим отладки: актор из заголовка'}
+              {me.mode === "token"
+                ? "вход по токену"
+                : "режим отладки: актор из заголовка"}
             </p>
           </div>
-          {me.mode === 'token' || currentToken() ? (
+          {me.mode === "token" || currentToken() ? (
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton onClick={onLogout} tooltip="Выйти">
@@ -304,7 +453,7 @@ function NavItem({
 }: {
   label: string;
   href: string;
-  icon: React.ComponentType<{className?: string}>;
+  icon: React.ComponentType<{ className?: string }>;
   isActive: boolean;
 }) {
   return (
@@ -321,12 +470,29 @@ function NavItem({
 
 // Переключатель темы гоняет по кругу: светлая → тёмная → системная.
 function ThemeToggle() {
-  const {theme, setTheme} = useTheme();
-  const next = theme === 'light' ? 'dark' : theme === 'dark' ? 'system' : 'light';
-  const title = {light: 'Тема: светлая', dark: 'Тема: тёмная', system: 'Тема: системная'}[theme];
+  const { theme, setTheme } = useTheme();
+  const next =
+    theme === "light" ? "dark" : theme === "dark" ? "system" : "light";
+  const title = {
+    light: "Тема: светлая",
+    dark: "Тема: тёмная",
+    system: "Тема: системная",
+  }[theme];
   return (
-    <Button variant="ghost" size="icon-sm" onClick={() => setTheme(next)} title={title} aria-label={title}>
-      {theme === 'dark' ? <Moon /> : theme === 'light' ? <Sun /> : <Sun className="opacity-50" />}
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      onClick={() => setTheme(next)}
+      title={title}
+      aria-label={title}
+    >
+      {theme === "dark" ? (
+        <Moon />
+      ) : theme === "light" ? (
+        <Sun />
+      ) : (
+        <Sun className="opacity-50" />
+      )}
     </Button>
   );
 }
