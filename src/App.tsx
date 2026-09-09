@@ -234,7 +234,7 @@ function Nav({
                   <Wrench className="size-4" />
                 </div>
                 <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-semibold">SDLC Pipeline</span>
+                  <span className="truncate font-semibold">Cadence Lab</span>
                   <span className="text-muted-foreground truncate text-xs">цикл разработки</span>
                 </div>
               </Link>

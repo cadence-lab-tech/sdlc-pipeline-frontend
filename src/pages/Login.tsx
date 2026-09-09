@@ -1,3 +1,4 @@
+import {Wrench} from 'lucide-react';
 import {useEffect, useState} from 'react';
 import {useLocation, useNavigate} from 'react-router-dom';
 
@@ -30,7 +31,7 @@ export function Login() {
   return (
     <div className="flex min-h-svh items-center justify-center p-8">
       <Card className="w-full max-w-110 gap-4 p-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Вход</h1>
+        <Welcome />
         {error ? (
           <Alert variant="destructive">
             <AlertTitle>Войти не удалось</AlertTitle>
@@ -52,6 +53,28 @@ export function Login() {
         ) : null}
         <ByToken from={from} onError={setError} navigate={navigate} />
       </Card>
+    </div>
+  );
+}
+
+// Приветствие: первое, что видит коллега по ссылке. Имя системы и в двух
+// словах, что здесь происходит, — дальше сразу способы входа.
+function Welcome() {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-3">
+        <div className="bg-primary text-primary-foreground flex size-10 shrink-0 items-center justify-center rounded-lg">
+          <Wrench className="size-5" />
+        </div>
+        <div className="grid leading-tight">
+          <h1 className="text-2xl font-semibold tracking-tight">Cadence Lab</h1>
+          <span className="text-muted-foreground text-xs">цикл разработки</span>
+        </div>
+      </div>
+      <p className="text-muted-foreground text-sm">
+        Задачи идут по настраиваемому циклу: на каждом этапе работает агент в роли специалиста,
+        а переход дальше закрыт гейтами и апрувом человека. Войдите, чтобы увидеть свои проекты.
+      </p>
     </div>
   );
 }
@@ -334,7 +357,7 @@ function ByToken({
     <div className="space-y-3">
       <p className="text-muted-foreground text-sm">
         Или предъявите токен доступа. Его выдаёт администратор проекта в настройках или командой
-        «sdlc token create».
+        «clab token create».
       </p>
       <FormLayout>
         <TextInput
