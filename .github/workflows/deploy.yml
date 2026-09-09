@@ -85,7 +85,7 @@ jobs:
         env:
           TARGET: ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}
           TAG: ${{ inputs.tag || needs.build.outputs.tag }}
-          REGISTRY: ${{ needs.build.outputs.registry || 'ghcr.io/stepakaziatko' }}
+          REGISTRY: ${{ needs.build.outputs.registry || 'ghcr.io/cadence-lab-tech' }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           printf '%s' "$GHCR_TOKEN" | ssh -p "${{ vars.SSH_PORT || 22 }}" "$TARGET" \

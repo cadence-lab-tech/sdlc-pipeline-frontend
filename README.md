@@ -4,8 +4,8 @@
 задач, карточка задачи с таймлайном и артефактами по этапам, редактор ролей и
 редактор цикла с гейтами.
 
-Бэкенд: [sdlc-pipeline-backend](https://github.com/stepaKaziatko/sdlc-pipeline-backend) ·
-Документация по домену: [sdlc-pipeline-docs](https://github.com/stepaKaziatko/sdlc-pipeline-docs)
+Бэкенд: [sdlc-pipeline-backend](https://github.com/cadence-lab-tech/sdlc-pipeline-backend) ·
+Документация по домену: [sdlc-pipeline-docs](https://github.com/cadence-lab-tech/sdlc-pipeline-docs)
 
 ## Стек
 
@@ -47,7 +47,7 @@ npm run e2e      # сквозные проверки в headless-Chrome пове
 клиент ходит в `/v1` того же origin, к сервису его ведёт внешний Caddy из
 `backend/deploy`. Пуш в `main` собирает образ в GHCR и выкладывает его
 (`.github/workflows/deploy.yml`); как устроен стек —
-[deploy/README.md](https://github.com/stepaKaziatko/sdlc-pipeline-backend/blob/main/deploy/README.md)
+[deploy/README.md](https://github.com/cadence-lab-tech/sdlc-pipeline-backend/blob/main/deploy/README.md)
 в репозитории бэкенда.
 
 ## Страницы
@@ -79,7 +79,7 @@ npm run e2e      # сквозные проверки в headless-Chrome пове
   авторизации и отдаёт бэкенду; подпись, издателя и аудиторию проверяет тот.
   Код от GitHub браузер тоже только передаёт: секрет клиента живёт на бэкенде.
 - **Не правит активный цикл.** Правка — черновик, который активируется целиком
-  ([решение 0016](https://github.com/stepaKaziatko/sdlc-pipeline-docs/blob/main/decisions/0016-workflow-versions-immutable.md)).
+  ([решение 0016](https://github.com/cadence-lab-tech/sdlc-pipeline-docs/blob/main/decisions/0016-workflow-versions-immutable.md)).
 
 ## Статус
 
@@ -88,7 +88,7 @@ npm run e2e      # сквозные проверки в headless-Chrome пове
 вход и права, перенос связки, команды с бюджетами, вход через корпоративного
 провайдера и настройка доступа к GitHub у проекта. Сквозные проверки проходят.
 
-Выход к коллегам ([решение 0030](https://github.com/stepaKaziatko/sdlc-pipeline-docs/blob/main/decisions/0030-member-roles-github-login-open-projects.md)):
+Выход к коллегам ([решение 0030](https://github.com/cadence-lab-tech/sdlc-pipeline-docs/blob/main/decisions/0030-member-roles-github-login-open-projects.md)):
 вход через GitHub, роли специалистов у участников и команд проекта, создание
 проекта со страницы проектов.
 

@@ -5,13 +5,13 @@
 
 ## Прежде чем писать код
 
-Домен описан в [sdlc-pipeline-docs](https://github.com/stepaKaziatko/sdlc-pipeline-docs), локально — соседняя
+Домен описан в [sdlc-pipeline-docs](https://github.com/cadence-lab-tech/sdlc-pipeline-docs), локально — соседняя
 директория `../docs/`:
 
 - `../docs/ARCHITECTURE.md` — что такое задача, этап, гейт, роль, дрейф
 - `../docs/decisions/README.md` — принятые решения
 
-API отдаёт [backend](https://github.com/stepaKaziatko/sdlc-pipeline-backend); контракт данных совпадает со
+API отдаёт [backend](https://github.com/cadence-lab-tech/sdlc-pipeline-backend); контракт данных совпадает со
 схемой в `../backend/migrations/`.
 
 ## Стек
