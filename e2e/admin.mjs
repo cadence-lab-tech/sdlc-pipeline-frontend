@@ -27,7 +27,7 @@ let t = await run('return texts();');
 check('раздел открылся', t.includes('Команды'), t.slice(0, 300));
 
 await run(`
-  await clickExact("Завести команду");
+  await clickExact("Завести организацию");
   await sleep(400);
   await fill("Ключ", "e2e-team");
   await fill("Название", "Команда e2e");
@@ -36,13 +36,16 @@ await run(`
   await sleep(1500);
 `);
 t = await run('return texts();');
-check('команда заведена', t.includes('Команда e2e'), t.slice(0, 600));
+check('организация заведена', t.includes('Команда e2e') && t.includes('организация'), t.slice(0, 600));
 check('создатель стал лидом', t.includes('лид'), t.slice(0, 900));
 check('разделы команды на месте',
-  t.includes('Состав') && t.includes('Доступ в проекты') && t.includes('Группы провайдера') && t.includes('Бюджет'),
+  t.includes('Тариф') && t.includes('Состав') && t.includes('Доступ в проекты') && t.includes('Группы провайдера') && t.includes('Бюджет'),
   t.slice(0, 900));
 
 console.log('состав');
+// Человек по хэндлу не заводится (решение 0033): e2e-lead появляется как
+// актор заголовка до того, как его добавляют в состав — run.sh делает это
+// запросом к API.
 await run(`
   await fill("Принципал", "user:e2e-lead");
   await sleep(200);
@@ -63,6 +66,8 @@ await run(`
 // а не остались в поле ввода.
 await s.goto(BASE + '/teams');
 await new Promise((r) => setTimeout(r, 2500));
+// По умолчанию открыт личный аккаунт: организацию надо выбрать заново.
+await run('await clickExact("Команда e2e", "p"); await sleep(800);');
 // Порядок задаёт база (ORDER BY idp_group), а не поле ввода, поэтому
 // сравнивается набор.
 const savedGroups = (await valueOf('Группы')).split(',').map((g) => g.trim()).sort();

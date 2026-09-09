@@ -66,9 +66,10 @@ export function Projects() {
   );
 }
 
-// Создание проекта (решение 0030): создатель становится его администратором
-// и сам добавляет коллег. Команда-владелец необязательна; предлагаются
-// только те, где человек лид — остальным бэкенд откажет.
+// Создание проекта (решения 0030, 0033): проект всегда принадлежит команде.
+// Без выбора он уходит в личный аккаунт создателя; предлагаются команды,
+// где человек лид — остальным бэкенд откажет. Создатель — администратор
+// проекта и сам добавляет коллег.
 function NewProject({me, onDone, onCancel}: {me: Me; onDone: (p: Project) => void; onCancel: () => void}) {
   const [key, setKey] = useState('');
   const [name, setName] = useState('');
@@ -77,7 +78,12 @@ function NewProject({me, onDone, onCancel}: {me: Me; onDone: (p: Project) => voi
   const [error, setError] = useState<ApiError>();
   const [busy, setBusy] = useState(false);
 
-  const teams = me.teams.filter((t) => t.role === 'lead').map((t) => ({value: t.team_key, label: t.team_key}));
+  const teams = me.teams
+    .filter((t) => t.role === 'lead')
+    .map((t) => ({
+      value: t.team_key,
+      label: t.team_kind === 'personal' ? `Личный аккаунт (${t.team_key})` : t.team_key,
+    }));
 
   const submit = async () => {
     setBusy(true);
@@ -114,12 +120,12 @@ function NewProject({me, onDone, onCancel}: {me: Me; onDone: (p: Project) => voi
         <TextInput label="Описание" value={description} onChange={setDescription} />
         {teams.length > 0 ? (
           <Selector
-            label="Команда-владелец"
-            description="её лид — администратор проекта по умолчанию; пусто — проект без команды"
+            label="Владелец"
+            description="проект принадлежит команде, её лид — администратор проекта; пусто — личный аккаунт"
             options={teams}
             value={team}
             onChange={setTeam}
-            placeholder="Без команды"
+            placeholder="Личный аккаунт"
             hasClear
           />
         ) : null}

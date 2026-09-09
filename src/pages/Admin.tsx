@@ -6,18 +6,19 @@ import {Card} from '@/components/ui/card';
 import {Separator} from '@/components/ui/separator';
 import {FormLayout, Selector, Switch, TextInput} from '@/components/fields';
 import {DataTable} from '@/components/DataTable';
-import {EmptyState, Page, PageHeader, Row, Section, Timestamp, Token} from '@/components/kit';
+import {EmptyState, Note, Page, PageHeader, Row, Section, Timestamp, Token} from '@/components/kit';
 
 import {ApiError, api} from '../api/client';
-import type {Principal, ProjectTeam, Team, TeamMember} from '../api/types';
+import type {Me, Plan, Principal, ProjectTeam, Team, TeamDetail as TeamDetailData, TeamMember} from '../api/types';
 import {useResource} from '../api/useResource';
 import {Failure, Loaded, Loading} from '../components/Feedback';
 
-// Команды и принципалы (решение 0027). Команда живёт над проектами: она даёт
-// уровень доступа сразу в несколько, владеет проектами и несёт бюджет. Права
-// на каждое действие проверяет бэкенд — страница их не угадывает и кнопки не
-// прячет; исключение одно, список принципалов, он общесистемный и лиду команды
-// не отдаётся вовсе.
+// Команды и принципалы (решения 0027, 0033). Команда живёт над проектами: она
+// даёт уровень доступа сразу в несколько, владеет проектами, несёт бюджет и
+// тариф. Личный аккаунт — команда одного человека, заводится при входе;
+// организацию заводит любой вошедший. Права на каждое действие проверяет
+// бэкенд — страница их не угадывает и кнопки не прячет; исключение одно,
+// список принципалов, он общесистемный и лиду команды не отдаётся вовсе.
 
 const TEAM_ROLES = [
   {value: 'member', label: 'участник'},
@@ -32,8 +33,11 @@ const PERIODS: {value: 'day' | 'week' | 'month'; label: string}[] = [
   {value: 'month', label: 'в месяц'},
 ];
 
+const kindLabel = (team: Team) => (team.kind === 'personal' ? 'личный аккаунт' : 'организация');
+
 export function Teams() {
   const teams = useResource(() => api.listTeams(), []);
+  const me = useResource(() => api.me(), []);
   const [picked, setPicked] = useState<string>();
   const [creating, setCreating] = useState(false);
 
@@ -41,8 +45,35 @@ export function Teams() {
   if (!teams.data) return <Loading />;
 
   // Выбранная команда вычисляется, а не досылается эффектом: пока никого не
-  // выбрали, открыта первая в списке.
-  const selected = picked ?? teams.data[0]?.key;
+  // выбрали, открыт личный аккаунт, а без него — первая в списке.
+  const personal = teams.data.filter((t) => t.kind === 'personal');
+  const organizations = teams.data.filter((t) => t.kind !== 'personal');
+  const selected = picked ?? personal[0]?.key ?? teams.data[0]?.key;
+
+  const list = (items: Team[]) => (
+    <ul className="divide-border divide-y">
+      {items.map((team) => (
+        <li key={team.id}>
+          <Row
+            isSelected={team.key === selected}
+            onClick={() => {
+              setCreating(false);
+              setPicked(team.key);
+            }}
+            end={
+              team.archived_at ? (
+                <Token label="в архиве" />
+              ) : team.can_create_projects ? (
+                <Token label="проекты" />
+              ) : null
+            }>
+            <p className="truncate font-medium">{team.name}</p>
+            <p className="text-muted-foreground truncate text-xs">{team.key}</p>
+          </Row>
+        </li>
+      ))}
+    </ul>
+  );
 
   return (
     <div className="flex min-h-[calc(100svh-3.5rem)]">
@@ -53,35 +84,28 @@ export function Teams() {
             <Badge variant="secondary">{teams.data.length}</Badge>
           </div>
           <Button size="sm" className="w-full" onClick={() => setCreating(true)}>
-            Завести команду
+            Завести организацию
           </Button>
         </div>
-        <ul className="divide-border divide-y">
-          {teams.data.map((team) => (
-            <li key={team.id}>
-              <Row
-                isSelected={team.key === selected}
-                onClick={() => {
-                  setCreating(false);
-                  setPicked(team.key);
-                }}
-                end={
-                  team.archived_at ? (
-                    <Token label="в архиве" />
-                  ) : team.can_create_projects ? (
-                    <Token label="проекты" />
-                  ) : null
-                }>
-                <p className="truncate font-medium">{team.name}</p>
-                <p className="text-muted-foreground truncate text-xs">{team.key}</p>
-              </Row>
-            </li>
-          ))}
-        </ul>
+        {personal.length > 0 ? (
+          <>
+            <p className="text-muted-foreground px-3 pt-3 pb-1 text-xs font-medium uppercase">
+              {personal.length === 1 ? 'Личный аккаунт' : 'Личные аккаунты'}
+            </p>
+            {list(personal)}
+          </>
+        ) : null}
+        {organizations.length > 0 ? (
+          <>
+            <p className="text-muted-foreground px-3 pt-3 pb-1 text-xs font-medium uppercase">Организации</p>
+            {list(organizations)}
+          </>
+        ) : null}
       </aside>
       <div className="min-w-0 flex-1 p-4">
         {creating ? (
           <NewTeam
+            me={me.data}
             onDone={(team) => {
               setCreating(false);
               setPicked(team.key);
@@ -90,7 +114,15 @@ export function Teams() {
             onCancel={() => setCreating(false)}
           />
         ) : selected ? (
-          <TeamDetail teamKey={selected} onChanged={teams.reload} />
+          <TeamDetail
+            teamKey={selected}
+            me={me.data}
+            onChanged={teams.reload}
+            onConverted={(org) => {
+              setPicked(org.key);
+              teams.reload();
+            }}
+          />
         ) : (
           <EmptyState
             title="Команд нет"
@@ -102,13 +134,17 @@ export function Teams() {
   );
 }
 
-function NewTeam({onDone, onCancel}: {onDone: (team: Team) => void; onCancel: () => void}) {
+// Организацию заводит любой вошедший и становится её лидом (решение 0033).
+// Право заводить проекты новая команда получает по режиму инстанса; выдать
+// его явно может только администратор — остальным переключатель не показывается.
+function NewTeam({me, onDone, onCancel}: {me?: Me; onDone: (team: Team) => void; onCancel: () => void}) {
   const [key, setKey] = useState('');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [canCreateProjects, setCanCreateProjects] = useState(false);
   const [error, setError] = useState<ApiError>();
   const [busy, setBusy] = useState(false);
+  const isAdmin = me?.principal.is_admin ?? false;
 
   const submit = async () => {
     setBusy(true);
@@ -119,7 +155,7 @@ function NewTeam({onDone, onCancel}: {onDone: (team: Team) => void; onCancel: ()
           key: key.trim(),
           name: name.trim(),
           description: description.trim() || undefined,
-          can_create_projects: canCreateProjects,
+          can_create_projects: isAdmin ? canCreateProjects : undefined,
         }),
       );
     } catch (err) {
@@ -132,15 +168,15 @@ function NewTeam({onDone, onCancel}: {onDone: (team: Team) => void; onCancel: ()
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Новая команда"
-        description="Заводит команду администратор системы, и он же становится её первым лидом: команда без лида не примет ни человека, ни проект."
+        title="Новая организация"
+        description="Вы станете её первым лидом: позовёте коллег и заведёте проекты. На бесплатном тарифе в организации до трёх участников. Личный аккаунт с уже заведёнными проектами можно превратить в организацию вместо этого."
       />
       {error ? <Failure error={error} /> : null}
       <Card className="gap-3 p-4">
         <FormLayout>
           <TextInput
             label="Ключ"
-            description="короткий, латиницей: platform"
+            description="короткий, латиницей: acme"
             value={key}
             onChange={setKey}
             isRequired
@@ -148,12 +184,14 @@ function NewTeam({onDone, onCancel}: {onDone: (team: Team) => void; onCancel: ()
           <TextInput label="Название" value={name} onChange={setName} isRequired />
           <TextInput label="Описание" value={description} onChange={setDescription} />
         </FormLayout>
-        <Switch
-          label="Может заводить проекты"
-          description="право принадлежит команде, а не человеку: лид меняется, команда остаётся"
-          value={canCreateProjects}
-          onChange={setCanCreateProjects}
-        />
+        {isAdmin ? (
+          <Switch
+            label="Может заводить проекты"
+            description="право принадлежит команде, а не человеку: лид меняется, команда остаётся"
+            value={canCreateProjects}
+            onChange={setCanCreateProjects}
+          />
+        ) : null}
         <div className="flex gap-2">
           <Button disabled={busy || key.trim() === '' || name.trim() === ''} onClick={submit}>
             Завести
@@ -167,7 +205,17 @@ function NewTeam({onDone, onCancel}: {onDone: (team: Team) => void; onCancel: ()
   );
 }
 
-function TeamDetail({teamKey, onChanged}: {teamKey: string; onChanged: () => void}) {
+function TeamDetail({
+  teamKey,
+  me,
+  onChanged,
+  onConverted,
+}: {
+  teamKey: string;
+  me?: Me;
+  onChanged: () => void;
+  onConverted: (org: Team) => void;
+}) {
   const team = useResource(() => api.getTeam(teamKey), [teamKey]);
   const [error, setError] = useState<ApiError>();
 
@@ -196,6 +244,7 @@ function TeamDetail({teamKey, onChanged}: {teamKey: string; onChanged: () => voi
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h1 className="text-2xl font-semibold tracking-tight">{detail.team.name}</h1>
               <div className="flex items-center gap-2">
+                <Token label={kindLabel(detail.team)} />
                 {detail.team.can_create_projects ? <Token label="заводит проекты" /> : null}
                 {detail.team.archived_at ? <Token label="в архиве" /> : null}
                 <Button size="sm" variant="ghost" onClick={archive}>
@@ -210,7 +259,13 @@ function TeamDetail({teamKey, onChanged}: {teamKey: string; onChanged: () => voi
           </div>
           {error ? <Failure error={error} /> : null}
 
-          <Members teamKey={teamKey} members={detail.members} onChanged={reload} />
+          <PlanSection detail={detail} isAdmin={me?.principal.is_admin ?? false} onChanged={reload} />
+          <Separator />
+          {detail.team.kind === 'personal' ? (
+            <Convert team={detail.team} onDone={onConverted} />
+          ) : (
+            <Members teamKey={teamKey} members={detail.members} onChanged={reload} />
+          )}
           <Separator />
           <Projects teamKey={teamKey} projects={detail.projects} onChanged={reload} />
           <Separator />
@@ -220,6 +275,105 @@ function TeamDetail({teamKey, onChanged}: {teamKey: string; onChanged: () => voi
         </div>
       )}
     </Loaded>
+  );
+}
+
+// Тариф — набор пределов (решение 0033). Показывается всем участникам:
+// упёршись в предел, надо видеть, во что. Назначает тариф администратор
+// инстанса, и только ему предлагается выбор.
+function PlanSection({detail, isAdmin, onChanged}: {detail: TeamDetailData; isAdmin: boolean; onChanged: () => void}) {
+  const plans = useResource(() => (isAdmin ? api.listPlans() : Promise.resolve([] as Plan[])), [isAdmin]);
+  const [code, setCode] = useState<string>();
+  const [error, setError] = useState<ApiError>();
+
+  const members = detail.members.length;
+  const limit = detail.plan.members_max;
+  const save = async () => {
+    setError(undefined);
+    try {
+      await api.setTeamPlan(detail.team.key, code ?? detail.plan.code);
+      setCode(undefined);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err : new ApiError('internal', String(err)));
+    }
+  };
+
+  return (
+    <Section
+      title="Тариф"
+      description="Тариф ограничивает рост, а не доступ: исчерпанный предел не пускает новых участников, начатое продолжает работать.">
+      {error ? <Failure error={error} /> : null}
+      <Card className="gap-3 p-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-3 text-sm">
+          <span className="font-medium">{detail.plan.name}</span>
+          <span className="text-muted-foreground">
+            {limit === undefined || limit === null
+              ? `участников ${members}, без предела`
+              : `участников ${members} из ${limit}`}
+          </span>
+        </div>
+        {isAdmin && plans.data && plans.data.length > 0 ? (
+          <div className="flex items-end gap-2">
+            <div className="flex-1">
+              <Selector
+                label="Перевести на тариф"
+                options={plans.data.map((p) => ({
+                  value: p.code,
+                  label: `${p.name}${p.members_max ? ` — до ${p.members_max} участников` : ' — без предела'}`,
+                }))}
+                value={code ?? detail.plan.code}
+                onChange={setCode}
+              />
+            </div>
+            <Button disabled={code === undefined || code === detail.plan.code} onClick={save}>
+              Сохранить
+            </Button>
+          </div>
+        ) : null}
+      </Card>
+    </Section>
+  );
+}
+
+// Личный аккаунт — один человек. Чтобы позвать коллег, он превращается в
+// организацию на месте: проекты остаются, вид меняется. Следующий вход
+// заведёт человеку новый личный аккаунт.
+function Convert({team, onDone}: {team: Team; onDone: (org: Team) => void}) {
+  const [key, setKey] = useState(team.key);
+  const [name, setName] = useState(team.name);
+  const [error, setError] = useState<ApiError>();
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      onDone(await api.convertTeam(team.key, {key: key.trim(), name: name.trim()}));
+    } catch (err) {
+      setError(err instanceof ApiError ? err : new ApiError('internal', String(err)));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Section
+      title="Состав"
+      description="Личный аккаунт — вы один, участников он не принимает. Чтобы работать с коллегами, превратите его в организацию: проекты останутся здесь, а личный аккаунт заведётся заново при следующем входе.">
+      {error ? <Failure error={error} /> : null}
+      <Note title="Превратить в организацию">
+        <FormLayout>
+          <TextInput label="Ключ организации" description="короткий, латиницей: acme" value={key} onChange={setKey} />
+          <TextInput label="Название организации" value={name} onChange={setName} />
+        </FormLayout>
+        <div>
+          <Button disabled={busy || key.trim() === '' || name.trim() === ''} onClick={submit}>
+            Превратить
+          </Button>
+        </div>
+      </Note>
+    </Section>
   );
 }
 
@@ -285,7 +439,7 @@ function Members({
         <FormLayout>
           <TextInput
             label="Принципал"
-            description="user:alice или agent:reviewer-bot; без префикса — человек"
+            description="user:alice — коллега, который уже входил; agent:reviewer-bot заводится на месте"
             value={principal}
             onChange={setPrincipal}
           />
@@ -505,7 +659,8 @@ function Budgets({teamKey}: {teamKey: string}) {
 // ── принципалы ──────────────────────────────────────────────────────────────
 
 // Кто заведён в системе: люди, агенты и служебные принципалы. Список нужен,
-// чтобы добавить человека в команду до того, как он впервые придёт с токеном.
+// чтобы найти человека, которого добавляют в команду: заранее, по хэндлу, он
+// не заводится (решение 0033).
 export function Principals() {
   const [search, setSearch] = useState('');
   const [applied, setApplied] = useState('');
@@ -515,7 +670,7 @@ export function Principals() {
     <Page>
       <PageHeader
         title="Принципалы"
-        description="Аудит и права ссылаются на принципалов, а не на строки с именами. Человек заводится сам при первом входе через провайдера, агент — при выдаче токена, но и добавить его в команду можно заранее: принципал появится по хэндлу."
+        description="Аудит и права ссылаются на принципалов, а не на строки с именами. Человек заводится сам при первом входе через провайдера — заранее, по хэндлу, его не завести: иначе чужой логин можно было бы занять до входа. Агент заводится при выдаче токена или добавлении в состав."
       />
       <div className="space-y-4">
         <Card className="p-4">

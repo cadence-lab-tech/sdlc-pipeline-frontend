@@ -159,7 +159,7 @@ function Members({projectKey}: {projectKey: string}) {
         <FormLayout>
           <TextInput
             label="Принципал"
-            description="user:alice или agent:reviewer-bot; без префикса — человек"
+            description="user:alice — коллега, который уже входил; agent:reviewer-bot заводится на месте"
             value={principal}
             onChange={setPrincipal}
           />

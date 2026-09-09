@@ -24,11 +24,17 @@ export interface Project {
 // Команды (решение 0027). Уровень в проекте у команды тот же, что у человека,
 // и действующий уровень участника — максимум из путей: поимённо, через команду
 // и через владение проектом.
+// Вид команды (решение 0033): личный аккаунт заводится при первом входе и
+// участников не принимает, организацию заводит любой вошедший.
+export type TeamKind = "personal" | "organization";
+
 export interface Team {
   id: UUID;
   key: string;
   name: string;
   description?: string;
+  kind: TeamKind;
+  personal_of?: UUID;
   can_create_projects: boolean;
   created_at: string;
   updated_at: string;
@@ -40,6 +46,7 @@ export type TeamRole = "member" | "lead";
 export interface TeamMember {
   team_id: UUID;
   team_key: string;
+  team_kind: TeamKind;
   principal_id: UUID;
   handle: string;
   kind: "user" | "agent" | "system";
@@ -60,10 +67,20 @@ export interface ProjectTeam {
   created_at: string;
 }
 
+// Тариф — набор пределов (решение 0033); отсутствующий предел значит «без
+// предела». Команда без подписки живёт на free.
+export interface Plan {
+  code: string;
+  name: string;
+  members_max?: number;
+  created_at: string;
+}
+
 export interface TeamDetail {
   team: Team;
   members: TeamMember[];
   projects: ProjectTeam[];
+  plan: Plan;
 }
 
 // Расход считается по проектам, которыми команда владеет, за календарное окно.

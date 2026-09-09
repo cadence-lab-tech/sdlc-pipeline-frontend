@@ -25,6 +25,7 @@ import type {
   Role,
   RoleVersion,
   RoleWithVersions,
+  Plan,
   Session,
   Status,
   Task,
@@ -321,6 +322,17 @@ export const api = {
   ) => request<Team>(`/teams/${teamKey}`, patch(body)),
 
   archiveTeam: (teamKey: string) => request<void>(`/teams/${teamKey}`, del()),
+
+  // Личный аккаунт становится организацией: проекты остаются, участников
+  // теперь можно звать (решение 0033). Пустые ключ и название — прежние.
+  convertTeam: (teamKey: string, body: {key?: string; name?: string}) =>
+    request<Team>(`/teams/${teamKey}/convert`, post(body)),
+
+  listPlans: () => request<{plans: Plan[]}>("/plans").then((r) => r.plans ?? []),
+
+  // Тариф назначает администратор инстанса.
+  setTeamPlan: (teamKey: string, plan: string) =>
+    request<Plan>(`/teams/${teamKey}/plan`, put({plan})),
 
   setTeamMember: (teamKey: string, principal: string, role: string) =>
     request<TeamMember>(`/teams/${teamKey}/members`, put({ principal, role })),
