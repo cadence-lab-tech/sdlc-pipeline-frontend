@@ -204,10 +204,25 @@ export interface AttachResult {
   created: number;
 }
 
+// Откуда бэкенд взял учётные данные репозитория (решение 0034): от частного
+// к общему — секрет репозитория, установка репозитория, установка проекта,
+// секрет проекта, токен инстанса.
+export type CredentialSource =
+  | 'repository_secret'
+  | 'repository_installation'
+  | 'project_installation'
+  | 'project_secret'
+  | 'instance';
+
 export interface RepoAccess {
   repository: string;
   ok: boolean;
   error?: string;
+  // Чем проверяли. Старый бэкенд этих полей не присылает.
+  source?: CredentialSource;
+  installation_id?: number;
+  // Только имя секрета: значение из бэкенда не уходит.
+  credential_ref?: string;
 }
 
 export interface ProjectDetail {
