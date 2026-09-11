@@ -643,6 +643,53 @@ export interface CLILoginView {
   status: "pending" | "approved" | "denied" | "expired" | "consumed";
 }
 
+// ── приглашения (решение 0035) ──
+
+export type InviteTargetKind = "team" | "project";
+
+// Статус вычисляется бэкендом на момент чтения; конечные состояния важнее
+// срока: принятое после срока приглашение остаётся принятым.
+export type InviteStatus = "pending" | "accepted" | "expired" | "revoked";
+
+// Приглашение ссылкой — отложенное участие в организации или проекте. Сам
+// токен в нём не лежит: его видно только в ответе на выдачу.
+export interface Invite {
+  id: UUID;
+  target_kind: InviteTargetKind;
+  team_key?: string;
+  project_key?: string;
+  target_name: string;
+  // У командного — роль в команде, у проектного — уровень и роли специалистов.
+  team_role?: TeamRole;
+  level?: MemberRole;
+  // null — любые роли проекта, пустой список — ни одной (решение 0030); у
+  // командного приглашения всегда null. В [] не нормализуется.
+  role_keys: string[] | null;
+  status: InviteStatus;
+  created_by_handle: string;
+  created_at: string;
+  expires_at: string;
+  accepted_by_handle?: string;
+  accepted_at?: string;
+  revoked_by_handle?: string;
+  revoked_at?: string;
+}
+
+// Куда привело приглашение: интерфейсу для перехода после приёма.
+export interface InviteTarget {
+  kind: InviteTargetKind;
+  key: string;
+  name: string;
+}
+
+export interface AcceptedInvite {
+  invite: Invite;
+  // Участие уже было и не менялось: смена уровня — прямое действие
+  // администратора, а не побочный эффект ссылки.
+  already_member: boolean;
+  target: InviteTarget;
+}
+
 export interface ProjectDocument {
   id: UUID;
   project_id: UUID;

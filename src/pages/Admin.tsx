@@ -1,4 +1,5 @@
 import {useState} from 'react';
+import {useSearchParams} from 'react-router-dom';
 
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
@@ -42,15 +43,18 @@ export function Teams() {
   const me = useResource(() => api.me(), []);
   const [picked, setPicked] = useState<string>();
   const [creating, setCreating] = useState(false);
+  const [search] = useSearchParams();
 
   if (teams.error) return <Failure error={teams.error} />;
   if (!teams.data) return <Loading />;
 
   // Выбранная команда вычисляется, а не досылается эффектом: пока никого не
-  // выбрали, открыт личный аккаунт, а без него — первая в списке.
+  // выбрали, открыта команда из адреса (?team=, туда ведёт принятое
+  // приглашение), иначе личный аккаунт, а без него — первая в списке.
   const personal = teams.data.filter((t) => t.kind === 'personal');
   const organizations = teams.data.filter((t) => t.kind !== 'personal');
-  const selected = picked ?? personal[0]?.key ?? teams.data[0]?.key;
+  const fromAddress = teams.data.find((t) => t.key === search.get('team'))?.key;
+  const selected = picked ?? fromAddress ?? personal[0]?.key ?? teams.data[0]?.key;
 
   const list = (items: Team[]) => (
     <ul className="divide-border divide-y">

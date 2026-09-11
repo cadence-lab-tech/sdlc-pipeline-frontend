@@ -43,3 +43,6 @@ node e2e/settings.mjs
 curl -s "$API/v1/projects" -H 'X-SDLC-Actor: e2e-lead' >/dev/null
 node e2e/admin.mjs
 node e2e/workflow.mjs
+# Приглашения — последними: приём добавляет участников в SDLC, и прежним
+# сценариям их видеть незачем. Второй человек — актор заголовка.
+node e2e/invite.mjs

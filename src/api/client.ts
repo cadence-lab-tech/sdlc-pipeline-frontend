@@ -48,6 +48,8 @@ import type {
   Workflow,
   WorkflowHead,
   CLILoginView,
+  Invite,
+  AcceptedInvite,
 } from "./types";
 
 const BASE = import.meta.env.VITE_API_URL ?? "/v1";
@@ -292,6 +294,16 @@ export const api = {
       `/projects/${projectKey}/members/${encodeURIComponent(handle)}`,
       del(),
     ),
+
+  // ── приглашения ───────────────────────────────────────────────────────────
+  // Токен ссылки ходит только в теле: пути запросов оседают в логах прокси и
+  // сервиса, а ссылка — пропуск на предъявителя (решение 0035). role_keys не
+  // нормализуется: null — «любые роли», пустой список — «ни одной».
+  lookupInvite: (token: string) =>
+    request<Invite>("/invites/lookup", post({ token })),
+
+  acceptInvite: (token: string) =>
+    request<AcceptedInvite>("/invites/accept", post({ token })),
 
   // ── команды ───────────────────────────────────────────────────────────────
   listPrincipals: (search?: string) =>
