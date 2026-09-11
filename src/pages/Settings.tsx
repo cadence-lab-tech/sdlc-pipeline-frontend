@@ -20,6 +20,7 @@ import type {
   Me,
   ProjectMember,
   ProjectTeam,
+  RepoAccess,
   Role,
 } from '../api/types';
 import {useResource} from '../api/useResource';
@@ -442,11 +443,35 @@ function AccessReport({status}: {status: GitHubStatus}) {
             renderCell: (r) =>
               r.ok ? <Badge>есть</Badge> : <Badge variant="destructive">нет</Badge>,
           },
+          {key: 'source', header: 'Чем проверяли', renderCell: (r) => accessSource(r)},
           {key: 'error', header: 'Что не так'},
         ]}
       />
     </div>
   );
+}
+
+// Подпись источника учётных данных. source — значение протокола, а не данные
+// проекта, поэтому словарь живёт рядом с таблицей. Старый бэкенд поля не
+// присылает — тогда прочерк.
+function accessSource(r: RepoAccess): string {
+  switch (r.source) {
+    case undefined:
+      return '—';
+    case 'repository_secret':
+      return `секрет репозитория ${r.credential_ref ?? ''}`;
+    case 'repository_installation':
+      return `установка репозитория ${r.installation_id ?? ''}`;
+    case 'project_installation':
+      return `установка проекта ${r.installation_id ?? ''}`;
+    case 'project_secret':
+      return `секрет проекта ${r.credential_ref ?? ''}`;
+    case 'instance':
+      return 'токен инстанса';
+    default:
+      // Бэкенд новее интерфейса: показать как есть, а не прятать.
+      return String(r.source);
+  }
 }
 
 // ── токены ──────────────────────────────────────────────────────────────────
