@@ -623,6 +623,36 @@ export interface IssuedToken {
   record: AccessToken;
 }
 
+// ── приглашения (решение 0035) ──────────────────────────────────────────────
+
+// Статус вычисляет бэкенд из времён на момент чтения; перечень — протокол,
+// а не данные проекта.
+export type InviteStatus = "pending" | "accepted" | "expired" | "revoked";
+export type InviteTargetKind = "team" | "project";
+
+// Приглашение без токена: токен виден один раз, в ответе на выдачу.
+export interface Invite {
+  id: UUID;
+  target_kind: InviteTargetKind;
+  team_key?: string;
+  project_key?: string;
+  target_name: string;
+  team_role?: TeamRole;          // у командного
+  level?: MemberRole;            // у проектного
+  role_keys: string[] | null;    // null — любые; у командного всегда null
+  status: InviteStatus;
+  created_by_handle: string;
+  created_at: string;
+  expires_at: string;
+  accepted_by_handle?: string;
+  accepted_at?: string;
+  revoked_by_handle?: string;
+  revoked_at?: string;
+}
+
+// Ответ на выдачу: единственное место, где приходит токен.
+export interface IssuedInvite { invite: Invite; token: string; }
+
 // Запрос входа CLI (решение 0032): clab показал код, человек подтверждает
 // его здесь. Секрета в записи нет.
 export interface CLILoginRequest {
