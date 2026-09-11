@@ -11,8 +11,29 @@ const check = (name, cond, extra = '') => {
   else { fail++; console.log('  ✗', name, extra); }
 };
 
+// Диалог рисуется в портале в конце документа, а подписи его полей есть и на
+// странице: поле ищется внутри диалога, строки приглашений — в своём разделе.
+const dialogHelpers = `
+  const dialog = () => document.querySelector('[role=dialog]');
+  const dialogText = () => ((dialog() || {}).innerText || '').replace(/\\s+/g, ' ');
+  const fillIn = async (label, value) => {
+    const root = dialog();
+    const lbl = root && Array.from(root.querySelectorAll('label')).find((l) => l.innerText.trim().startsWith(label));
+    const field = lbl && document.getElementById(lbl.getAttribute('for'));
+    if (!field) throw new Error('поле в диалоге не найдено: ' + label);
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(field, value);
+    field.dispatchEvent(new Event('input', {bubbles: true}));
+    await sleep(250);
+    return true;
+  };
+  const inviteRows = () => {
+    const sec = document.querySelector('section[aria-label="Приглашения"]');
+    return sec ? Array.from(sec.querySelectorAll('tbody tr')).map((tr) => tr.innerText.replace(/\\s+/g, ' ').trim()) : [];
+  };
+`;
+
 const s = await session(BASE + '/teams');
-const run = (body) => s.evaluate(helpers + body);
+const run = (body) => s.evaluate(helpers + dialogHelpers + body);
 // Значение поля ввода в innerText не попадает: сохранённое читается из самого
 // input, а не из текста страницы.
 const valueOf = (label) => run(`
@@ -25,6 +46,22 @@ await new Promise((r) => setTimeout(r, 2500));
 console.log('команды');
 let t = await run('return texts();');
 check('раздел открылся', t.includes('Команды'), t.slice(0, 300));
+
+console.log('приглашения: личный аккаунт');
+// По умолчанию открыт личный аккаунт. Кнопка приглашения у него не прячется:
+// отказ приходит от бэкенда, и его текст объясняет, что делать.
+await run(`
+  await clickExact("Пригласить");
+  await sleep(500);
+  await clickExact("Выдать ссылку");
+  await sleep(1500);
+`);
+let d = await run('return dialogText();');
+check('личный аккаунт: отказ бэкенда в диалоге, ссылки нет',
+  d.includes('личный аккаунт — один человек') && !d.includes('clab_inv_'), d);
+await run('await clickExact("Отмена"); await sleep(500);');
+t = await run('return texts();');
+check('у личного аккаунта список приглашений пуст', t.includes('Приглашений нет'), t.slice(0, 1500));
 
 await run(`
   await clickExact("Завести организацию");
@@ -57,6 +94,29 @@ await run(`
 `);
 t = await run('return texts();');
 check('участник добавлен', t.includes('user:e2e-lead'), t.slice(0, 900));
+
+console.log('приглашения: организация');
+await run(`
+  await clickExact("Пригласить");
+  await sleep(500);
+  await fillIn("Срок в днях", "3");
+  await clickExact("Выдать ссылку");
+  await sleep(1500);
+`);
+d = await run('return dialogText();');
+check('организация: ссылка выдана один раз и с предупреждением',
+  d.includes(BASE + '/invite/clab_inv_') && d.includes('показывается один раз'), d);
+const teamInvite = await run(`
+  const r = await fetch('/v1/teams/e2e-team/invites', {headers: {'X-SDLC-Actor': 'web'}});
+  return (await r.json()).invites[0];
+`);
+const teamDays = (Date.parse(teamInvite.expires_at) - Date.parse(teamInvite.created_at)) / 86400000;
+check('роль по умолчанию — участник, срок из поля',
+  teamInvite.team_role === 'member' && Math.abs(teamDays - 3) < 0.01, JSON.stringify(teamInvite));
+await run('await clickExact("Готово"); await sleep(1000);');
+const teamRows = await run('return inviteRows();');
+check('в списке команды — «выдан» с ролью', (teamRows[0] ?? '').includes('выдан') && teamRows[0].includes('участник'),
+  teamRows.join(' | '));
 
 console.log('группы провайдера и бюджет');
 await run(`

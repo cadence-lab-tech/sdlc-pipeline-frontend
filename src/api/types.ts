@@ -675,6 +675,9 @@ export interface Invite {
   revoked_at?: string;
 }
 
+// Ответ на выдачу: единственное место, где приходит токен.
+export interface IssuedInvite { invite: Invite; token: string; }
+
 // Куда привело приглашение: интерфейсу для перехода после приёма.
 export interface InviteTarget {
   kind: InviteTargetKind;

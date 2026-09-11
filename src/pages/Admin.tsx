@@ -5,13 +5,14 @@ import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Card} from '@/components/ui/card';
 import {Separator} from '@/components/ui/separator';
-import {FormLayout, Selector, Switch, TextInput} from '@/components/fields';
+import {FormLayout, NumberInput, Selector, Switch, TextInput} from '@/components/fields';
 import {DataTable} from '@/components/DataTable';
 import {EmptyState, Note, Page, PageHeader, Row, Section, Timestamp, Token} from '@/components/kit';
 
 import {ApiError, api} from '../api/client';
 import {startInstall} from '../api/github';
 import {InstallationsList} from '../components/Installations';
+import {InviteDialog, InvitesTable} from '../components/Invites';
 import type {Me, Plan, Principal, ProjectTeam, Team, TeamDetail as TeamDetailData, TeamMember} from '../api/types';
 import {useResource} from '../api/useResource';
 import {Failure, Loaded, Loading} from '../components/Feedback';
@@ -37,6 +38,10 @@ const PERIODS: {value: 'day' | 'week' | 'month'; label: string}[] = [
 ];
 
 const kindLabel = (team: Team) => (team.kind === 'personal' ? 'личный аккаунт' : 'организация');
+
+// Роль в команде — перечень схемы; незнакомое значение показывается как есть.
+const teamRoleLabel = (role?: string) =>
+  role === 'lead' ? 'лид' : role === 'member' ? 'участник' : String(role ?? '—');
 
 export function Teams() {
   const teams = useResource(() => api.listTeams(), []);
@@ -381,6 +386,7 @@ function Convert({team, onDone}: {team: Team; onDone: (org: Team) => void}) {
           </Button>
         </div>
       </Note>
+      <TeamInvites teamKey={team.key} />
     </Section>
   );
 }
@@ -442,6 +448,7 @@ function Members({
           },
         ]}
       />
+      <TeamInvites teamKey={teamKey} />
       <Card className="gap-3 p-4">
         <h3 className="text-base font-semibold">Добавить или изменить роль</h3>
         <FormLayout>
@@ -467,6 +474,37 @@ function Members({
         </div>
       </Card>
     </Section>
+  );
+}
+
+// Приглашение ссылкой в команду (решение 0035). Рисуется и у организации, и у
+// личного аккаунта: у личного бэкенд откажет, и его текст сам подскажет, что
+// делать, — кнопка по виду команды не прячется.
+function TeamInvites({teamKey}: {teamKey: string}) {
+  const invites = useResource(() => api.listTeamInvites(teamKey), [teamKey]);
+  const [role, setRole] = useState('member');
+  const [days, setDays] = useState<number>();
+
+  return (
+    <InvitesTable
+      invites={invites}
+      target={(i) => <Token label={teamRoleLabel(i.team_role)} />}
+      actions={
+        <InviteDialog
+          title={`Приглашение в команду ${teamKey}`}
+          description="Ссылку откроет коллега: войдёт и станет участником команды с этой ролью. Заранее знать его логин не нужно."
+          issue={() => api.createTeamInvite(teamKey, {role, days})}
+          onIssued={invites.reload}>
+          <Selector label="Роль в команде" options={TEAM_ROLES} value={role} onChange={setRole} />
+          <NumberInput
+            label="Срок в днях"
+            description="пусто — срок по умолчанию"
+            value={days}
+            onChange={setDays}
+          />
+        </InviteDialog>
+      }
+    />
   );
 }
 

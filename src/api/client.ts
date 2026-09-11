@@ -49,6 +49,7 @@ import type {
   WorkflowHead,
   CLILoginView,
   Invite,
+  IssuedInvite,
   AcceptedInvite,
 } from "./types";
 
@@ -304,6 +305,31 @@ export const api = {
 
   acceptInvite: (token: string) =>
     request<AcceptedInvite>("/invites/accept", post({ token })),
+
+  // Выдача и список. Токен приходит один раз — в ответе на выдачу; в списках
+  // его нет. Срок не задан — поле days не уходит вовсе, и бэкенд ставит
+  // неделю; диапазон проверяет он же.
+  createProjectInvite: (
+    projectKey: string,
+    body: { level: string; role_keys: string[]; days?: number },
+  ) =>
+    request<IssuedInvite>(`/projects/${projectKey}/invites`, post(body)),
+
+  listProjectInvites: (projectKey: string) =>
+    request<{ invites: Invite[] }>(`/projects/${projectKey}/invites`).then(
+      (r) => r.invites ?? [],
+    ),
+
+  createTeamInvite: (teamKey: string, body: { role: string; days?: number }) =>
+    request<IssuedInvite>(`/teams/${teamKey}/invites`, post(body)),
+
+  listTeamInvites: (teamKey: string) =>
+    request<{ invites: Invite[] }>(`/teams/${teamKey}/invites`).then(
+      (r) => r.invites ?? [],
+    ),
+
+  // Отзыв отвечает самим приглашением в новом статусе, а не пустым телом.
+  revokeInvite: (id: UUID) => request<Invite>(`/invites/${id}`, del()),
 
   // ── команды ───────────────────────────────────────────────────────────────
   listPrincipals: (search?: string) =>

@@ -5,13 +5,14 @@ import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Card} from '@/components/ui/card';
 import {Separator} from '@/components/ui/separator';
-import {FormLayout, MultiSelector, Selector, TextArea, TextInput} from '@/components/fields';
+import {FormLayout, MultiSelector, NumberInput, Selector, TextArea, TextInput} from '@/components/fields';
 import {DataTable} from '@/components/DataTable';
 import {CodeBlock, EmptyState, Note, Page, PageHeader, Section, Token} from '@/components/kit';
 
 import {ApiError, api} from '../api/client';
 import {startInstall, startReauth} from '../api/github';
 import {InstallationsList} from '../components/Installations';
+import {InviteDialog, InvitesTable} from '../components/Invites';
 import type {
   AccessToken,
   GitHubStatus,
@@ -157,6 +158,7 @@ function Members({projectKey}: {projectKey: string}) {
           />
         )}
       </Loaded>
+      <ProjectInvites projectKey={projectKey} roles={roles.data ?? []} />
       <Card className="gap-3 p-4">
         <h3 className="text-base font-semibold">Добавить или изменить уровень</h3>
         <FormLayout>
@@ -191,6 +193,54 @@ function Members({projectKey}: {projectKey: string}) {
         </div>
       </Card>
     </Section>
+  );
+}
+
+// ── приглашения ─────────────────────────────────────────────────────────────
+
+// Приглашение ссылкой в проект (решение 0035): уровень и роли специалистов —
+// те же, что у добавления участника. Пустой срок не уходит в запрос: срок по
+// умолчанию и допустимый диапазон знает бэкенд, и его отказ показывается в
+// диалоге как есть.
+function ProjectInvites({projectKey, roles}: {projectKey: string; roles: Role[]}) {
+  const invites = useResource(() => api.listProjectInvites(projectKey), [projectKey]);
+  const [level, setLevel] = useState('viewer');
+  const [roleKeys, setRoleKeys] = useState<string[]>([]);
+  const [days, setDays] = useState<number>();
+
+  return (
+    <InvitesTable
+      invites={invites}
+      target={(i) => (
+        <span className="flex flex-wrap items-center gap-1">
+          <Token label={i.level ?? '—'} />
+          <RoleKeys keys={i.role_keys} />
+        </span>
+      )}
+      actions={
+        <InviteDialog
+          title={`Приглашение в проект ${projectKey}`}
+          description="Ссылку откроет коллега: войдёт и станет участником проекта с этим уровнем и ролями. Заранее знать его логин не нужно."
+          issue={() => api.createProjectInvite(projectKey, {level, role_keys: roleKeys, days})}
+          onIssued={invites.reload}>
+          <Selector label="Уровень" options={LEVELS} value={level} onChange={setLevel} />
+          <MultiSelector
+            label="Роли специалиста"
+            description="какие этапы участник сможет забирать; пусто — любые"
+            options={roleOptions(roles)}
+            value={roleKeys}
+            onChange={setRoleKeys}
+            placeholder="Любые роли"
+          />
+          <NumberInput
+            label="Срок в днях"
+            description="пусто — срок по умолчанию"
+            value={days}
+            onChange={setDays}
+          />
+        </InviteDialog>
+      }
+    />
   );
 }
 
