@@ -60,6 +60,7 @@ import { CLILogin, CLI_LOGIN_PATH } from "./pages/CLILogin";
 import { GITHUB_RETURN_PATH, Login } from "./pages/Login";
 import { GitHubConnect } from "./pages/GitHubConnect";
 import { GITHUB_CONNECT_PATH } from "./api/github";
+import { INVITE_PATH, Invite } from "./pages/Invite";
 import { Knowledge } from "./pages/Knowledge";
 import { Metrics } from "./pages/Metrics";
 import { Projects } from "./pages/Projects";
@@ -79,6 +80,9 @@ export function App() {
             <Route path="/login" element={<Login />} />
             <Route path={GITHUB_RETURN_PATH} element={<Login />} />
             <Route path={CLI_LOGIN_PATH} element={<CLILogin />} />
+            {/* Приём приглашения вне оболочки: у только что вошедшего нет
+                проектов, а вход он проходит сам (решение 0035). */}
+            <Route path={INVITE_PATH} element={<Invite />} />
             <Route path="/" element={<Navigate to="/projects" replace />} />
             <Route
               path="/projects"

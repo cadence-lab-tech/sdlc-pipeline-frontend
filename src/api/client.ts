@@ -15,8 +15,6 @@ import type {
   GitHubSettings,
   ImportReport,
   IssuedToken,
-  Invite,
-  IssuedInvite,
   GitHubStatus,
   ProjectGitHub,
   RepoPick,
@@ -50,6 +48,9 @@ import type {
   Workflow,
   WorkflowHead,
   CLILoginView,
+  Invite,
+  IssuedInvite,
+  AcceptedInvite,
 } from "./types";
 
 const BASE = import.meta.env.VITE_API_URL ?? "/v1";
@@ -295,6 +296,41 @@ export const api = {
       del(),
     ),
 
+  // ── приглашения ───────────────────────────────────────────────────────────
+  // Токен ссылки ходит только в теле: пути запросов оседают в логах прокси и
+  // сервиса, а ссылка — пропуск на предъявителя (решение 0035). role_keys не
+  // нормализуется: null — «любые роли», пустой список — «ни одной».
+  lookupInvite: (token: string) =>
+    request<Invite>("/invites/lookup", post({ token })),
+
+  acceptInvite: (token: string) =>
+    request<AcceptedInvite>("/invites/accept", post({ token })),
+
+  // Выдача и список. Токен приходит один раз — в ответе на выдачу; в списках
+  // его нет. Срок не задан — поле days не уходит вовсе, и бэкенд ставит
+  // неделю; диапазон проверяет он же.
+  createProjectInvite: (
+    projectKey: string,
+    body: { level: string; role_keys: string[]; days?: number },
+  ) =>
+    request<IssuedInvite>(`/projects/${projectKey}/invites`, post(body)),
+
+  listProjectInvites: (projectKey: string) =>
+    request<{ invites: Invite[] }>(`/projects/${projectKey}/invites`).then(
+      (r) => r.invites ?? [],
+    ),
+
+  createTeamInvite: (teamKey: string, body: { role: string; days?: number }) =>
+    request<IssuedInvite>(`/teams/${teamKey}/invites`, post(body)),
+
+  listTeamInvites: (teamKey: string) =>
+    request<{ invites: Invite[] }>(`/teams/${teamKey}/invites`).then(
+      (r) => r.invites ?? [],
+    ),
+
+  // Отзыв отвечает самим приглашением в новом статусе, а не пустым телом.
+  revokeInvite: (id: UUID) => request<Invite>(`/invites/${id}`, del()),
+
   // ── команды ───────────────────────────────────────────────────────────────
   listPrincipals: (search?: string) =>
     request<{ principals: Principal[] }>(
@@ -424,32 +460,6 @@ export const api = {
 
   removeProjectTeam: (projectKey: string, teamKey: string) =>
     request<void>(`/projects/${projectKey}/teams/${teamKey}`, del()),
-
-  // ── приглашения (решение 0035) ────────────────────────────────────────────
-  // Токен приходит один раз — в ответе на выдачу; в списках его нет. Срок не
-  // задан — поле days не уходит вовсе, и бэкенд ставит неделю; диапазон
-  // проверяет он же. role_keys в ответе не нормализуются: null — «любые».
-  createProjectInvite: (
-    projectKey: string,
-    body: { level: string; role_keys: string[]; days?: number },
-  ) =>
-    request<IssuedInvite>(`/projects/${projectKey}/invites`, post(body)),
-
-  listProjectInvites: (projectKey: string) =>
-    request<{ invites: Invite[] }>(`/projects/${projectKey}/invites`).then(
-      (r) => r.invites ?? [],
-    ),
-
-  createTeamInvite: (teamKey: string, body: { role: string; days?: number }) =>
-    request<IssuedInvite>(`/teams/${teamKey}/invites`, post(body)),
-
-  listTeamInvites: (teamKey: string) =>
-    request<{ invites: Invite[] }>(`/teams/${teamKey}/invites`).then(
-      (r) => r.invites ?? [],
-    ),
-
-  // Отзыв отвечает самим приглашением в новом статусе, а не пустым телом.
-  revokeInvite: (id: UUID) => request<Invite>(`/invites/${id}`, del()),
 
   // ── доступ к GitHub у проекта ─────────────────────────────────────────────
   getProjectGitHub: (projectKey: string) =>
