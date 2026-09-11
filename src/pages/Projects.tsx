@@ -178,6 +178,7 @@ function ProjectCard({
               <p key={r.id} className="font-mono text-xs">
                 {r.owner}/{r.name}
                 {r.role_hint ? <span className="text-muted-foreground"> · {r.role_hint}</span> : null}
+                {r.unavailable_at ? <span className="text-destructive"> · убран из установки</span> : null}
               </p>
             ))}
           </div>

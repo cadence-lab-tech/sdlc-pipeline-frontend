@@ -81,6 +81,8 @@ export interface TeamDetail {
   members: TeamMember[];
   projects: ProjectTeam[];
   plan: Plan;
+  // Установки GitHub App, записанные на команду (решение 0034).
+  installations: GitHubInstallation[];
 }
 
 // Расход считается по проектам, которыми команда владеет, за календарное окно.
@@ -108,6 +110,12 @@ export interface Repository {
   visibility: string;
   access_mode: string;
   role_hint?: string;
+  // Установка приложения, которой репозиторий читается (решение 0034);
+  // пусто — учётные данные проекта или инстанса.
+  installation_id?: number;
+  // Репозиторий убран из установки на стороне GitHub: индексация стоит,
+  // собранный индекс живёт.
+  unavailable_at?: string;
 }
 
 // Определения свойств задачи приходят из API: форма свойств рендерится по ним,
@@ -132,6 +140,68 @@ export interface GitHubStatus {
   credential_ref?: string;
   app_configured: boolean;
   repositories: RepoAccess[];
+}
+
+// Установка GitHub App на аккаунт человека или организации (решение 0034).
+// Принадлежит команде-арендатору; секретов не несёт.
+export interface GitHubInstallation {
+  id: UUID;
+  installation_id: number;
+  account_login: string;
+  account_id: number;
+  account_type: "User" | "Organization";
+  owner_team_id: UUID;
+  owner_team_key: string;
+  connected_by: UUID;
+  created_at: string;
+  updated_at: string;
+  suspended_at?: string;
+  removed_at?: string;
+}
+
+// Настройки GitHub проекта без похода в сеть: установки команды-владельца и
+// учётные данные самого проекта.
+export interface ProjectGitHub {
+  owner_team_key: string;
+  installations: GitHubInstallation[];
+  installation_id?: number;
+  credential_ref?: string;
+  app_configured: boolean;
+}
+
+// Репозиторий на выбор: он в установке команды, и вошедший видит его сам.
+export interface GitHubRepoChoice {
+  installation_id: number;
+  account_login: string;
+  owner: string;
+  name: string;
+  default_branch: string;
+  private: boolean;
+  clone_url: string;
+  description?: string;
+}
+
+// Ответ на возврат от GitHub: установки команды, только что подключённая и
+// репозитории на выбор.
+export interface GitHubConnection {
+  team: Team;
+  installations: GitHubInstallation[];
+  connected?: GitHubInstallation;
+  repositories: GitHubRepoChoice[];
+}
+
+export interface RepoPick {
+  owner: string;
+  name: string;
+  default_branch: string;
+  private: boolean;
+  clone_url: string;
+  role_hint?: string;
+}
+
+export interface AttachResult {
+  repositories: Repository[];
+  created: number;
 }
 
 export interface RepoAccess {
@@ -521,6 +591,8 @@ export interface GitHubSettings {
   client_id?: string;
   authorization_endpoint?: string;
   scopes?: string;
+  // Куда ведёт «Подключить GitHub»; пусто — слаг приложения не задан.
+  install_url?: string;
 }
 
 // Сессия — обычный токен с коротким сроком, а не второй транспорт.

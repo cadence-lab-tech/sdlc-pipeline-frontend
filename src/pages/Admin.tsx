@@ -9,6 +9,8 @@ import {DataTable} from '@/components/DataTable';
 import {EmptyState, Note, Page, PageHeader, Row, Section, Timestamp, Token} from '@/components/kit';
 
 import {ApiError, api} from '../api/client';
+import {startInstall} from '../api/github';
+import {InstallationsList} from '../components/Installations';
 import type {Me, Plan, Principal, ProjectTeam, Team, TeamDetail as TeamDetailData, TeamMember} from '../api/types';
 import {useResource} from '../api/useResource';
 import {Failure, Loaded, Loading} from '../components/Feedback';
@@ -268,6 +270,8 @@ function TeamDetail({
           )}
           <Separator />
           <Projects teamKey={teamKey} projects={detail.projects} onChanged={reload} />
+          <Separator />
+          <Installations team={detail.team} installations={detail.installations} />
           <Separator />
           <IdPGroups teamKey={teamKey} />
           <Separator />
@@ -567,6 +571,36 @@ function IdPGroups({teamKey}: {teamKey: string}) {
           </Card>
         )}
       </Loaded>
+    </Section>
+  );
+}
+
+// Установки GitHub App на команде (решение 0034). Подключение уводит на
+// GitHub и возвращается на страницу подключения; репозитории из установки
+// выбираются уже из настроек проекта.
+function Installations({team, installations}: {team: Team; installations: TeamDetailData['installations']}) {
+  const settings = useResource(() => api.githubSettings(), []);
+  const installURL = settings.data?.install_url;
+  return (
+    <Section
+      title="GitHub"
+      description="Установки приложения на аккаунтах и организациях GitHub, чьи репозитории команда подключает к проектам. Одна команда может держать несколько установок.">
+      <Card className="gap-3 p-4">
+        <InstallationsList installations={installations} />
+        <div>
+          <Button
+            size="sm"
+            disabled={!installURL}
+            onClick={() => startInstall(installURL ?? '', {team: team.key, back: '/teams'})}>
+            Подключить GitHub
+          </Button>
+        </div>
+        {settings.data && !installURL ? (
+          <p className="text-muted-foreground text-xs">
+            Кнопка выключена: у инстанса не задан SDLC_GITHUB_APP_SLUG.
+          </p>
+        ) : null}
+      </Card>
     </Section>
   );
 }

@@ -10,10 +10,15 @@ import type {
   IndexStatusRow,
   QueueEntry,
   SearchResult,
+  GitHubConnection,
+  GitHubInstallation,
   GitHubSettings,
   ImportReport,
   IssuedToken,
   GitHubStatus,
+  ProjectGitHub,
+  RepoPick,
+  AttachResult,
   Me,
   Metrics,
   OIDCSettings,
@@ -302,6 +307,33 @@ export const api = {
       ...d,
       members: d.members ?? [],
       projects: d.projects ?? [],
+      installations: d.installations ?? [],
+    })),
+
+  // ── установки GitHub App на команде (решение 0034) ────────────────────────
+  listTeamInstallations: (teamKey: string) =>
+    request<{ installations: GitHubInstallation[] }>(
+      `/teams/${teamKey}/github/installations`,
+    ).then((r) => r.installations ?? []),
+
+  // Возврат от GitHub: код повторной авторизации доказывает право на
+  // установку и открывает список репозиториев, которые вошедший видит сам.
+  connectGitHub: (
+    teamKey: string,
+    body: {
+      code: string;
+      redirect_uri: string;
+      installation_id?: number;
+      project?: string;
+    },
+  ) =>
+    request<GitHubConnection>(
+      `/teams/${teamKey}/github/connect`,
+      post(body),
+    ).then((c) => ({
+      ...c,
+      installations: c.installations ?? [],
+      repositories: c.repositories ?? [],
     })),
 
   createTeam: (body: {
@@ -392,6 +424,22 @@ export const api = {
     request<void>(`/projects/${projectKey}/teams/${teamKey}`, del()),
 
   // ── доступ к GitHub у проекта ─────────────────────────────────────────────
+  getProjectGitHub: (projectKey: string) =>
+    request<ProjectGitHub>(`/projects/${projectKey}/github`).then((g) => ({
+      ...g,
+      installations: g.installations ?? [],
+    })),
+
+  // Привязка пачкой того, что отмечено в списке после возврата от GitHub.
+  attachRepositories: (
+    projectKey: string,
+    body: { installation_id: number; repositories: RepoPick[] },
+  ) =>
+    request<AttachResult>(
+      `/projects/${projectKey}/github/repositories`,
+      post(body),
+    ).then((r) => ({ ...r, repositories: r.repositories ?? [] })),
+
   setProjectGitHub: (
     projectKey: string,
     body: { installation_id?: number | null; credential_ref?: string | null },

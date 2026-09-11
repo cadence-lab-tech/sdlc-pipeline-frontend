@@ -10,6 +10,8 @@ import {DataTable} from '@/components/DataTable';
 import {CodeBlock, EmptyState, Note, Page, PageHeader, Section, Token} from '@/components/kit';
 
 import {ApiError, api} from '../api/client';
+import {startInstall, startReauth} from '../api/github';
+import {InstallationsList} from '../components/Installations';
 import type {
   AccessToken,
   GitHubStatus,
@@ -306,13 +308,14 @@ function Teams({projectKey}: {projectKey: string}) {
 
 // ── доступ к GitHub ─────────────────────────────────────────────────────────
 
-// В базе лежат ссылки, а не секреты (решение 0028): идентификатор установки
-// приложения и имя секрета, значение которого приезжает из окружения
-// (SDLC_GITHUB_TOKEN_<ИМЯ>). Проверка доступа ходит в провайдера, поэтому
-// делается по кнопке, а не при открытии страницы.
+// Установка приложения принадлежит команде-владельцу проекта (решение 0034):
+// её подключают кнопкой, а репозитории выбирают из списка после возврата от
+// GitHub. В базе лежат ссылки, а не секреты: имя секрета для запасного пути
+// приезжает из окружения (SDLC_GITHUB_TOKEN_<ИМЯ>). Проверка доступа ходит в
+// провайдера, поэтому делается по кнопке, а не при открытии страницы.
 function GitHubAccess({projectKey}: {projectKey: string}) {
-  const project = useResource(() => api.getProject(projectKey), [projectKey]);
-  const [installation, setInstallation] = useState<string>();
+  const github = useResource(() => api.getProjectGitHub(projectKey), [projectKey]);
+  const settings = useResource(() => api.githubSettings(), []);
   const [credential, setCredential] = useState<string>();
   const [status, setStatus] = useState<GitHubStatus>();
   const [error, setError] = useState<ApiError>();
@@ -329,58 +332,84 @@ function GitHubAccess({projectKey}: {projectKey: string}) {
       setBusy(false);
     }
   };
+  const back = `/p/${projectKey}/settings`;
 
   return (
     <Section
       title="Доступ к GitHub"
-      description="Учётные данные выбираются от частного к общему: секрет репозитория, установка приложения у проекта, секрет проекта, общий токен инстанса. Здесь задаётся уровень проекта — ссылки, а не секреты: значение именованного секрета живёт в окружении сервиса.">
+      description="Репозитории читает установка приложения на аккаунте или организации GitHub. Установка записана на команду-владельца проекта; подключается кнопкой, репозитории выбираются из списка. Учётные данные берутся от частного к общему: секрет репозитория, установка репозитория, установка проекта, секрет проекта, общий токен инстанса.">
       {error ? <Failure error={error} /> : null}
-      <Loaded resource={project}>
-        {(detail) => (
-          <Card className="gap-3 p-4">
-            <FormLayout>
-              <TextInput
-                label="Установка приложения"
-                description="installation_id из адреса установки GitHub App в организации"
-                value={installation ?? (detail.project.github_installation_id?.toString() ?? '')}
-                onChange={setInstallation}
-              />
-              <TextInput
-                label="Секрет доступа"
-                description="запасной путь: имя секрета, значение которого приезжает из SDLC_GITHUB_TOKEN_<ИМЯ>"
-                value={credential ?? (detail.project.github_credential_ref ?? '')}
-                onChange={setCredential}
-              />
-            </FormLayout>
-            <div className="flex gap-2">
-              <Button
-                disabled={busy || (installation === undefined && credential === undefined)}
-                onClick={() =>
-                  run(async () => {
-                    const id = (installation ?? '').trim();
-                    const ref = (credential ?? '').trim();
-                    await api.setProjectGitHub(projectKey, {
-                      installation_id: id === '' ? null : Number(id),
-                      credential_ref: ref === '' ? null : ref,
-                    });
-                    setInstallation(undefined);
-                    setCredential(undefined);
-                    setStatus(undefined);
-                    project.reload();
-                  })
-                }>
-                Сохранить
-              </Button>
-              <Button
-                variant="secondary"
-                disabled={busy}
-                onClick={() => run(async () => setStatus(await api.checkProjectGitHub(projectKey)))}>
-                Проверить доступ
-              </Button>
-            </div>
-            {status ? <AccessReport status={status} /> : null}
-          </Card>
-        )}
+      <Loaded resource={github}>
+        {(gh) => {
+          const installURL = settings.data?.install_url;
+          const canPick = (settings.data?.enabled ?? false) && gh.installations.some((i) => !i.removed_at && !i.suspended_at);
+          return (
+            <Card className="gap-4 p-4">
+              <div className="space-y-2">
+                <p className="text-muted-foreground text-xs">
+                  Установки команды {gh.owner_team_key || '—'}
+                </p>
+                <InstallationsList installations={gh.installations} />
+                {gh.installation_id ? (
+                  <p className="text-muted-foreground text-xs">
+                    Установка по умолчанию у проекта: {gh.installation_id} — задана до перехода на установки команды и
+                    действует для репозиториев без своей.
+                  </p>
+                ) : null}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  disabled={busy || !installURL}
+                  onClick={() => startInstall(installURL ?? '', {team: gh.owner_team_key, project: projectKey, back})}>
+                  Подключить GitHub
+                </Button>
+                <Button
+                  variant="secondary"
+                  disabled={busy || !canPick || !settings.data}
+                  onClick={() => settings.data && startReauth(settings.data, {team: gh.owner_team_key, project: projectKey, back})}>
+                  Выбрать репозитории
+                </Button>
+                <Button
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => run(async () => setStatus(await api.checkProjectGitHub(projectKey)))}>
+                  Проверить доступ
+                </Button>
+              </div>
+              {settings.data && !installURL ? (
+                <Note
+                  title="Кнопка подключения выключена"
+                  description="Без SDLC_GITHUB_APP_SLUG сервис не знает адреса установки приложения; вход через GitHub при этом может работать."
+                />
+              ) : null}
+              <FormLayout>
+                <TextInput
+                  label="Секрет доступа"
+                  description="запасной путь без приложения: имя секрета, значение которого приезжает из SDLC_GITHUB_TOKEN_<ИМЯ>"
+                  value={credential ?? (gh.credential_ref ?? '')}
+                  onChange={setCredential}
+                />
+              </FormLayout>
+              <div>
+                <Button
+                  variant="secondary"
+                  disabled={busy || credential === undefined}
+                  onClick={() =>
+                    run(async () => {
+                      const ref = (credential ?? '').trim();
+                      await api.setProjectGitHub(projectKey, {credential_ref: ref === '' ? null : ref});
+                      setCredential(undefined);
+                      setStatus(undefined);
+                      github.reload();
+                    })
+                  }>
+                  Сохранить секрет
+                </Button>
+              </div>
+              {status ? <AccessReport status={status} /> : null}
+            </Card>
+          );
+        }}
       </Loaded>
     </Section>
   );

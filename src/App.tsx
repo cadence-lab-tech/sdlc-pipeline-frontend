@@ -58,6 +58,8 @@ import { Principals, Teams } from "./pages/Admin";
 import { Board } from "./pages/Board";
 import { CLILogin, CLI_LOGIN_PATH } from "./pages/CLILogin";
 import { GITHUB_RETURN_PATH, Login } from "./pages/Login";
+import { GitHubConnect } from "./pages/GitHubConnect";
+import { GITHUB_CONNECT_PATH } from "./api/github";
 import { Knowledge } from "./pages/Knowledge";
 import { Metrics } from "./pages/Metrics";
 import { Projects } from "./pages/Projects";
@@ -99,6 +101,17 @@ export function App() {
               element={
                 <Shell page="principals">
                   <Principals />
+                </Shell>
+              }
+            />
+            {/* Возврат от GitHub после установки приложения и повторной
+                авторизации (решение 0034): адрес зарегистрирован у приложения
+                как callback и Setup URL. */}
+            <Route
+              path={GITHUB_CONNECT_PATH}
+              element={
+                <Shell page="github">
+                  <GitHubConnect />
                 </Shell>
               }
             />
@@ -173,6 +186,7 @@ type Page =
   | "projects"
   | "teams"
   | "principals"
+  | "github"
   | "board"
   | "roles"
   | "workflow"
@@ -184,6 +198,7 @@ const TITLES: Record<Page, string> = {
   projects: "Проекты",
   teams: "Команды",
   principals: "Принципалы",
+  github: "Подключение GitHub",
   board: "Доска",
   roles: "Роли",
   workflow: "Цикл",
