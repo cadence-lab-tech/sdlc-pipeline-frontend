@@ -1,10 +1,10 @@
-import {Wrench} from 'lucide-react';
-import {useEffect, useState} from 'react';
+import {ChevronRight, ShieldCheck, Stamp, Wrench} from 'lucide-react';
+import {Suspense, lazy, useEffect, useState} from 'react';
 import {useLocation, useNavigate} from 'react-router-dom';
 
 import {Alert, AlertDescription, AlertTitle} from '@/components/ui/alert';
 import {Button} from '@/components/ui/button';
-import {Card} from '@/components/ui/card';
+import {Collapsible, CollapsibleContent, CollapsibleTrigger} from '@/components/ui/collapsible';
 import {FormLayout, TextInput} from '@/components/fields';
 
 import {ApiError, api, setCurrentToken} from '../api/client';
@@ -29,31 +29,109 @@ export function Login() {
   const fromGitHub = location.pathname === GITHUB_RETURN_PATH;
 
   return (
-    <div className="flex min-h-svh items-center justify-center p-8">
-      <Card className="w-full max-w-110 gap-4 p-6">
-        <Welcome />
-        {error ? (
-          <Alert variant="destructive">
-            <AlertTitle>Войти не удалось</AlertTitle>
-            <AlertDescription>{error.message}</AlertDescription>
-          </Alert>
-        ) : null}
-        {github.data?.enabled ? (
-          <GitHub settings={github.data} from={from} returning={fromGitHub} onError={setError} />
-        ) : null}
-        {settings.data?.enabled && !fromGitHub ? (
-          <Provider settings={settings.data} from={from} onError={setError} />
-        ) : null}
-        {github.data?.enabled || settings.data?.enabled ? (
-          <div className="flex items-center gap-3">
-            <span className="bg-border h-px flex-1" />
-            <span className="text-muted-foreground text-xs">или</span>
-            <span className="bg-border h-px flex-1" />
-          </div>
-        ) : null}
-        <ByToken from={from} onError={setError} navigate={navigate} />
-      </Card>
+    <div className="grid min-h-svh lg:grid-cols-2">
+      {/* Вход первым в разметке: на узком экране он должен быть сверху, а
+          порядок обхода с клавиатуры — начинаться с него, а не со сцены. */}
+      <div className="flex items-center justify-center p-6 sm:p-8 lg:order-2">
+        <div className="w-full max-w-100 space-y-5">
+          <Welcome />
+          {error ? (
+            <Alert variant="destructive">
+              <AlertTitle>Войти не удалось</AlertTitle>
+              <AlertDescription>{error.message}</AlertDescription>
+            </Alert>
+          ) : null}
+          {github.data?.enabled ? (
+            <GitHub settings={github.data} from={from} returning={fromGitHub} onError={setError} />
+          ) : null}
+          {settings.data?.enabled && !fromGitHub ? (
+            <Provider settings={settings.data} from={from} onError={setError} />
+          ) : null}
+          <OtherWays from={from} onError={setError} navigate={navigate} />
+        </div>
+      </div>
+      <Showcase />
     </div>
+  );
+}
+
+// Сцена терминала — отдельный модуль и грузится лениво: на основной бандл
+// страница входа влиять не должна, а на узком экране сцена не показывается
+// вовсе и не грузится тоже.
+const Terminal = lazy(() => import('@/components/login/Terminal'));
+
+function Showcase() {
+  return (
+    <aside className="bg-muted/40 hidden flex-col justify-center gap-6 border-r p-8 lg:order-1 lg:flex">
+      <Suspense fallback={<div className="bg-zinc-950 h-[19.5rem] rounded-xl border border-white/10" />}>
+        <Terminal />
+      </Suspense>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Highlight
+          icon={<Wrench className="size-4" />}
+          title="Агент в роли специалиста"
+          text="На каждом этапе работает свой агент: аналитик, разработчик, тестировщик."
+        />
+        <Highlight
+          icon={<ShieldCheck className="size-4" />}
+          title="Гейты на переходе"
+          text="Артефакты сданы, перепроверка прошла — иначе задача дальше не идёт."
+        />
+        <Highlight
+          icon={<Stamp className="size-4" />}
+          title="Последнее слово за человеком"
+          text="Апрув ставит человек; без него переход остаётся закрытым."
+        />
+      </div>
+      <p className="text-muted-foreground text-xs">
+        Работа идёт из терминала:{' '}
+        <a
+          className="underline underline-offset-4"
+          href="https://github.com/cadence-lab-tech/homebrew-tap"
+          target="_blank"
+          rel="noopener noreferrer">
+          как поставить CLI clab
+        </a>
+      </p>
+    </aside>
+  );
+}
+
+function Highlight({icon, title, text}: {icon: React.ReactNode; title: string; text: string}) {
+  return (
+    <div className="space-y-1">
+      <div className="text-muted-foreground flex items-center gap-2">
+        {icon}
+        <span className="text-foreground text-sm font-medium">{title}</span>
+      </div>
+      <p className="text-muted-foreground text-xs">{text}</p>
+    </div>
+  );
+}
+
+// Вход токеном нужен администратору и CI, а не человеку с аккаунтом GitHub:
+// поэтому он под кнопкой, а не первым полем на экране.
+function OtherWays({
+  from,
+  onError,
+  navigate,
+}: {
+  from: string;
+  onError: (err: ApiError) => void;
+  navigate: ReturnType<typeof useNavigate>;
+}) {
+  return (
+    <Collapsible>
+      <CollapsibleTrigger asChild>
+        <Button variant="ghost" size="sm" className="group -ml-2">
+          <ChevronRight className="transition-transform group-data-[state=open]:rotate-90" />
+          Другие способы входа
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="pt-3">
+        <ByToken from={from} onError={onError} navigate={navigate} />
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -72,8 +150,7 @@ function Welcome() {
         </div>
       </div>
       <p className="text-muted-foreground text-sm">
-        Задачи идут по настраиваемому циклу: на каждом этапе работает агент в роли специалиста,
-        а переход дальше закрыт гейтами и апрувом человека. Войдите, чтобы увидеть свои проекты.
+        Войдите, чтобы увидеть свои проекты.
       </p>
     </div>
   );
@@ -174,7 +251,7 @@ function Provider({
       <p className="text-muted-foreground text-sm">
         Вход через {settings.issuer}. Команды подтягиваются из групп провайдера при каждом входе.
       </p>
-      <Button className="w-full" disabled={busy} onClick={start}>
+      <Button className="w-full" variant="outline" disabled={busy} onClick={start}>
         {busy ? 'Ждём провайдера…' : 'Войти через провайдера'}
       </Button>
     </div>
@@ -301,10 +378,21 @@ function GitHub({
         Вход по аккаунту GitHub. Доступ к проектам выдают их администраторы; репозитории система
         читает установкой приложения, а не от вашего имени.
       </p>
-      <Button className="w-full" disabled={busy} onClick={start}>
+      <Button className="w-full" size="lg" disabled={busy} onClick={start}>
+        <GitHubMark />
         {busy ? 'Ждём GitHub…' : 'Войти через GitHub'}
       </Button>
     </div>
+  );
+}
+
+// В lucide бренд-иконок нет (их убрали из набора), поэтому знак GitHub
+// нарисован здесь: кнопка входа без него читается как обычная.
+function GitHubMark() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor" className="size-4">
+      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+    </svg>
   );
 }
 

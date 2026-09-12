@@ -47,6 +47,24 @@ export async function session(url) {
       await send('Page.navigate', {url: u});
       await new Promise((r) => setTimeout(r, 1200));
     },
+    // Ширина окна — не украшение: раскладку «две колонки на широком экране, одна
+    // на узком» иначе не проверить, а из страницы окно не изменить.
+    resize: async (width, height) => {
+      await send('Emulation.setDeviceMetricsOverride', {
+        width,
+        height,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await new Promise((r) => setTimeout(r, 500));
+    },
+    // Настройки среды (prefers-reduced-motion, тема) приходят от системы, и
+    // подменить их можно только эмуляцией: features — список
+    // {name, value} в терминах CSS.
+    emulate: async (features) => {
+      await send('Emulation.setEmulatedMedia', {features});
+      await new Promise((r) => setTimeout(r, 300));
+    },
     close: () => ws.close(),
   };
 }
