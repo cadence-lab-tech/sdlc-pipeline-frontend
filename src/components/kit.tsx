@@ -224,6 +224,9 @@ const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
 
 const relative = new Intl.RelativeTimeFormat('ru', {numeric: 'auto'});
 const absolute = new Intl.DateTimeFormat('ru', {dateStyle: 'medium', timeStyle: 'short'});
+// Только часы и минуты: там, где дата уже сказана заголовком дня, повторять её
+// в каждой строке незачем.
+const clock = new Intl.DateTimeFormat('ru', {timeStyle: 'short'});
 
 function formatRelative(iso: string): string {
   const seconds = (new Date(iso).getTime() - Date.now()) / 1000;
@@ -241,13 +244,14 @@ export function Timestamp({
   className,
 }: {
   value: string;
-  format?: 'absolute' | 'relative';
+  format?: 'absolute' | 'relative' | 'time';
   className?: string;
 }) {
-  const exact = absolute.format(new Date(value));
+  const date = new Date(value);
+  const exact = absolute.format(date);
   return (
     <time dateTime={value} title={exact} className={cn('text-muted-foreground text-sm', className)}>
-      {format === 'relative' ? formatRelative(value) : exact}
+      {format === 'relative' ? formatRelative(value) : format === 'time' ? clock.format(date) : exact}
     </time>
   );
 }

@@ -1,6 +1,16 @@
 import {session, helpers} from './driver.mjs';
 
 const BASE = process.env.SDLC_UI_URL ?? 'http://localhost:5173';
+const API = process.env.SDLC_API_URL ?? 'http://localhost:8088';
+// Часть состояний карточки браузером не сделать: привязку PR кладёт агент, а
+// гейт перепроверки снимает решение человека. И то и другое — обычные ручки
+// API, и подделывать их в странице нечем.
+const apiPost = (path, body) =>
+  fetch(API + path, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-SDLC-Actor': 'e2e'},
+    body: JSON.stringify(body),
+  });
 let ok = 0, fail = 0;
 const check = (name, cond, extra = '') => {
   if (cond) { ok++; console.log('  ✓', name); }
@@ -9,13 +19,81 @@ const check = (name, cond, extra = '') => {
 
 const s = await session(BASE + '/p/SDLC/tasks/SDLC-1');
 const run = (body) => s.evaluate(helpers + body);
-await new Promise((r) => setTimeout(r, 2500));
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+await wait(2500);
 
-console.log('карточка задачи');
+// В панели список гейтов свёрнут: его раскрывает клик по счётчику «держат N из
+// M». Раскрытие идемпотентно — уже раскрытое повторным кликом не закрывается.
+const OPEN_GATES = `
+  for (const b of all('button[data-slot=collapsible-trigger]')) {
+    const label = (b.innerText || '').trim();
+    if (!label.startsWith('держат') && !label.startsWith('гейты пройдены')) continue;
+    if (b.getAttribute('data-state') !== 'open') { b.click(); await sleep(250); }
+  }
+  await sleep(400);
+`;
+
+// Секция панели сворачивается кликом по своему заголовку.
+const toggleSection = (title) => `
+  const b = all('button[data-slot=collapsible-trigger]')
+    .find((x) => (x.innerText || '').trim().startsWith(${JSON.stringify(title)}));
+  if (!b) throw new Error('секции нет: ' + ${JSON.stringify(title)});
+  b.click();
+  await sleep(600);
+  return true;
+`;
+
+console.log('карточка задачи: панель действий');
 let t = await run('return texts();');
-check('вердикт гейтов показан', t.includes('не сданы артефакты'), t.slice(0, 300));
+let first = await run(`
+  const aside = all('aside')[0];
+  const h = aside && aside.querySelector('h2');
+  return h ? h.innerText.trim() : 'панели нет';
+`);
+check('первый блок панели — «Действия»', first === 'Действия', first);
+check('счётчик держащих гейтов показан', /держат \d+ из \d+/.test(t), t.slice(0, 400));
+check('список гейтов свёрнут', !t.includes('не сданы артефакты'), t.slice(0, 400));
 check('переход заблокирован', t.includes('Держат гейты'));
+
+await run(OPEN_GATES + 'return true;');
+t = await run('return texts();');
+check('вердикт гейтов показан после раскрытия', t.includes('не сданы артефакты'), t.slice(0, 400));
 check('перепроверка объяснена', t.includes('перепроверка не запускалась'), t.slice(0, 400));
+
+console.log('шапка и детали');
+check('блок «Детали» перечисляет свойства задачи',
+  t.includes('Детали') && t.includes('Исполнитель') && t.includes('Область'), t.slice(0, 600));
+check('исполнитель в шапке не дублируется',
+  (t.match(/Исполнитель/g) || []).length === 1, t.slice(0, 600));
+check('приоритет написан по-русски',
+  /(срочный|высокий|обычный|низкий)/.test(t) && !/\b(urgent|normal)\b/.test(t), t.slice(0, 400));
+await s.grant(['clipboardReadWrite', 'clipboardSanitizedWrite'], BASE);
+const copied = await run(`
+  const b = all('button[aria-label="Скопировать ключ"]')[0];
+  if (!b) return {missing: true};
+  b.click();
+  await sleep(700);
+  return {clip: await navigator.clipboard.readText().catch((e) => 'нет доступа: ' + e.name)};
+`);
+check('кнопка в шапке копирует ключ задачи', copied.clip === 'SDLC-1', JSON.stringify(copied));
+
+console.log('ссылки на PR в области задачи');
+check('без привязок ссылок на PR нет и ошибки нет', !t.includes('PR #'), t.slice(0, 600));
+await apiPost('/v1/tasks/SDLC-1/repo-refs', {
+  repository: 'cadence-lab-tech/sdlc-pipeline-backend',
+  ref_type: 'pull_request',
+  ref: '42',
+  url: 'https://github.com/cadence-lab-tech/sdlc-pipeline-backend/pull/42',
+  state: 'open',
+});
+await s.goto(BASE + '/p/SDLC/tasks/SDLC-1');
+await wait(2500);
+const pr = await run(`
+  const a = all('a').find((x) => (x.innerText || '').includes('PR #42'));
+  return a ? a.getAttribute('href') : 'ссылки нет';
+`);
+check('PR привязан ссылкой рядом с репозиторием',
+  pr === 'https://github.com/cadence-lab-tech/sdlc-pipeline-backend/pull/42', pr);
 
 // Артефакт с настоящей разметкой: заголовок, список, таблица GFM, чекбоксы,
 // цитата, инлайн-код, блок кода, внешняя ссылка и сырой HTML. По нему
@@ -71,11 +149,13 @@ t = await run(`
   return texts();
 `);
 check('артефакты появились на этапе', t.includes('analysis.acceptance_criteria submitted') || t.includes('analysis.acceptance_criteria'), t.slice(0, 500));
+await run(OPEN_GATES + 'return true;');
+t = await run('return texts();');
 check('гейт артефактов больше не держит', !t.includes('не сданы артефакты'), t.slice(0, 400));
 
 console.log('оформление разметки в артефакте');
 await run('await clickIn("analysis.brief", "Содержимое"); return true;');
-await new Promise((r) => setTimeout(r, 1200));
+await wait(1200);
 const md = await run(`
   // Разметкой на карточке выводится и постановка задачи: нужен именно блок
   // раскрытого артефакта.
@@ -117,7 +197,7 @@ let t2 = await run('return texts();');
 check('кнопка копирования есть', t2.includes('Копировать'), t2.slice(0, 300));
 check('кнопка «Открыть целиком» есть', t2.includes('Открыть целиком'), t2.slice(0, 300));
 await run('await clickExact("Открыть целиком"); return true;');
-await new Promise((r) => setTimeout(r, 900));
+await wait(900);
 t2 = await run(`
   const dialog = all('[role=dialog]')[0];
   return dialog ? dialog.innerText.replace(/\\s+/g, ' ') : '';
@@ -132,26 +212,41 @@ t2 = await run("return String(all('[role=dialog]').length);");
 check('диалог закрывается по Esc', t2 === '0', t2);
 await run('await clickIn("analysis.brief", "Содержимое"); return true;');
 
+console.log('ожидание апрува видно без раскрытия');
+// Перепроверку снимает решение человека: после этого переход держит только
+// апрув — тот случай, ради которого в «Действиях» есть короткий путь.
+await apiPost('/v1/tasks/SDLC-1/transitions/analysis_done/gates/peer_review/decision',
+  {status: 'waived'});
+await s.goto(BASE + '/p/SDLC/tasks/SDLC-1');
+await wait(2500);
+t = await run('return texts();');
+check('держит один гейт из пяти', t.includes('держат 1 из 5'), t.slice(0, 600));
+check('апрув предложен без раскрытия списка', t.includes('Апрув человеком') && t.includes('Апрув'), t.slice(0, 600));
+check('остальные гейты по-прежнему свёрнуты', !t.includes('снят вручную'), t.slice(0, 600));
+
 console.log('апрув человеком');
 await run('await clickIn("Апрув человеком", "Апрув"); return true;');
-await new Promise((r) => setTimeout(r, 1500));
+await wait(1500);
 t = await run('return texts();');
 check('апрув учтён', !t.includes('апрувов 0 из 1'), t.slice(0, 600));
 
 console.log('переход');
 t = await run('return texts();');
-// Артефакты сданы и апрув стоит, но перепроверка ревьюером не запускалась:
-// переход «Аналитика готова» остаётся закрытым, а отмена задачи доступна всегда.
-// Кликать нельзя — единственная разблокированная кнопка отменит задачу.
-check('переход вперёд держит перепроверка', t.includes('Держат гейты') && t.includes('перепроверка не запускалась'), t.slice(0, 600));
-check('отмена доступна', t.includes('Перевести') && t.includes('cancelled'), t.slice(0, 600));
+// Все гейты пройдены — кнопка перехода открылась. Кликать нельзя: задача
+// должна остаться в аналитике, дальше на её прогоне берёт аренду knowledge.mjs.
+check('переход открылся, когда гейты пройдены', t.includes('Перевести') && t.includes('гейты пройдены: 5'), t.slice(0, 600));
+check('отмена доступна', t.includes('cancelled'), t.slice(0, 600));
 check('задача всё ещё в аналитике', t.includes('analysis') && !t.includes('Cancelled'), t.slice(0, 300));
 
 console.log('лента событий');
 await run('await press("Лента"); return true;');
-await new Promise((r) => setTimeout(r, 800));
+await wait(800);
 t = await run('return texts();');
-check('лента показывает события', t.includes('task.') || t.includes('artifact.'), t.slice(0, 400));
+check('типы событий подписаны по-русски',
+  t.includes('этап начат') && t.includes('артефакт сдан'), t.slice(0, 500));
+check('сырых ключей событий в ленте нет',
+  !t.includes('stage.entered') && !t.includes('artifact.submitted'), t.slice(0, 500));
+check('события сгруппированы по дням', t.includes('сегодня'), t.slice(0, 500));
 
 console.log('правка постановки');
 // Кнопка правки — иконка без текста, её ищут по подписи для программ чтения
@@ -248,9 +343,77 @@ const collapsed = await run(`
 check('свёрнутая постановка ниже раскрытой', collapsed.after > collapsed.before, JSON.stringify(collapsed));
 
 await run('await press("Лента"); return true;');
-await new Promise((r) => setTimeout(r, 900));
+await wait(900);
 t = await run('return texts();');
-check('правка попала в ленту', t.includes('task.updated'), t.slice(0, 400));
+check('правка попала в ленту', t.includes('постановка поправлена'), t.slice(0, 400));
+
+console.log('этапы: раскрыта последняя попытка');
+await run('await press("Этапы и артефакты"); return true;');
+await wait(800);
+const stages = await run(`
+  return all('[data-stage-run]')
+    .map((el) => el.getAttribute('data-stage-run') + ':' + el.getAttribute('data-state'))
+    .join(' ');
+`);
+check('раскрыт последний прогон, прежний свёрнут', stages === 'analysis:open new:closed', stages);
+await run(`
+  const b = all('[data-stage-run="new"] button[data-slot=collapsible-trigger]')[0];
+  if (!b) throw new Error('заголовка свёрнутого прогона нет');
+  b.click();
+  await sleep(500);
+  return true;
+`);
+t = await run('return texts();');
+check('свёрнутый прогон раскрывается по клику', t.includes('Артефактов на этой попытке нет'), t.slice(0, 400));
+
+console.log('сворачиваемые секции панели');
+await run(toggleSection('Стоимость'));
+t = await run('return texts();');
+check('секция «Стоимость» сворачивается', t.includes('Стоимость') && !t.includes('Токенов'), t.slice(0, 400));
+await s.goto(BASE + '/p/SDLC/tasks/SDLC-1');
+await wait(2500);
+t = await run('return texts();');
+check('свёрнутость пережила перезагрузку', t.includes('Стоимость') && !t.includes('Токенов'), t.slice(0, 400));
+check('«Действия» раскрыты всегда', t.includes('Держат гейты') || t.includes('Перевести'), t.slice(0, 400));
+// Развернуть обратно: свёрнутость лежит в localStorage и осталась бы у
+// следующих сценариев, которые про «Стоимость» ничего не знают.
+await run(toggleSection('Стоимость'));
+t = await run('return texts();');
+check('секция разворачивается обратно', t.includes('Токенов'), t.slice(0, 400));
+
+console.log('раскладка панели');
+await s.resize(1440, 900);
+await wait(600);
+const wide = await run(`
+  const aside = all('aside')[0];
+  const panel = aside && aside.firstElementChild;
+  const main = aside && aside.previousElementSibling;
+  return {
+    position: panel ? getComputedStyle(panel).position : 'нет панели',
+    overflow: panel ? getComputedStyle(panel).overflowY : '',
+    besideMain: Boolean(main) && main.getBoundingClientRect().right <= aside.getBoundingClientRect().left + 1,
+  };
+`);
+check('на широком экране панель липкая', wide.position === 'sticky', JSON.stringify(wide));
+check('панель прокручивается сама', wide.overflow === 'auto', JSON.stringify(wide));
+check('панель стоит сбоку от основного столбца', wide.besideMain, JSON.stringify(wide));
+
+await s.resize(390, 780);
+await wait(600);
+const narrow = await run(`
+  const aside = all('aside')[0];
+  const main = aside && aside.previousElementSibling;
+  const h = aside && aside.querySelector('h2');
+  return {
+    below: Boolean(main) && aside.getBoundingClientRect().top >= main.getBoundingClientRect().bottom - 1,
+    first: h ? h.innerText.trim() : 'панели нет',
+    scroll: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  };
+`);
+check('на узком экране панель уходит под основной столбец', narrow.below, JSON.stringify(narrow));
+check('«Действия» остаются первыми в панели', narrow.first === 'Действия', JSON.stringify(narrow));
+check('горизонтальной прокрутки нет', narrow.scroll <= 0, JSON.stringify(narrow));
+await s.resize(1280, 900);
 
 s.close();
 console.log(`\n${ok} ok, ${fail} fail`);

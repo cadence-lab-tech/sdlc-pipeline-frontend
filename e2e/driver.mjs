@@ -58,6 +58,11 @@ export async function session(url) {
       });
       await new Promise((r) => setTimeout(r, 500));
     },
+    // Буфер обмена в headless закрыт разрешением: без него writeText
+    // отклоняется молча, и проверить копирование нечем.
+    grant: async (permissions, origin) => {
+      await send('Browser.grantPermissions', {origin, permissions});
+    },
     // Настройки среды (prefers-reduced-motion, тема) приходят от системы, и
     // подменить их можно только эмуляцией: features — список
     // {name, value} в терминах CSS.

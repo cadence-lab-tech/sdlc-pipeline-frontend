@@ -440,6 +440,22 @@ export interface TaskDetail {
   usage: UsageSummary;
 }
 
+// Привязка задачи к репозиторию: PR, ветка или коммит. Вид привязки —
+// перечень схемы (`task_repo_refs.ref_type`), состояние приходит от GitHub.
+// В ответе задачи привязок нет, они приезжают отдельным запросом.
+export interface TaskRepoRef {
+  id: UUID;
+  task_id: UUID;
+  repository_id: UUID;
+  // owner/name — бэкенд склеивает его при чтении
+  repository: string;
+  ref_type: "branch" | "pull_request" | "commit";
+  ref: string;
+  url?: string;
+  state?: string;
+  meta: Record<string, unknown>;
+}
+
 export interface TaskEvent {
   id: UUID;
   task_id: UUID;

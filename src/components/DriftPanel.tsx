@@ -1,13 +1,13 @@
 import {useState} from 'react';
 
 import {Button} from '@/components/ui/button';
-import {Separator} from '@/components/ui/separator';
-import {Note, Section, StatusDot, Timestamp, Token, type DotVariant} from '@/components/kit';
+import {Note, StatusDot, Timestamp, Token, type DotVariant} from '@/components/kit';
 
 import {ApiError, api} from '../api/client';
 import type {DriftSignal} from '../api/types';
 import {useResource} from '../api/useResource';
 import {Failure} from './Feedback';
+import {CollapsibleSection} from './task/CollapsibleSection';
 
 // Дрейф кодовой базы: код под задачей уехал, пока над ней работали. Сигнал
 // держит гейт drift_clear, но решение принимает человек или агент — движок
@@ -54,32 +54,31 @@ export function DriftPanel({taskKey}: {taskKey: string}) {
   const {baselines, signals} = drift.data;
   if (baselines.length === 0 && signals.length === 0) return null;
 
+  // Счётчик в заголовке — открытые сигналы: бэкенд по умолчанию отдаёт
+  // открытые и принятые к сведению, разобранные сюда не приезжают.
   return (
-    <>
-      <Separator />
-      <Section title="Дрейф кодовой базы">
-        {error ? <Failure error={error} title="Сигнал не разобран" /> : null}
+    <CollapsibleSection name="drift" title="Дрейф кодовой базы" count={signals.length}>
+      {error ? <Failure error={error} title="Сигнал не разобран" /> : null}
 
-        {baselines.length > 0 ? (
-          <div className="space-y-1">
-            <p className="text-muted-foreground text-xs">База задачи</p>
-            {baselines.map((b) => (
-              <p key={`${b.repository}/${b.branch}`} className="font-mono text-xs">
-                {b.repository} · {b.branch} · {b.commit.slice(0, 8)}
-              </p>
-            ))}
-          </div>
-        ) : null}
+      {baselines.length > 0 ? (
+        <div className="space-y-1">
+          <p className="text-muted-foreground text-xs">База задачи</p>
+          {baselines.map((b) => (
+            <p key={`${b.repository}/${b.branch}`} className="font-mono text-xs">
+              {b.repository} · {b.branch} · {b.commit.slice(0, 8)}
+            </p>
+          ))}
+        </div>
+      ) : null}
 
-        {signals.length === 0 ? (
-          <p className="text-muted-foreground text-sm">Открытых расхождений нет</p>
-        ) : (
-          signals.map((signal) => (
-            <SignalCard key={signal.id} signal={signal} busy={busy} onResolve={resolve} />
-          ))
-        )}
-      </Section>
-    </>
+      {signals.length === 0 ? (
+        <p className="text-muted-foreground text-sm">Открытых расхождений нет</p>
+      ) : (
+        signals.map((signal) => (
+          <SignalCard key={signal.id} signal={signal} busy={busy} onResolve={resolve} />
+        ))
+      )}
+    </CollapsibleSection>
   );
 }
 
