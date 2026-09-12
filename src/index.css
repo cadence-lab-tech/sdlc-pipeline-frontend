@@ -128,3 +128,158 @@
     @apply font-sans;
     }
 }
+@layer components {
+  /* Разметка markdown. Своими правилами на токенах темы, а не плагином
+     typography: оформления нужно немного, а плагин тащит свою шкалу размеров
+     мимо токенов shadcn и вес в бандл. Preflight Tailwind обнуляет заголовки,
+     списки и таблицы, поэтому всё, что возвращается, перечислено явно. */
+  .prose-sdlc {
+    color: var(--foreground);
+    line-height: 1.65;
+    overflow-wrap: anywhere;
+  }
+
+  .prose-sdlc > :first-child {
+    margin-top: 0;
+  }
+
+  .prose-sdlc > :last-child {
+    margin-bottom: 0;
+  }
+
+  .prose-sdlc :is(h1, h2, h3, h4, h5, h6) {
+    font-weight: 600;
+    line-height: 1.3;
+    margin: 1.6em 0 0.6em;
+  }
+
+  .prose-sdlc h1 {
+    font-size: 1.5em;
+  }
+
+  .prose-sdlc h2 {
+    font-size: 1.3em;
+  }
+
+  .prose-sdlc h3 {
+    font-size: 1.15em;
+  }
+
+  .prose-sdlc :is(h4, h5, h6) {
+    font-size: 1em;
+  }
+
+  .prose-sdlc p {
+    margin: 0.75em 0;
+  }
+
+  .prose-sdlc :is(ul, ol) {
+    margin: 0.75em 0;
+    padding-left: 1.5em;
+  }
+
+  .prose-sdlc ul {
+    list-style: disc;
+  }
+
+  .prose-sdlc ul ul {
+    list-style: circle;
+  }
+
+  .prose-sdlc ol {
+    list-style: decimal;
+  }
+
+  .prose-sdlc li {
+    margin: 0.25em 0;
+  }
+
+  .prose-sdlc :is(ul, ol) :is(ul, ol) {
+    margin: 0.25em 0;
+  }
+
+  /* Пункт списка задач GFM: маркер убирает сам remark-gfm разметкой
+     class="task-list-item", а чекбокс остаётся видимым и выключенным. */
+  .prose-sdlc li:has(> input[type='checkbox']) {
+    list-style: none;
+    margin-left: -1.25em;
+  }
+
+  .prose-sdlc input[type='checkbox'] {
+    margin-right: 0.5em;
+    accent-color: var(--primary);
+    vertical-align: baseline;
+  }
+
+  .prose-sdlc blockquote {
+    margin: 0.75em 0;
+    padding-left: 0.9em;
+    border-left: 3px solid var(--border);
+    color: var(--muted-foreground);
+  }
+
+  .prose-sdlc hr {
+    margin: 1.5em 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .prose-sdlc a {
+    color: var(--primary);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  /* Таблица GFM прокручивается сама: широкая таблица в артефакте не должна
+     растягивать карточку задачи и заводить прокрутку всей страницы. */
+  .prose-sdlc table {
+    display: block;
+    width: max-content;
+    max-width: 100%;
+    overflow-x: auto;
+    margin: 1em 0;
+    border-collapse: collapse;
+    font-size: 0.95em;
+  }
+
+  .prose-sdlc :is(th, td) {
+    border: 1px solid var(--border);
+    padding: 0.35em 0.6em;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .prose-sdlc th {
+    background: var(--muted);
+    font-weight: 600;
+  }
+
+  .prose-sdlc code {
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+    font-size: 0.9em;
+    background: var(--muted);
+    border-radius: calc(var(--radius) * 0.4);
+    padding: 0.1em 0.35em;
+  }
+
+  .prose-sdlc pre {
+    margin: 0.9em 0;
+    padding: 0.75em 0.9em;
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) * 0.8);
+    background: var(--muted);
+    overflow-x: auto;
+  }
+
+  /* Внутри блока кода фон и отступы уже у <pre>: иначе они сложились бы
+     дважды и строки разъехались. */
+  .prose-sdlc pre code {
+    background: transparent;
+    padding: 0;
+    font-size: 0.85em;
+    line-height: 1.55;
+  }
+
+  .prose-sdlc img {
+    max-width: 100%;
+  }
+}

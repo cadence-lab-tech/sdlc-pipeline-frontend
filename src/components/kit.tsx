@@ -279,6 +279,8 @@ export function CodeBlock({
           {copied ? <Check /> : <Copy />}
         </Button>
       </div>
+      {/* Класс code-block оформления не несёт — это опора для сквозных
+          сценариев: по нему они находят блок кода на экране. */}
       <pre
         className="code-block overflow-auto p-3 text-xs leading-relaxed"
         data-language={language}
@@ -289,10 +291,27 @@ export function CodeBlock({
   );
 }
 
-export function Markdown({children}: {children: string}) {
+// Разметка артефактов, постановки задач и инструкций ролей. Сырой HTML не
+// включается (никакого rehype-raw): текст пишут агенты, и исполнять его в
+// чужом браузере незачем — react-markdown экранирует его сам.
+export function Markdown({children, className}: {children: string; className?: string}) {
   return (
-    <div className="prose-sdlc text-sm">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
+    <div className={cn('prose-sdlc text-sm', className)}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={{a: MarkdownLink}}>
+        {children}
+      </ReactMarkdown>
     </div>
+  );
+}
+
+// Ссылка наружу открывается в новой вкладке и с noopener: без него открытая
+// страница получает доступ к window.opener. Ссылки внутрь приложения ведут
+// себя обычно — уводить из текущей вкладки на свои же экраны не нужно.
+function MarkdownLink({href, children, ...rest}: React.ComponentProps<'a'>) {
+  const external = Boolean(href && /^[a-z][a-z0-9+.-]*:/i.test(href) && !href.startsWith(window.location.origin));
+  return (
+    <a href={href} {...rest} {...(external ? {target: '_blank', rel: 'noopener noreferrer'} : {})}>
+      {children}
+    </a>
   );
 }

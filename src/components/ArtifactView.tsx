@@ -1,8 +1,9 @@
 import {useState} from 'react';
-import {ChevronRight} from 'lucide-react';
+import {Check, ChevronRight, Copy, Maximize2} from 'lucide-react';
 
 import {Button} from '@/components/ui/button';
 import {Collapsible, CollapsibleContent, CollapsibleTrigger} from '@/components/ui/collapsible';
+import {Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger} from '@/components/ui/dialog';
 import {CodeBlock, Markdown, Token} from '@/components/kit';
 
 import {ApiError, api} from '../api/client';
@@ -14,10 +15,12 @@ import {Failure} from './Feedback';
 export function ArtifactView({artifact, onChanged}: {artifact: Artifact; onChanged: () => void}) {
   const [content, setContent] = useState<string>();
   const [error, setError] = useState<ApiError>();
+  const [open, setOpen] = useState(false);
 
   // Содержимое подтягивается на первом раскрытии: крупные артефакты лежат во
   // внешнем хранилище, и тянуть их для всего списка сразу незачем.
   const load = async (isOpen: boolean) => {
+    setOpen(isOpen);
     if (!isOpen || content !== undefined) return;
     try {
       setContent(await api.artifactContent(artifact.id));
@@ -55,23 +58,86 @@ export function ArtifactView({artifact, onChanged}: {artifact: Artifact; onChang
         </div>
       </div>
       {error ? <Failure error={error} title="Артефакт не открылся" /> : null}
-      <Collapsible onOpenChange={load}>
-        <CollapsibleTrigger asChild>
-          <Button variant="ghost" size="sm" className="group -ml-2">
-            <ChevronRight className="transition-transform group-data-[state=open]:rotate-90" />
-            Содержимое
-          </Button>
-        </CollapsibleTrigger>
+      <Collapsible open={open} onOpenChange={load}>
+        <div className="flex flex-wrap items-center gap-1">
+          <CollapsibleTrigger asChild>
+            <Button variant="ghost" size="sm" className="group -ml-2">
+              <ChevronRight className="transition-transform group-data-[state=open]:rotate-90" />
+              Содержимое
+            </Button>
+          </CollapsibleTrigger>
+          {/* Копирование и чтение во весь экран — только на раскрытом
+              артефакте: пока содержимое не подтянуто, копировать нечего. */}
+          {open && content !== undefined ? (
+            <>
+              <CopyButton text={content} />
+              <FullScreen artifact={artifact} content={content} />
+            </>
+          ) : null}
+        </div>
         <CollapsibleContent className="pt-2">
           {content === undefined ? (
             <p className="text-muted-foreground text-sm">Загрузка…</p>
-          ) : artifact.format === 'markdown' ? (
-            <Markdown>{content}</Markdown>
           ) : (
-            <CodeBlock code={content} language={artifact.format} />
+            <ArtifactBody format={artifact.format} content={content} />
           )}
         </CollapsibleContent>
       </Collapsible>
     </div>
+  );
+}
+
+// Формат артефакта задаёт бэкенд (markdown, json, yaml, diff, text, html), и
+// показывается артефакт по своему формату: markdown — разметкой, машинные
+// форматы — блоком кода, текст и html — текстом. HTML именно текстом: он
+// приехал от агента, и исполнять его здесь нечего.
+export function ArtifactBody({format, content}: {format: string; content: string}) {
+  if (format === 'markdown') return <Markdown>{content}</Markdown>;
+  if (format === 'json' || format === 'yaml' || format === 'diff') {
+    return <CodeBlock code={content} language={format} />;
+  }
+  return <p className="text-sm whitespace-pre-wrap">{content}</p>;
+}
+
+// Копируется исходный текст артефакта, а не отрисованная разметка: в буфер
+// нужен тот же markdown, который сдал агент.
+function CopyButton({text}: {text: string}) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <Button variant="ghost" size="sm" onClick={copy}>
+      {copied ? <Check /> : <Copy />}
+      Копировать
+    </Button>
+  );
+}
+
+// Артефакты бывают длиннее экрана карточки: чтение во всю высоту — отдельный
+// диалог, содержимое в нём прокручивается само.
+function FullScreen({artifact, content}: {artifact: Artifact; content: string}) {
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="sm">
+          <Maximize2 />
+          Открыть целиком
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="flex h-[90svh] max-h-[90svh] flex-col gap-3 sm:max-w-4xl">
+        <DialogHeader>
+          <DialogTitle className="pr-8 text-base">{artifact.title}</DialogTitle>
+          <p className="text-muted-foreground text-xs">
+            {artifact.kind} · v{artifact.version} · {artifact.format}
+          </p>
+        </DialogHeader>
+        <div className="min-h-0 flex-1 overflow-auto pr-1">
+          <ArtifactBody format={artifact.format} content={content} />
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
