@@ -16,6 +16,13 @@ let t = await run('return texts();');
 check('роли перечислены', t.includes('Аналитик') && t.includes('Ревьюер'));
 check('видно, где роль стоит', t.includes('Стоит на статусах') && t.includes('analysis'));
 check('инструкция версии показана', t.includes('Ты аналитик'));
+// Инструкцию пишут разметкой: на экране она должна быть отрисованной, а не
+// абзацем сырого текста.
+const instruction = await run(`
+  const root = all('.prose-sdlc').find((el) => (el.innerText || '').includes('Ты аналитик'));
+  return Boolean(root);
+`);
+check('инструкция показана разметкой', instruction === true);
 check('контракт вывода показан', t.includes('analysis.acceptance_criteria'));
 
 console.log('правка инструкции — новая версия');

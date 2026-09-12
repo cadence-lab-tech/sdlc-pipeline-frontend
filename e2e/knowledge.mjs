@@ -45,6 +45,29 @@ await run(`
 t = await run('return texts();');
 check('режим поиска назван', t.includes('полнотекстом') || t.includes('Ничего не нашлось'), t.slice(0, 700));
 check('выдача отрисована', t.includes('Ничего не нашлось') || t.includes('артефакт') || t.includes('код'), t.slice(0, 700));
+// Попадание по артефакту или документу — текст, написанный разметкой, и
+// показывается разметкой; попадание по коду остаётся моноширинным блоком.
+// Ищется текст артефакта, сданного сценарием карточки: по нему выдача
+// заведомо непустая. Если попаданий всё же нет — проверять нечего.
+await run(`
+  await fill("Что ищем", "Разметка артефакта");
+  await clickExact("Найти");
+  await sleep(1500);
+  return true;
+`);
+const hits = await run(`
+  // Область попадания — бейдж карточки, а не любое слово в её тексте: на
+  // странице есть и фильтр областей, и состояние индекса.
+  const cards = all('[data-slot=card]').filter((c) =>
+    Array.from(c.querySelectorAll('[data-slot=badge]')).some((b) =>
+      ['артефакт', 'документ'].includes((b.innerText || '').trim()),
+    ),
+  );
+  if (cards.length === 0) return {none: true};
+  return {markdown: cards.every((c) => Boolean(c.querySelector('.prose-sdlc')))};
+`);
+if (hits.none) console.log('  · попаданий по артефактам и документам нет — оформление проверять не на чем');
+else check('попадание по артефакту показано разметкой', hits.markdown === true, JSON.stringify(hits));
 
 s.close();
 console.log(`\n${ok} ok, ${fail} fail`);
