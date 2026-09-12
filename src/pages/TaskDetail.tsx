@@ -1,6 +1,7 @@
-import {useEffect, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {Link, useParams} from 'react-router-dom';
 
+import {cn} from '@/lib/utils';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Card} from '@/components/ui/card';
@@ -9,6 +10,7 @@ import {Separator} from '@/components/ui/separator';
 import {Tabs, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {
   EmptyState,
+  Markdown,
   Row,
   RowList,
   Section,
@@ -99,11 +101,7 @@ export function TaskDetail() {
           </h1>
           <EditTaskDialog task={detail.task} onChanged={reload} />
         </div>
-        {detail.task.description ? (
-          <p className="text-muted-foreground text-sm whitespace-pre-wrap">
-            {detail.task.description}
-          </p>
-        ) : null}
+        {detail.task.description ? <Description text={detail.task.description} /> : null}
       </div>
 
       <div className="flex flex-1 flex-col xl:flex-row">
@@ -150,6 +148,43 @@ export function TaskDetail() {
           <ScopePanel task={detail.task} onChanged={reload} />
         </aside>
       </div>
+    </div>
+  );
+}
+
+// Постановка задачи — разметка, а не подпись под заголовком: её пишет человек
+// или аналитик списками и кодом. Длинная сворачивается, чтобы вкладки и правая
+// панель не уезжали за экран; раскрытие — разовое действие, а не настройка,
+// поэтому нигде не запоминается.
+const DESCRIPTION_COLLAPSED_PX = 260;
+
+function Description({text}: {text: string}) {
+  const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+
+  // Сворачивать нужно только то, что не поместилось: у короткой постановки
+  // кнопки «Показать целиком» быть не должно, а длина в символах этого не
+  // показывает — решает высота отрисованной разметки. Меряется на каждой новой
+  // постановке: её правят прямо в карточке, и мерка от прежнего текста соврала бы.
+  useEffect(() => {
+    const node = box.current;
+    if (node) setOverflows(node.scrollHeight > DESCRIPTION_COLLAPSED_PX + 8);
+  }, [text]);
+
+  return (
+    <div className="space-y-1">
+      <div
+        ref={box}
+        className={cn('overflow-hidden', !expanded && overflows && 'mask-b-from-80%')}
+        style={expanded || !overflows ? undefined : {maxHeight: DESCRIPTION_COLLAPSED_PX}}>
+        <Markdown>{text}</Markdown>
+      </div>
+      {overflows ? (
+        <Button variant="ghost" size="sm" className="-ml-2" onClick={() => setExpanded(!expanded)}>
+          {expanded ? 'Свернуть' : 'Показать целиком'}
+        </Button>
+      ) : null}
     </div>
   );
 }

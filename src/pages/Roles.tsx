@@ -6,7 +6,7 @@ import {Button} from '@/components/ui/button';
 import {Card} from '@/components/ui/card';
 import {Separator} from '@/components/ui/separator';
 import {Switch} from '@/components/fields';
-import {EmptyState, Note, Row, Timestamp, Token} from '@/components/kit';
+import {EmptyState, Markdown, Note, Row, Timestamp, Token} from '@/components/kit';
 
 import {ApiError, api} from '../api/client';
 import type {Role, RoleUsage, RoleVersion} from '../api/types';
@@ -218,7 +218,9 @@ function VersionCard({version, isLatest}: {version: RoleVersion; isLatest: boole
       </div>
       {version.changelog ? <p className="text-muted-foreground text-sm">{version.changelog}</p> : null}
 
-      <p className="text-sm whitespace-pre-wrap">{version.instructions}</p>
+      {/* Инструкция роли — разметка: её пишут списками и заголовками, а читает
+          человек, сверяя с тем, что сдал агент. */}
+      <Markdown>{version.instructions}</Markdown>
 
       <div className="space-y-1">
         <p className="text-muted-foreground text-xs">Контракт вывода</p>

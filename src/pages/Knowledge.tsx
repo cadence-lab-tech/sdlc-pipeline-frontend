@@ -6,7 +6,7 @@ import {Button} from '@/components/ui/button';
 import {Card} from '@/components/ui/card';
 import {MultiSelector, TextInput} from '@/components/fields';
 import {DataTable} from '@/components/DataTable';
-import {EmptyState, Note, Page, PageHeader, Section, Timestamp, Token} from '@/components/kit';
+import {EmptyState, Markdown, Note, Page, PageHeader, Section, Timestamp, Token} from '@/components/kit';
 
 import {api} from '../api/client';
 import type {IndexStatusRow, SearchHit} from '../api/types';
@@ -150,9 +150,17 @@ function Hit({hit}: {hit: SearchHit}) {
         <span className="text-muted-foreground text-xs tabular-nums">{hit.score.toFixed(3)}</span>
       </div>
       {hit.title ? <p className="text-sm font-medium">{hit.title}</p> : null}
-      <pre className="bg-muted/40 max-h-60 overflow-auto rounded-md p-2 font-mono text-xs whitespace-pre-wrap">
-        {hit.text}
-      </pre>
+      {/* Попадание по коду остаётся кодом, а попадание по артефакту или
+          документу — это текст, написанный разметкой, и читается он разметкой. */}
+      {hit.scope === 'code' ? (
+        <pre className="bg-muted/40 max-h-60 overflow-auto rounded-md p-2 font-mono text-xs whitespace-pre-wrap">
+          {hit.text}
+        </pre>
+      ) : (
+        <div className="bg-muted/40 max-h-60 overflow-auto rounded-md p-2">
+          <Markdown>{hit.text}</Markdown>
+        </div>
+      )}
     </Card>
   );
 }
