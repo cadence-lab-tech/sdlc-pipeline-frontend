@@ -69,6 +69,66 @@ await new Promise((r) => setTimeout(r, 800));
 t = await run('return texts();');
 check('лента показывает события', t.includes('task.') || t.includes('artifact.'), t.slice(0, 400));
 
+console.log('правка постановки');
+// Кнопка правки — иконка без текста, её ищут по подписи для программ чтения
+// с экрана: та же связка, по которой её найдёт человек с читалкой.
+const openEdit = `
+  const btn = all('button[aria-label="Править постановку"]')[0];
+  if (!btn) throw new Error('кнопки правки нет');
+  btn.click();
+  await sleep(700);
+  return true;
+`;
+await run(openEdit);
+t = await run(`
+  const lbl = all('label').find(l => l.innerText.trim().startsWith('Название'));
+  const field = lbl && document.getElementById(lbl.getAttribute('for'));
+  return field ? field.value : '';
+`);
+check('форма открылась на текущем заголовке', t.includes('REST API'), t);
+
+// Отмена не меняет ничего: введённое в форме на карточку не попадает.
+await run(`
+  await fill("Название", "Это сохранять не нужно");
+  await clickExact("Отмена");
+  return true;
+`);
+t = await run('return texts();');
+check('отмена ничего не изменила', !t.includes('Это сохранять не нужно'), t.slice(0, 300));
+
+// Отказ сервера показывается сообщением, а введённое остаётся в форме.
+await run(openEdit);
+t = await run(`
+  await fill("Название", "я".repeat(81));
+  await clickExact("Сохранить");
+  await sleep(1200);
+  return texts();
+`);
+check('сервер отбил длинный заголовок', t.includes('заголовок длиннее 80 символов'), t.slice(0, 400));
+t = await run(`
+  const lbl = all('label').find(l => l.innerText.trim().startsWith('Название'));
+  const field = lbl && document.getElementById(lbl.getAttribute('for'));
+  return field ? String(field.value.length) : 'нет поля';
+`);
+check('введённое в форме осталось', t === '81', t);
+
+await run(`
+  await fill("Название", "Постановка поправлена из интерфейса");
+  await fill("Описание", "Описание, набранное в карточке.");
+  await fill("Метки", "ux, phase8");
+  await clickExact("Сохранить");
+  await sleep(1500);
+  return true;
+`);
+t = await run('return texts();');
+check('карточка показывает новый заголовок', t.includes('Постановка поправлена из интерфейса'), t.slice(0, 400));
+check('карточка показывает новое описание', t.includes('Описание, набранное в карточке.'), t.slice(0, 400));
+
+await run('await press("Лента"); return true;');
+await new Promise((r) => setTimeout(r, 900));
+t = await run('return texts();');
+check('правка попала в ленту', t.includes('task.updated'), t.slice(0, 400));
+
 s.close();
 console.log(`\n${ok} ok, ${fail} fail`);
 process.exit(fail ? 1 : 0);
