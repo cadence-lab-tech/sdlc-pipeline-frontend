@@ -32,12 +32,18 @@ export function TaskDetail() {
   const {taskKey = ''} = useParams();
   const task = useResource(() => api.getTask(taskKey), [taskKey]);
   const events = useResource(() => api.timeline(taskKey), [taskKey]);
+  // Привязки PR лежат за отдельной ручкой, но живут той же жизнью, что и
+  // карточка: их кладёт агент по ходу прогона, и узнаётся это перезапросом.
+  const refs = useResource(() => api.repoRefs(taskKey), [taskKey]);
   const [tab, setTab] = useState('stages');
 
   const live = (task.data?.stage_runs ?? []).some(isLeaseLive);
   useEffect(() => {
     if (!live) return;
-    const timer = setInterval(() => task.reload(), LIVE_POLL_MS);
+    const timer = setInterval(() => {
+      task.reload();
+      refs.reload();
+    }, LIVE_POLL_MS);
     return () => clearInterval(timer);
     // Опрос заводится на время живой аренды, а не на каждый рендер карточки.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -50,6 +56,7 @@ export function TaskDetail() {
   const reload = () => {
     task.reload();
     events.reload();
+    refs.reload();
   };
 
   return (
@@ -90,7 +97,7 @@ export function TaskDetail() {
         <aside className="w-full shrink-0 border-t p-4 xl:w-100 xl:border-t-0 xl:border-l">
           <div className="space-y-6 xl:sticky xl:top-18 xl:max-h-[calc(100svh-5.5rem)] xl:overflow-y-auto">
             <Actions detail={detail} onChanged={reload} />
-            <Details detail={detail} onChanged={reload} />
+            <Details detail={detail} refs={refs.data ?? []} onChanged={reload} />
             {detail.links.length > 0 ? (
               <CollapsibleSection name="links" title="Связи" count={detail.links.length}>
                 <LinksPanel task={detail.task} links={detail.links} />

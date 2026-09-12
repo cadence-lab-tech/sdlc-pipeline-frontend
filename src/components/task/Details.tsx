@@ -16,11 +16,21 @@ import {priorityClass, priorityLabel} from '../priorities';
 // «Детали» — список ключ-значение: всё, что задача про себя знает, одной
 // колонкой. Формы (назначение, свойства, расширение области) по умолчанию
 // свёрнуты: читают карточку чаще, чем правят.
-export function Details({detail, onChanged}: {detail: TaskDetail; onChanged: () => void}) {
+export function Details({
+  detail,
+  refs,
+  onChanged,
+}: {
+  detail: TaskDetail;
+  // Привязки PR приходят отдельным ресурсом: в ответе задачи их нет. Держит
+  // его страница — их перезапрашивает та же кнопка и тот же опрос живой
+  // аренды, что и саму карточку, иначе PR, привязанный агентом по ходу
+  // прогона, на экране не появится.
+  refs: TaskRepoRef[];
+  onChanged: () => void;
+}) {
   const {task} = detail;
   const project = useResource(() => api.getProject(task.project_key), [task.project_key]);
-  // Привязки PR лежат отдельным ресурсом: в ответе задачи их нет.
-  const refs = useResource(() => api.repoRefs(task.key), [task.key]);
   const [editing, setEditing] = useState(false);
   const [add, setAdd] = useState<string[]>([]);
   const [scopeError, setScopeError] = useState<ApiError>();
@@ -68,7 +78,7 @@ export function Details({detail, onChanged}: {detail: TaskDetail; onChanged: () 
           </DetailRow>
         ) : null}
         <DetailRow label="Область">
-          <Repositories task={task} refs={refs.data ?? []} />
+          <Repositories task={task} refs={refs} />
         </DetailRow>
         {/* Тип показан отдельной строкой выше — он же системное свойство, и
             дважды выводить его незачем. */}
