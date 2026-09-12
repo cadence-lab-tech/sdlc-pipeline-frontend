@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {Link, useParams} from 'react-router-dom';
 
 import {cn} from '@/lib/utils';
@@ -161,17 +161,21 @@ const DESCRIPTION_COLLAPSED_PX = 260;
 function Description({text}: {text: string}) {
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+
   // Сворачивать нужно только то, что не поместилось: у короткой постановки
   // кнопки «Показать целиком» быть не должно, а длина в символах этого не
-  // показывает — решает высота отрисованной разметки.
-  const measure = useCallback((node: HTMLDivElement | null) => {
+  // показывает — решает высота отрисованной разметки. Меряется на каждой новой
+  // постановке: её правят прямо в карточке, и мерка от прежнего текста соврала бы.
+  useEffect(() => {
+    const node = box.current;
     if (node) setOverflows(node.scrollHeight > DESCRIPTION_COLLAPSED_PX + 8);
-  }, []);
+  }, [text]);
 
   return (
     <div className="space-y-1">
       <div
-        ref={measure}
+        ref={box}
         className={cn('overflow-hidden', !expanded && overflows && 'mask-b-from-80%')}
         style={expanded || !overflows ? undefined : {maxHeight: DESCRIPTION_COLLAPSED_PX}}>
         <Markdown>{text}</Markdown>

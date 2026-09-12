@@ -225,6 +225,28 @@ check('решётки заголовка не показаны текстом', 
 t = await run('return texts();');
 check('у короткой постановки нет кнопки «Показать целиком»', !t.includes('Показать целиком'), t.slice(0, 400));
 
+// Длинная постановка сворачивается. Проверяется правкой в той же карточке:
+// мерка высоты обязана пересчитаться на новом тексте, а не остаться от прежнего.
+await run(openEdit);
+await run(`
+  await fill("Описание", Array.from({length: 40}, (_, i) => 'Строка постановки номер ' + (i + 1)).join('\\n\\n'));
+  await clickExact("Сохранить");
+  await sleep(1500);
+  return true;
+`);
+t = await run('return texts();');
+check('длинная постановка сворачивается', t.includes('Показать целиком'), t.slice(0, 400));
+const collapsed = await run(`
+  const btn = all('button').find((b) => (b.innerText || '').trim() === 'Показать целиком');
+  const box = btn && btn.parentElement.querySelector('.prose-sdlc').parentElement;
+  const before = box.getBoundingClientRect().height;
+  btn.click();
+  await sleep(500);
+  const after = box.getBoundingClientRect().height;
+  return {before, after};
+`);
+check('свёрнутая постановка ниже раскрытой', collapsed.after > collapsed.before, JSON.stringify(collapsed));
+
 await run('await press("Лента"); return true;');
 await new Promise((r) => setTimeout(r, 900));
 t = await run('return texts();');
