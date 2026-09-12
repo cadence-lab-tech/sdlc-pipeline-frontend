@@ -24,17 +24,19 @@ import type {
   StageRun,
   Task,
   TaskDetail as TaskDetailData,
+  TaskEvent,
   TaskLink,
   TransitionOption,
   UsageSummary,
   Workflow,
 } from '../api/types';
-import {useResource} from '../api/useResource';
+import {useResource, type Resource} from '../api/useResource';
 import {Failure, Loading} from '../components/Feedback';
 import {GateRow} from '../components/Gates';
 import {ArtifactView} from '../components/ArtifactView';
 import {AssigneePanel} from '../components/AssigneePanel';
 import {DriftPanel} from '../components/DriftPanel';
+import {EditTaskDialog} from '../components/EditTaskDialog';
 import {ScopePanel} from '../components/ScopePanel';
 import {SubmitArtifactDialog} from '../components/SubmitArtifactDialog';
 
@@ -91,9 +93,16 @@ export function TaskDetail() {
             </span>
           ) : null}
         </div>
-        <h1 className="text-2xl font-semibold tracking-tight">{detail.task.title}</h1>
+        <div className="flex items-start gap-2">
+          <h1 className="min-w-0 flex-1 text-2xl font-semibold tracking-tight">
+            {detail.task.title}
+          </h1>
+          <EditTaskDialog task={detail.task} onChanged={reload} />
+        </div>
         {detail.task.description ? (
-          <p className="text-muted-foreground text-sm">{detail.task.description}</p>
+          <p className="text-muted-foreground text-sm whitespace-pre-wrap">
+            {detail.task.description}
+          </p>
         ) : null}
       </div>
 
@@ -120,7 +129,7 @@ export function TaskDetail() {
           ) : tab === 'children' ? (
             <Children detail={detail} />
           ) : (
-            <Timeline taskKey={taskKey} />
+            <Timeline events={events} />
           )}
         </div>
 
@@ -496,9 +505,10 @@ function TransitionCard({
   );
 }
 
-function Timeline({taskKey}: {taskKey: string}) {
-  const events = useResource(() => api.timeline(taskKey), [taskKey]);
-
+// Лента показывает ресурс карточки, а не заводит свой: её перезапрашивает
+// каждое действие на странице (правка постановки, сдача артефакта, переход),
+// и второй экземпляр того же запроса остался бы на прежних событиях.
+function Timeline({events}: {events: Resource<TaskEvent[]>}) {
   if (events.error) return <Failure error={events.error} />;
   if (!events.data) return <Loading />;
 

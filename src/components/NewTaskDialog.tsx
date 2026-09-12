@@ -17,10 +17,9 @@ import {ApiError, api} from '../api/client';
 import type {ProjectDetail} from '../api/types';
 import {Failure} from './Feedback';
 import {PropertyField} from './PropertyFields';
+import {PRIORITY_OPTIONS} from './priorities';
 import {defaultProperties} from './properties';
 import {taskTypes} from './taskTypes';
-
-const PRIORITIES = ['low', 'normal', 'high', 'urgent'].map((p) => ({value: p, label: p}));
 
 export function NewTaskDialog({
   project,
@@ -98,7 +97,12 @@ export function NewTaskDialog({
             />
           ) : null}
           <TextArea label="Описание" value={description} onChange={setDescription} rows={4} />
-          <Selector label="Приоритет" options={PRIORITIES} value={priority} onChange={setPriority} />
+          <Selector
+            label="Приоритет"
+            options={PRIORITY_OPTIONS}
+            value={priority}
+            onChange={setPriority}
+          />
           <MultiSelector
             label="Область по репозиториям"
             description="Одна задача — один репозиторий, если не включена мультирепозиторность"
