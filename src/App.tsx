@@ -42,6 +42,7 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
+import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider, useTheme } from "@/lib/theme";
 
@@ -75,6 +76,10 @@ export function App() {
       {/* Подсказки Radix требуют провайдера над собой — он один на всё
           приложение, а не по одному на каждую подсказку. */}
       <TooltipProvider delayDuration={300}>
+        {/* Тосты об успехе — один Toaster на всё приложение, вне Routes:
+            они нужны и страницам вне оболочки. Ошибки в тосты не ходят —
+            они остаются рядом с формой, в Failure. */}
+        <Toaster position="bottom-right" closeButton />
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<Login />} />

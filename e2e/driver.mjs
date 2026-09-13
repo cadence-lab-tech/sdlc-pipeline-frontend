@@ -76,8 +76,17 @@ export async function session(url) {
 
 export const helpers = `
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-  const texts = () => document.body.innerText.replace(/\\s+/g, ' ');
   const all = (s) => Array.from(document.querySelectorAll(s));
+  // Тосты об успехе живут в той же странице несколько секунд и называют
+  // объект; из текста страницы они вычитаются, чтобы проверка «объекта
+  // больше нет» не находила его в тосте. Сами тосты читаются через toasts().
+  const texts = () => {
+    const toaster = document.querySelector('[data-sonner-toaster]');
+    const page = document.body.innerText.replace(/\\s+/g, ' ');
+    const toastText = toaster ? (toaster.innerText || '').replace(/\\s+/g, ' ') : '';
+    return toastText.trim() ? page.replace(toastText, ' ') : page;
+  };
+  const toasts = () => all('[data-sonner-toast]').map((el) => (el.innerText || '').replace(/\\s+/g, ' ').trim());
   const byText = (t, sel = 'button, [role=button], a') =>
     all(sel).find((el) => (el.innerText || '').trim().includes(t));
   const click = async (t, sel) => {
@@ -136,6 +145,18 @@ export const helpers = `
       (b) => (b.innerText || '').trim() === buttonText,
     );
     btn.click();
+    await sleep(900);
+    return true;
+  };
+  // Необратимое действие подтверждается в AlertDialog: клик по кнопке с этим
+  // текстом внутри [role=alertdialog] и ожидание, пока диалог закроется.
+  const confirm = async (t) => {
+    const dialog = document.querySelector('[role=alertdialog]');
+    if (!dialog) throw new Error('диалог подтверждения не открыт: ' + t);
+    const btn = Array.from(dialog.querySelectorAll('button')).find((b) => (b.innerText || '').trim() === t);
+    if (!btn) throw new Error('в диалоге подтверждения нет кнопки: ' + t);
+    btn.click();
+    for (let i = 0; i < 50 && document.querySelector('[role=alertdialog]'); i++) await sleep(100);
     await sleep(900);
     return true;
   };

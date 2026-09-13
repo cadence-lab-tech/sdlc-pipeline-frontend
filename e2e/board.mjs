@@ -68,6 +68,40 @@ await new Promise((r) => setTimeout(r, 1800));
 t = await run('return texts();');
 check('задача появилась на доске', t.includes('Проверка формы свойств'), t.slice(0, 600));
 
+console.log('ошибка загрузки: «Повторить» и объявление загрузки');
+// Запрос списка задач перехватывается в самой странице: сначала он
+// задерживается — на экране «Загрузка» с role=status; потом отклоняется —
+// Failure с кнопкой «Повторить»; после того как сеть «вернулась», «Повторить»
+// возвращает доску без перезагрузки вкладки.
+await run(`
+  window.__origFetch = window.fetch;
+  window.__mode = 'slow';
+  window.fetch = (url, init) => {
+    if (!String(url).includes('/v1/projects/SDLC/tasks?')) return window.__origFetch(url, init);
+    if (window.__mode === 'slow') return new Promise((ok) => setTimeout(() => ok(window.__origFetch(url, init)), 2500));
+    if (window.__mode === 'fail') return Promise.reject(new TypeError('сеть недоступна'));
+    return window.__origFetch(url, init);
+  };
+  await press("epic", "[role=radio], [role=tab], button");
+  await sleep(300);
+  return true;
+`);
+const status = await run(`const el = document.querySelector('[role=status]'); return el ? el.innerText : '';`);
+check('загрузка объявлена элементом role=status', status.includes('Загрузка'), status);
+await run(`
+  await sleep(2500);
+  window.__mode = 'fail';
+  await press("task", "[role=radio], [role=tab], button");
+  await sleep(1000);
+  return true;
+`);
+t = await run('return texts();');
+check('ошибка загрузки показана с кнопкой «Повторить»', t.includes('сеть недоступна') && t.includes('Повторить'), t.slice(0, 400));
+await run(`window.__mode = 'ok'; await clickExact("Повторить"); await sleep(1500); return true;`);
+t = await run('return texts();');
+check('«Повторить» вернул доску без перезагрузки вкладки',
+  !t.includes('Повторить') && !t.includes('сеть недоступна') && t.includes('Проверка формы свойств'), t.slice(0, 600));
+
 s.close();
 console.log(`\n${ok} ok, ${fail} fail`);
 process.exit(fail ? 1 : 0);

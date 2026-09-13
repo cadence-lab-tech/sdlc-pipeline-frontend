@@ -1,4 +1,5 @@
 import {useState} from 'react';
+import {toast} from 'sonner';
 
 import {Button} from '@/components/ui/button';
 import {
@@ -49,6 +50,7 @@ export function WorkflowDraftDialog({
     setError(undefined);
     try {
       await api.updateWorkflowVersion(workflow.id, {name, task_types: taskTypes});
+      toast.success(`Черновик ${name} · v${workflow.version} сохранён`);
       onSaved();
       onClose();
     } catch (err) {

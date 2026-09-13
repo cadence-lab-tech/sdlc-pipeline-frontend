@@ -1,4 +1,5 @@
 import {useState} from 'react';
+import {toast} from 'sonner';
 
 import {Button} from '@/components/ui/button';
 import {
@@ -73,6 +74,7 @@ export function TransitionDialog({
       } else {
         await api.createTransition(workflowID, body);
       }
+      toast.success(`Переход ${name} (${key}) сохранён`);
       onSaved();
       onClose();
     } catch (err) {

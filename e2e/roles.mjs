@@ -44,10 +44,24 @@ check('версия 1 осталась нетронутой', t.includes('Вер
 
 console.log('архивирование роли, которая стоит на активном цикле');
 await run('await clickExact("В архив"); return true;');
-await new Promise((r) => setTimeout(r, 1200));
+// Архив необратим для выбора ролей у статусов: сначала подтверждение с именем
+// роли, запрос уходит после него.
+const dialog = await run(`
+  const d = document.querySelector('[role=alertdialog]');
+  return d ? d.innerText.replace(/\\s+/g, ' ') : '';
+`);
+check('архив просит подтверждения с именем роли',
+  dialog.includes('Отправить роль в архив?') && dialog.includes('Аналитик') && dialog.includes('(analyst)'), dialog);
+t = await run('return texts();');
+check('до подтверждения отказа нет', !t.includes('Роль не заархивирована'), t.slice(0, 400));
+await run('return confirm("В архив");');
+await new Promise((r) => setTimeout(r, 800));
 t = await run('return texts();');
 check('архивирование отклонено', t.includes('Роль не заархивирована'), t.slice(0, 400));
 check('показано, где роль занята', t.includes('analysis'), t.slice(0, 500));
+// Отказ бэкенда остаётся в Failure рядом с формой; тоста об успехе нет.
+const toastsAfterRefusal = await run('return toasts();');
+check('тоста при отказе нет', toastsAfterRefusal.length === 0, toastsAfterRefusal.join(' | '));
 
 s.close();
 console.log(`\n${ok} ok, ${fail} fail`);

@@ -42,11 +42,36 @@ await run(`
   const row = rows[rows.length - 1];
   const btn = Array.from(row.querySelectorAll('button')).find(b => b.innerText.includes('Удалить'));
   btn.click();
-  await sleep(1200);
+  await sleep(700);
   return true;
+`);
+// Удаление необратимо: запрос уходит только после подтверждения в диалоге, и
+// в тексте диалога назван удаляемый статус.
+let dialog = await run(`
+  const d = document.querySelector('[role=alertdialog]');
+  return d ? d.innerText.replace(/\\s+/g, ' ') : '';
+`);
+check('удаление статуса просит подтверждения с именем статуса',
+  dialog.includes('Удалить статус?') && dialog.includes('security_review'), dialog);
+t = await run('return texts();');
+check('до подтверждения статус на месте', t.includes('security_review'), t.slice(0, 300));
+await run('return confirm("Отмена");');
+t = await run('return texts();');
+check('«Отмена» закрывает диалог, статус на месте',
+  t.includes('security_review') && !(await run('return Boolean(document.querySelector("[role=alertdialog]"));')), t.slice(0, 300));
+await run(`
+  const rows = all('[class*=item], li').filter(el => (el.innerText||'').includes('security_review'));
+  const row = rows[rows.length - 1];
+  const btn = Array.from(row.querySelectorAll('button')).find(b => b.innerText.includes('Удалить'));
+  btn.click();
+  await sleep(700);
+  return confirm('Удалить');
 `);
 t = await run('return texts();');
 check('статус удалён', !t.includes('security_review'), t.slice(0, 300));
+const toastAfterDelete = await run('return toasts();');
+check('об удалении сообщил тост с именем статуса',
+  toastAfterDelete.some((x) => x.includes('удалён') && x.includes('security_review')), toastAfterDelete.join(' | '));
 check('проблема ушла вместе со статусом', !t.includes('Цикл не активируется'), t.slice(0, 400));
 // Все десять типов гейтов реализованы: у демонстрационного цикла ни ошибок, ни предупреждений.
 check('проверка проходит без предупреждений', t.includes('Цикл проходит проверку') && !t.includes('Предупреждения'), t.slice(0, 400));
@@ -112,9 +137,16 @@ check('название черновика изменилось', t.includes('Ч
 check('черновик ведёт оба типа задач', t.includes('черновик · epic, task'), t.slice(0, 500));
 
 await run('return click("Удалить черновик");');
-await new Promise((r) => setTimeout(r, 1500));
+dialog = await run(`
+  const d = document.querySelector('[role=alertdialog]');
+  return d ? d.innerText.replace(/\\s+/g, ' ') : '';
+`);
+check('удаление черновика просит подтверждения с его названием',
+  dialog.includes('Удалить черновик?') && dialog.includes('Черновик под эпики'), dialog);
+await run('return confirm("Удалить черновик");');
+await new Promise((r) => setTimeout(r, 1000));
 t = await run('return texts();');
-check('черновик удалён', !t.includes('Удалить черновик') || t.includes('Версии цикла'), t.slice(0, 300));
+check('черновик удалён', !t.includes('Черновик под эпики'), t.slice(0, 300));
 
 s.close();
 console.log(`\n${ok} ok, ${fail} fail`);

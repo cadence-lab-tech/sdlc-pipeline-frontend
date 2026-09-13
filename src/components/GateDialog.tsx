@@ -1,4 +1,5 @@
 import {useState} from 'react';
+import {toast} from 'sonner';
 
 import {Button} from '@/components/ui/button';
 import {
@@ -127,6 +128,7 @@ export function GateDialog({
       } else {
         await api.createGate(workflowID, transitionKey, body);
       }
+      toast.success(`Гейт ${name} (${key}) сохранён`);
       onSaved();
       onClose();
     } catch (err) {
