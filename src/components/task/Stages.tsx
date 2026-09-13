@@ -30,6 +30,12 @@ export function Stages({detail, onChanged}: {detail: TaskDetail; onChanged: () =
     .filter((r) => !r.parent_run_id)
     .sort((a, b) => b.entered_at.localeCompare(a.entered_at));
 
+  // Номер попытки показывается там, где статус проходился не один раз: иначе
+  // в свёрнутом списке стоят две одинаковые строки, и какая из них первая —
+  // непонятно. У статуса, пройденного единожды, номер только шумит.
+  const attempts = new Map<string, number>();
+  for (const run of runs) attempts.set(run.status_key, (attempts.get(run.status_key) ?? 0) + 1);
+
   return (
     <div className="space-y-4">
       {runs.map((run, index) => (
@@ -37,6 +43,7 @@ export function Stages({detail, onChanged}: {detail: TaskDetail; onChanged: () =
           key={run.id}
           run={run}
           isLatest={index === 0}
+          showAttempt={run.attempt > 1 || (attempts.get(run.status_key) ?? 1) > 1}
           reviews={(nested.get(run.id) ?? []).sort((a, b) => a.entered_at.localeCompare(b.entered_at))}
           artifacts={detail.artifacts.filter((a) => a.stage_run_id === run.id)}
           allArtifacts={detail.artifacts}
@@ -61,6 +68,7 @@ const RUN_VARIANT: Record<string, DotVariant> = {
 function StageCard({
   run,
   isLatest,
+  showAttempt,
   reviews,
   artifacts,
   allArtifacts,
@@ -68,6 +76,7 @@ function StageCard({
 }: {
   run: StageRun;
   isLatest: boolean;
+  showAttempt: boolean;
   reviews: StageRun[];
   artifacts: Artifact[];
   allArtifacts: Artifact[];
@@ -83,7 +92,7 @@ function StageCard({
             <StatusDot variant={RUN_VARIANT[run.state] ?? 'neutral'} label={run.state} />
             <span>{run.status_key}</span>
             {run.role_key ? <Token label={run.role_key} /> : null}
-            {run.attempt > 1 ? <Badge variant="secondary">попытка {run.attempt}</Badge> : null}
+            {showAttempt ? <Badge variant="secondary">попытка {run.attempt}</Badge> : null}
             <Timestamp value={run.entered_at} format="relative" className="ml-auto text-xs" />
             <ChevronDown className="text-muted-foreground size-4 -rotate-90 transition-transform group-data-[state=open]:rotate-0" />
           </CollapsibleTrigger>

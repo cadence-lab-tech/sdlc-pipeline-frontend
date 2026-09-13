@@ -5,12 +5,13 @@ const API = process.env.SDLC_API_URL ?? 'http://localhost:8088';
 // Часть состояний карточки браузером не сделать: привязку PR кладёт агент, а
 // гейт перепроверки снимает решение человека. И то и другое — обычные ручки
 // API, и подделывать их в странице нечем.
-const apiPost = (path, body) =>
+const apiPost = (path, body, actor = 'e2e') =>
   fetch(API + path, {
     method: 'POST',
-    headers: {'Content-Type': 'application/json', 'X-SDLC-Actor': 'e2e'},
+    headers: {'Content-Type': 'application/json', 'X-SDLC-Actor': actor},
     body: JSON.stringify(body),
   });
+const apiGet = (path) => fetch(API + path, {headers: {'X-SDLC-Actor': 'e2e'}}).then((r) => r.json());
 let ok = 0, fail = 0;
 const check = (name, cond, extra = '') => {
   if (cond) { ok++; console.log('  ✓', name); }
@@ -76,6 +77,28 @@ const copied = await run(`
   return {clip: await navigator.clipboard.readText().catch((e) => 'нет доступа: ' + e.name)};
 `);
 check('кнопка в шапке копирует ключ задачи', copied.clip === 'SDLC-1', JSON.stringify(copied));
+
+// Список свойств в «Деталях» строится по определениям проекта, а не по
+// захардкоженному набору полей: сверяется с тем, что отдаёт API проекта.
+const defs = (await apiGet('/v1/projects/SDLC')).task_property_defs
+  .filter((d) => d.key !== 'type');
+const propertyRows = await run(`
+  const dl = all('aside dl')[0];
+  return Array.from(dl.querySelectorAll('dt')).map((dt) => dt.innerText.trim());
+`);
+check('свойства нарисованы по определениям проекта',
+  defs.length > 0 && defs.every((d) => propertyRows.includes(d.name)),
+  JSON.stringify({defs: defs.map((d) => d.name), rows: propertyRows}));
+
+// Сетевых запросов ради вида не добавилось: в dev-режиме StrictMode шлёт
+// каждый запрос дважды, поэтому сравнивается набор адресов, а не их число.
+const calls = await run(`
+  return [...new Set(performance.getEntriesByType('resource')
+    .map((e) => e.name.replace(location.origin, ''))
+    .filter((n) => n.startsWith('/v1/')))].sort();
+`);
+check('карточка ходит только за своим',
+  calls.length === 8 && calls.includes('/v1/tasks/SDLC-1/repo-refs'), JSON.stringify(calls));
 
 console.log('ссылки на PR в области задачи');
 check('без привязок ссылок на PR нет и ошибки нет', !t.includes('PR #'), t.slice(0, 600));
@@ -366,6 +389,13 @@ await run(`
 t = await run('return texts();');
 check('свёрнутый прогон раскрывается по клику', t.includes('Артефактов на этой попытке нет'), t.slice(0, 400));
 
+// Дрейфа у задачи нет и базы тоже: пустой секции на экране быть не должно.
+// Счётчик открытых сигналов сценарием не проверяется — сигналы кладёт
+// детектор по прогону индексации, а демонстрационный репозиторий здесь не
+// индексируется; проверено руками, см. test.report.
+t = await run(`return all('aside')[0].innerText.replace(/\\s+/g, ' ');`);
+check('секции дрейфа без дрейфа нет', !t.includes('Дрейф кодовой базы'), t.slice(0, 300));
+
 console.log('сворачиваемые секции панели');
 await run(toggleSection('Стоимость'));
 t = await run('return texts();');
@@ -414,6 +444,74 @@ check('на узком экране панель уходит под основ�
 check('«Действия» остаются первыми в панели', narrow.first === 'Действия', JSON.stringify(narrow));
 check('горизонтальной прокрутки нет', narrow.scroll <= 0, JSON.stringify(narrow));
 await s.resize(1280, 900);
+
+// ── отказ движка и повторная попытка ───────────────────────────────────────
+//
+// Оба состояния ставятся на SDLC-2, чтобы не трогать SDLC-1: на её прогоне
+// аналитики берёт аренду knowledge.mjs.
+console.log('отказ движка показан в «Действиях»');
+await apiPost('/v1/tasks/SDLC-2/transitions/start', {});
+const gates = (await apiGet('/v1/tasks/SDLC-2/transitions')).transitions
+  .find((x) => x.key === 'analysis_done').gates;
+for (const g of gates) {
+  await apiPost(`/v1/tasks/SDLC-2/transitions/analysis_done/gates/${g.gate_key}/decision`, {status: 'waived'});
+}
+await s.goto(BASE + '/p/SDLC/tasks/SDLC-2');
+await wait(2500);
+t = await run(`
+  const b = all('aside button[data-slot=collapsible-trigger]').find((x) => /гейты пройдены/.test(x.innerText || ''));
+  if (!b) throw new Error('счётчика гейтов нет');
+  b.click(); await sleep(400);
+  return b.getAttribute('data-state');
+`);
+check('список гейтов раскрыт перед отказом', t === 'open', t);
+
+// Задачу уводит другой актор — страница об этом ещё не знает, и кнопка
+// уходит в движок на устаревшем состоянии.
+await apiPost('/v1/tasks/SDLC-2/transitions/analysis_done', {}, 'someone-else');
+const refused = await run(`
+  const btn = all('aside button').find((x) => (x.innerText || '').trim() === 'Перевести');
+  btn.click();
+  await sleep(1600);
+  const trigger = all('aside button[data-slot=collapsible-trigger]').find((x) => /держат|гейты пройдены/.test(x.innerText || ''));
+  const panel = all('aside')[0].innerText.replace(/\\s+/g, ' ');
+  return {
+    panel,
+    gatesStillOpen: trigger ? trigger.getAttribute('data-state') : 'триггера нет',
+  };
+`);
+check('отказ показан текстом бэкенда',
+  refused.panel.includes('Переход не выполнен') && refused.panel.includes('недоступен из статуса'),
+  refused.panel.slice(0, 300));
+check('раскрытый список гейтов не схлопнулся', refused.gatesStillOpen === 'open', JSON.stringify(refused.gatesStillOpen));
+check('карточка осталась в прежнем статусе', refused.panel.includes('Analysis'), refused.panel.slice(0, 300));
+
+console.log('повторная попытка этапа');
+await apiPost('/v1/tasks/SDLC-2/transitions/reject_to_analysis/gates/problem_report/decision', {status: 'waived'});
+await apiPost('/v1/tasks/SDLC-2/transitions/reject_to_analysis', {comment: 'возврат ради второй попытки'});
+await s.goto(BASE + '/p/SDLC/tasks/SDLC-2');
+await wait(2500);
+const attempts = await run(`
+  return all('[data-stage-run="analysis"]').map((el) => ({
+    state: el.getAttribute('data-state'),
+    head: el.querySelector('button').innerText.replace(/\\s+/g, ' ').trim(),
+  }));
+`);
+check('раскрыта последняя попытка, прежняя свёрнута',
+  attempts.length === 2 && attempts[0].state === 'open' && attempts[1].state === 'closed',
+  JSON.stringify(attempts));
+check('у обеих попыток виден номер',
+  attempts.every((a) => /попытка \d/.test(a.head)), JSON.stringify(attempts));
+check('у свёрнутой попытки видны статус, роль и время',
+  /analysis/.test(attempts[1].head) && /analyst/.test(attempts[1].head) && /назад/.test(attempts[1].head),
+  JSON.stringify(attempts[1]));
+t = await run(`
+  const el = all('[data-stage-run="analysis"]')[1];
+  el.querySelector('button').click();
+  await sleep(500);
+  return el.getAttribute('data-state');
+`);
+check('свёрнутая попытка раскрывается по клику', t === 'open', t);
 
 s.close();
 console.log(`\n${ok} ok, ${fail} fail`);
