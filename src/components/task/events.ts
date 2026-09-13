@@ -12,6 +12,7 @@ const EVENT_LABELS: Record<string, string> = {
   'task.linked': 'связь заведена',
   'task.unlinked': 'связь снята',
   'task.scope_updated': 'область задачи изменена',
+  'task.workflow_moved': 'переехала на новую версию цикла',
   'stage.entered': 'этап начат',
   'stage.claimed': 'этап забран',
   'stage.released': 'этап отпущен',

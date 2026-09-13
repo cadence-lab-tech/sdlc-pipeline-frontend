@@ -520,6 +520,12 @@ export interface OpenTaskOnWorkflow {
   status: string;
 }
 
+export interface MovedTask {
+  task: string;
+  from_status: string;
+  to_status: string;
+}
+
 export interface RoleUsage {
   workflow_id: UUID;
   workflow_state: WorkflowState;
@@ -539,6 +545,8 @@ export interface ActivationResult {
   retired_workflow_id?: UUID;
   retired_workflow_ids?: UUID[];
   tasks_on_previous_version: OpenTaskOnWorkflow[];
+  // Задачи из бэклога, переехавшие на активированную версию (решение 0036).
+  tasks_moved?: MovedTask[];
   warnings: WorkflowProblem[];
 }
 

@@ -309,21 +309,38 @@ function ValidationReport({validation}: {validation: Validation}) {
 
 // Активация не трогает уже идущие задачи: они доходят по своей версии цикла,
 // потому что переклеивание результатов гейтов теряло бы решения людей.
+// Задачи из бэклога, которых никто не забирал, переезжают на новую версию
+// (решение 0036) — им терять нечего, а правила нужны актуальные.
 function ActivationReport({result}: {result: ActivationResult}) {
+  const moved = result.tasks_moved ?? [];
+  const stayed = result.tasks_on_previous_version;
   return (
-    <Note
-      tone="success"
-      title={`Версия ${result.workflow.version} активирована`}
-      description={
-        result.tasks_on_previous_version.length
-          ? 'Задачи ниже продолжают идти по прежней версии цикла'
-          : undefined
-      }>
-      {result.tasks_on_previous_version.length ? (
-        <div className="flex flex-wrap gap-1">
-          {result.tasks_on_previous_version.map((t) => (
-            <Token key={t.task} label={`${t.task} · ${t.status}`} />
-          ))}
+    <Note tone="success" title={`Версия ${result.workflow.version} активирована`}>
+      {moved.length ? (
+        <div className="space-y-1">
+          <p>Задачи из бэклога переехали на новую версию</p>
+          <div className="flex flex-wrap gap-1">
+            {moved.map((t) => (
+              <Token
+                key={t.task}
+                label={
+                  t.from_status === t.to_status
+                    ? `${t.task} · ${t.to_status}`
+                    : `${t.task} · ${t.from_status} → ${t.to_status}`
+                }
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {stayed.length ? (
+        <div className="space-y-1">
+          <p>Задачи в работе продолжают идти по прежней версии цикла</p>
+          <div className="flex flex-wrap gap-1">
+            {stayed.map((t) => (
+              <Token key={t.task} label={`${t.task} · ${t.status}`} />
+            ))}
+          </div>
         </div>
       ) : null}
     </Note>
