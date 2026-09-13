@@ -45,10 +45,15 @@ check('ссылка на эпик в карточке', t.includes('SDLC-4'), t.
 
 console.log('назначение исполнителя');
 t = await run('return texts();');
-check('панель исполнителя есть', t.includes('Исполнитель'), t.slice(0, 600));
+check('исполнитель показан в деталях', t.includes('Детали') && t.includes('Исполнитель'), t.slice(0, 600));
+// Форма назначения по умолчанию свёрнута: карточку чаще читают, чем правят.
+check('форма назначения свёрнута',
+  await run(`return !all('input').some((i) => (i.placeholder || '').includes('agent:developer'));`),
+  t.slice(0, 600));
 // Принципал web заводится при первом же запросе интерфейса, назначать можно
 // только на существующего.
 await run(`
+  await clickExact('Изменить');
   const input = all('input').find((i) => (i.placeholder || '').includes('agent:developer'));
   if (!input) throw new Error('поля исполнителя нет');
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'web');
@@ -61,7 +66,7 @@ await run(`
 t = await run('return texts();');
 check('исполнитель назначен', t.includes('заберёт только web'), t.slice(0, 600));
 
-await run('await clickExact("Снять назначение"); await sleep(1400); return true;');
+await run('await clickExact("Изменить"); await clickExact("Снять назначение"); await sleep(1400); return true;');
 t = await run('return texts();');
 check('назначение снимается', t.includes('заберёт любой агент'), t.slice(0, 600));
 

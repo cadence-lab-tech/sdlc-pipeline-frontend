@@ -36,6 +36,7 @@ import type {
   Task,
   TaskDetail,
   TaskEvent,
+  TaskRepoRef,
   Team,
   TeamBudgets,
   TeamDetail,
@@ -748,6 +749,13 @@ export const api = {
 
   updateScope: (taskKey: string, body: Record<string, unknown>) =>
     request<Task>(`/tasks/${taskKey}/scope`, patch(body)).then(normalizeTask),
+
+  // Привязки задачи к репозиториям: PR, ветки, коммиты. Отдельный запрос —
+  // в ответе задачи их нет.
+  repoRefs: (taskKey: string) =>
+    request<{ repo_refs: TaskRepoRef[] }>(`/tasks/${taskKey}/repo-refs`).then(
+      (r) => r.repo_refs ?? [],
+    ),
 
   listArtifacts: (taskKey: string) =>
     request<{ artifacts: Artifact[] }>(`/tasks/${taskKey}/artifacts`).then(
