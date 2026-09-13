@@ -1,12 +1,13 @@
 import {useState} from 'react';
 import {useParams} from 'react-router-dom';
+import {toast} from 'sonner';
 
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Card} from '@/components/ui/card';
 import {Separator} from '@/components/ui/separator';
 import {Selector} from '@/components/fields';
-import {EmptyState, Note, Row, Section, StatusDot, Token, type DotVariant} from '@/components/kit';
+import {ConfirmButton, EmptyState, Note, Row, Section, StatusDot, Token, type DotVariant} from '@/components/kit';
 
 import {ApiError, api} from '../api/client';
 import type {
@@ -42,7 +43,7 @@ export function WorkflowEditor() {
   const [draftType, setDraftType] = useState('task');
   const [error, setError] = useState<ApiError>();
 
-  if (versions.error) return <Failure error={versions.error} />;
+  if (versions.error) return <Failure error={versions.error} reload={versions.reload} />;
   if (!versions.data) return <Loading />;
 
   const types = project.data ? taskTypes(project.data) : ['task'];
@@ -57,6 +58,7 @@ export function WorkflowEditor() {
     setError(undefined);
     try {
       const created = await api.createDraft(projectKey, {from, task_types: [draftType]});
+      toast.success(`Черновик ${created.name} · v${created.version} создан`);
       versions.reload();
       setPicked(created.id);
     } catch (err) {
@@ -182,7 +184,7 @@ function VersionEditor({
   const [activation, setActivation] = useState<ActivationResult>();
   const [isEditingHead, setIsEditingHead] = useState(false);
 
-  if (workflow.error) return <Failure error={workflow.error} />;
+  if (workflow.error) return <Failure error={workflow.error} reload={workflow.reload} />;
   if (!workflow.data) return <Loading />;
 
   const wf = workflow.data;
@@ -222,21 +224,27 @@ function VersionEditor({
             <Button variant="ghost" onClick={() => setIsEditingHead(true)}>
               Название и типы
             </Button>
-            <Button
+            <ConfirmButton
               variant="secondary"
-              onClick={() =>
+              size="default"
+              title="Удалить черновик?"
+              description={`Черновик ${wf.name} · v${wf.version} пропадёт вместе со всеми правками`}
+              onConfirm={() =>
                 act(async () => {
                   await api.deleteWorkflow(workflowID);
+                  toast.success(`Черновик ${wf.name} · v${wf.version} удалён`);
                   onDeleted();
                 })
               }>
               Удалить черновик
-            </Button>
+            </ConfirmButton>
             <Button
               disabled={validation.data ? !validation.data.valid : true}
               onClick={() =>
                 act(async () => {
-                  setActivation(await api.activateWorkflow(workflowID));
+                  const result = await api.activateWorkflow(workflowID);
+                  setActivation(result);
+                  toast.success(`Версия ${result.workflow.version} активирована`);
                   refresh();
                 })
               }>
@@ -360,6 +368,7 @@ function Statuses({
 }) {
   const [editing, setEditing] = useState<Status | undefined>();
   const [isOpen, setIsOpen] = useState(false);
+  const [error, setError] = useState<ApiError>();
 
   const open = (status?: Status) => {
     setEditing(status);
@@ -376,6 +385,19 @@ function Statuses({
     void api.reorderStatuses(workflow.id, keys).then(onChanged);
   };
 
+  // Отказ бэкенда на удаление показывается здесь же, у списка. Занятость
+  // кнопок и ошибки перестановки — отдельная задача, эта правка их не трогает.
+  const remove = async (status: Status) => {
+    setError(undefined);
+    try {
+      await api.deleteStatus(workflow.id, status.key);
+      toast.success(`Статус ${status.name} (${status.key}) удалён`);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err : new ApiError('internal', String(err)));
+    }
+  };
+
   return (
     <Section
       title="Статусы"
@@ -386,6 +408,7 @@ function Statuses({
           </Button>
         ) : null
       }>
+      {error ? <Failure error={error} title="Статус не удалён" /> : null}
       <ul className="divide-border overflow-hidden rounded-lg border divide-y">
         {workflow.statuses.map((status, index) => {
           const role = primaryRole(status);
@@ -416,12 +439,12 @@ function Statuses({
                         <Button size="sm" variant="ghost" onClick={() => open(status)}>
                           Править
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => void api.deleteStatus(workflow.id, status.key).then(onChanged)}>
+                        <ConfirmButton
+                          title="Удалить статус?"
+                          description={`Статус ${status.name} (${status.key}) пропадёт из черновика вместе со своими ролями`}
+                          onConfirm={() => remove(status)}>
                           Удалить
-                        </Button>
+                        </ConfirmButton>
                       </>
                     ) : null}
                   </>
@@ -461,7 +484,19 @@ function Transitions({
 }) {
   const [editing, setEditing] = useState<Transition | undefined>();
   const [isOpen, setIsOpen] = useState(false);
+  const [error, setError] = useState<ApiError>();
   const byID = new Map(workflow.statuses.map((s) => [s.id, s]));
+
+  const remove = async (t: Transition) => {
+    setError(undefined);
+    try {
+      await api.deleteTransition(workflow.id, t.key);
+      toast.success(`Переход ${t.name} (${t.key}) удалён`);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err : new ApiError('internal', String(err)));
+    }
+  };
 
   return (
     <Section
@@ -479,6 +514,7 @@ function Transitions({
           </Button>
         ) : null
       }>
+      {error ? <Failure error={error} title="Переход не удалён" /> : null}
       {workflow.transitions.map((t) => (
         <Card key={t.id} className="gap-3 p-3">
           <div className="flex items-center justify-between gap-2">
@@ -501,12 +537,12 @@ function Transitions({
                   }}>
                   Править
                 </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => void api.deleteTransition(workflow.id, t.key).then(onChanged)}>
+                <ConfirmButton
+                  title="Удалить переход?"
+                  description={`Переход ${t.name} (${t.key}) пропадёт вместе со своими гейтами`}
+                  onConfirm={() => remove(t)}>
                   Удалить
-                </Button>
+                </ConfirmButton>
               </div>
             ) : null}
           </div>
@@ -549,6 +585,18 @@ function Gates({
 }) {
   const [editing, setEditing] = useState<Gate | undefined>();
   const [isOpen, setIsOpen] = useState(false);
+  const [error, setError] = useState<ApiError>();
+
+  const remove = async (gate: Gate) => {
+    setError(undefined);
+    try {
+      await api.deleteGate(workflowID, transitionKey, gate.key);
+      toast.success(`Гейт ${gate.name} (${gate.key}) удалён`);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err : new ApiError('internal', String(err)));
+    }
+  };
 
   return (
     <div className="space-y-2">
@@ -566,6 +614,8 @@ function Gates({
           </Button>
         ) : null}
       </div>
+
+      {error ? <Failure error={error} title="Гейт не удалён" /> : null}
 
       {gates.length === 0 ? (
         <p className="text-muted-foreground text-sm">Переход ничем не закрыт</p>
@@ -588,14 +638,12 @@ function Gates({
                           }}>
                           Править
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() =>
-                            void api.deleteGate(workflowID, transitionKey, gate.key).then(onChanged)
-                          }>
+                        <ConfirmButton
+                          title="Удалить гейт?"
+                          description={`Гейт ${gate.name} (${gate.key}) перестанет держать переход ${transitionKey}`}
+                          onConfirm={() => remove(gate)}>
                           Удалить
-                        </Button>
+                        </ConfirmButton>
                       </>
                     ) : null}
                   </>

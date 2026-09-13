@@ -1,4 +1,5 @@
 import {useState} from 'react';
+import {toast} from 'sonner';
 
 import {Button} from '@/components/ui/button';
 import {
@@ -12,7 +13,7 @@ import {
 } from '@/components/ui/dialog';
 import {FormLayout} from '@/components/fields';
 import {DataTable} from '@/components/DataTable';
-import {CodeBlock, EmptyState, Note, Timestamp, Token, type TokenColor} from '@/components/kit';
+import {CodeBlock, ConfirmButton, EmptyState, Note, Timestamp, Token, type TokenColor} from '@/components/kit';
 
 import {ApiError, api} from '../api/client';
 import type {Invite, IssuedInvite} from '../api/types';
@@ -68,6 +69,7 @@ export function InviteDialog({
     try {
       const issued = await issue();
       setLink(inviteLink(issued.token));
+      toast.success('Приглашение выдано');
       onIssued();
     } catch (err) {
       setError(err instanceof ApiError ? err : new ApiError('internal', String(err)));
@@ -138,6 +140,7 @@ export function InvitesTable({
     setError(undefined);
     try {
       await api.revokeInvite(id);
+      toast.success('Приглашение отозвано');
       invites.reload();
     } catch (err) {
       setError(err instanceof ApiError ? err : new ApiError('internal', String(err)));
@@ -185,9 +188,12 @@ export function InvitesTable({
                 // статус протокола, а не права: права проверит бэкенд.
                 renderCell: (i) =>
                   i.status === 'pending' ? (
-                    <Button size="sm" variant="ghost" onClick={() => revoke(i.id)}>
+                    <ConfirmButton
+                      title="Отозвать приглашение?"
+                      description={<>Ссылка, выданная {i.created_by_handle}, перестанет открываться; принять её будет нельзя</>}
+                      onConfirm={() => revoke(i.id)}>
                       Отозвать
-                    </Button>
+                    </ConfirmButton>
                   ) : null,
               },
             ]}

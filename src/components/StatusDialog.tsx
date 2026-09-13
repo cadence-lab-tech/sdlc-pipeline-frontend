@@ -1,4 +1,5 @@
 import {useState} from 'react';
+import {toast} from 'sonner';
 
 import {Button} from '@/components/ui/button';
 import {
@@ -88,6 +89,7 @@ export function StatusDialog({
           .map((role, i) => ({role, is_primary: false, position: i + 1})),
       ]);
 
+      toast.success(`Статус ${saved.name} (${saved.key}) сохранён`);
       onSaved();
       onClose();
     } catch (err) {

@@ -4,11 +4,23 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 import {cn} from '@/lib/utils';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 
 // Мелочь, которой в shadcn нет: пустые состояния, метки-жетоны, точки статуса,
-// время, блок кода и разметка. Всё остальное берётся из components/ui.
+// время, блок кода, разметка и кнопка с подтверждением. Всё остальное берётся
+// из components/ui.
 
 // ── раскладка ───────────────────────────────────────────────────────────────
 
@@ -162,6 +174,80 @@ export function Note({
 
 export function Spinner({className}: {className?: string}) {
   return <Loader2 className={cn('size-4 animate-spin', className)} />;
+}
+
+// ── подтверждение ───────────────────────────────────────────────────────────
+
+// ConfirmButton — кнопка необратимого действия: удаления, отзыва, архива.
+// Запрос уходит только после подтверждения в AlertDialog, где названо, что
+// именно будет сделано и с каким объектом. Пока onConfirm не завершился, обе
+// кнопки заняты и диалог не закрывается; по завершении — успех или отказ —
+// диалог закрывается. Про ошибки кнопка не знает: исключение уходит
+// вызывающему, и его показывает тот же Failure рядом с формой, что и сегодня.
+export function ConfirmButton({
+  title,
+  description,
+  confirmLabel,
+  onConfirm,
+  variant = 'ghost',
+  size = 'sm',
+  disabled,
+  className,
+  children,
+}: {
+  title: React.ReactNode;
+  description: React.ReactNode;
+  // Глагол на кнопке подтверждения; по умолчанию — тот же, что на триггере.
+  confirmLabel?: React.ReactNode;
+  onConfirm: () => Promise<unknown> | unknown;
+  variant?: React.ComponentProps<typeof Button>['variant'];
+  size?: React.ComponentProps<typeof Button>['size'];
+  disabled?: boolean;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const confirm = async () => {
+    setBusy(true);
+    try {
+      await onConfirm();
+    } finally {
+      setBusy(false);
+      setIsOpen(false);
+    }
+  };
+
+  return (
+    <AlertDialog open={isOpen} onOpenChange={(open) => !busy && setIsOpen(open)}>
+      <AlertDialogTrigger asChild>
+        <Button variant={variant} size={size} disabled={disabled} className={className}>
+          {children}
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent onEscapeKeyDown={(e) => busy && e.preventDefault()}>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          <AlertDialogDescription>{description}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={busy}>Отмена</AlertDialogCancel>
+          {/* Radix закрывает диалог по клику на Action сам; preventDefault
+              оставляет его открытым до ответа бэкенда. */}
+          <AlertDialogAction
+            variant="destructive"
+            disabled={busy}
+            onClick={(e) => {
+              e.preventDefault();
+              void confirm();
+            }}>
+            {confirmLabel ?? children}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
 }
 
 // ── метки ───────────────────────────────────────────────────────────────────

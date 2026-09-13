@@ -9,7 +9,7 @@ import {eventLabel} from './events';
 // каждое действие на странице (правка постановки, сдача артефакта, переход),
 // и второй экземпляр того же запроса остался бы на прежних событиях.
 export function Timeline({events}: {events: Resource<TaskEvent[]>}) {
-  if (events.error) return <Failure error={events.error} />;
+  if (events.error) return <Failure error={events.error} reload={events.reload} />;
   if (!events.data) return <Loading />;
 
   return (

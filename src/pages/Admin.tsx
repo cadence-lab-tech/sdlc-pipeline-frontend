@@ -1,5 +1,6 @@
 import {useState} from 'react';
 import {useSearchParams} from 'react-router-dom';
+import {toast} from 'sonner';
 
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
@@ -7,7 +8,7 @@ import {Card} from '@/components/ui/card';
 import {Separator} from '@/components/ui/separator';
 import {FormLayout, NumberInput, Selector, Switch, TextInput} from '@/components/fields';
 import {DataTable} from '@/components/DataTable';
-import {EmptyState, Note, Page, PageHeader, Row, Section, Timestamp, Token} from '@/components/kit';
+import {ConfirmButton, EmptyState, Note, Page, PageHeader, Row, Section, Timestamp, Token} from '@/components/kit';
 
 import {ApiError, api} from '../api/client';
 import {startInstall} from '../api/github';
@@ -50,7 +51,7 @@ export function Teams() {
   const [creating, setCreating] = useState(false);
   const [search] = useSearchParams();
 
-  if (teams.error) return <Failure error={teams.error} />;
+  if (teams.error) return <Failure error={teams.error} reload={teams.reload} />;
   if (!teams.data) return <Loading />;
 
   // Выбранная команда вычисляется, а не досылается эффектом: пока никого не
@@ -161,14 +162,14 @@ function NewTeam({me, onDone, onCancel}: {me?: Me; onDone: (team: Team) => void;
     setBusy(true);
     setError(undefined);
     try {
-      onDone(
-        await api.createTeam({
-          key: key.trim(),
-          name: name.trim(),
-          description: description.trim() || undefined,
-          can_create_projects: isAdmin ? canCreateProjects : undefined,
-        }),
-      );
+      const created = await api.createTeam({
+        key: key.trim(),
+        name: name.trim(),
+        description: description.trim() || undefined,
+        can_create_projects: isAdmin ? canCreateProjects : undefined,
+      });
+      toast.success(`Команда ${created.key} заведена`);
+      onDone(created);
     } catch (err) {
       setError(err instanceof ApiError ? err : new ApiError('internal', String(err)));
     } finally {
@@ -241,6 +242,7 @@ function TeamDetail({
     setError(undefined);
     try {
       await api.archiveTeam(teamKey);
+      toast.success(`Команда ${teamKey} в архиве`);
       reload();
     } catch (err) {
       setError(err instanceof ApiError ? err : new ApiError('internal', String(err)));
@@ -258,9 +260,12 @@ function TeamDetail({
                 <Token label={kindLabel(detail.team)} />
                 {detail.team.can_create_projects ? <Token label="заводит проекты" /> : null}
                 {detail.team.archived_at ? <Token label="в архиве" /> : null}
-                <Button size="sm" variant="ghost" onClick={archive}>
+                <ConfirmButton
+                  title="Архивировать команду?"
+                  description={`Команда ${detail.team.name} (${detail.team.key}) уйдёт в архив`}
+                  onConfirm={archive}>
                   Архивировать
-                </Button>
+                </ConfirmButton>
               </div>
             </div>
             <p className="text-muted-foreground text-sm">
@@ -305,6 +310,7 @@ function PlanSection({detail, isAdmin, onChanged}: {detail: TeamDetailData; isAd
     setError(undefined);
     try {
       await api.setTeamPlan(detail.team.key, code ?? detail.plan.code);
+      toast.success(`Тариф команды ${detail.team.key} сохранён`);
       setCode(undefined);
       onChanged();
     } catch (err) {
@@ -362,7 +368,9 @@ function Convert({team, onDone}: {team: Team; onDone: (org: Team) => void}) {
     setBusy(true);
     setError(undefined);
     try {
-      onDone(await api.convertTeam(team.key, {key: key.trim(), name: name.trim()}));
+      const org = await api.convertTeam(team.key, {key: key.trim(), name: name.trim()});
+      toast.success(`Команда ${org.key} теперь организация`);
+      onDone(org);
     } catch (err) {
       setError(err instanceof ApiError ? err : new ApiError('internal', String(err)));
     } finally {
@@ -437,14 +445,22 @@ function Members({
             header: '',
             width: 110,
             align: 'end',
-            renderCell: (m) => (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => act(() => api.removeTeamMember(teamKey, `${m.kind}:${m.handle}`))}>
-                Убрать
-              </Button>
-            ),
+            renderCell: (m) => {
+              const who = `${m.kind}:${m.handle}`;
+              return (
+                <ConfirmButton
+                  title="Убрать из команды?"
+                  description={`${who} потеряет доступ в проекты команды ${teamKey}`}
+                  onConfirm={() =>
+                    act(async () => {
+                      await api.removeTeamMember(teamKey, who);
+                      toast.success(`${who} убран из команды ${teamKey}`);
+                    })
+                  }>
+                  Убрать
+                </ConfirmButton>
+              );
+            },
           },
         ]}
       />
@@ -465,7 +481,9 @@ function Members({
             disabled={principal.trim() === ''}
             onClick={() =>
               act(async () => {
-                await api.setTeamMember(teamKey, principal.trim(), role);
+                const who = principal.trim();
+                await api.setTeamMember(teamKey, who, role);
+                toast.success(`Роль ${who} в команде ${teamKey} сохранена`);
                 setPrincipal('');
               })
             }>
@@ -523,6 +541,7 @@ function Projects({
     setError(undefined);
     try {
       await api.removeProjectTeam(projectKey, teamKey);
+      toast.success(`Команда ${teamKey} убрана из проекта ${projectKey}`);
       onChanged();
     } catch (err) {
       setError(err instanceof ApiError ? err : new ApiError('internal', String(err)));
@@ -558,9 +577,12 @@ function Projects({
             width: 110,
             align: 'end',
             renderCell: (p) => (
-              <Button size="sm" variant="ghost" onClick={() => remove(p.project_key)}>
+              <ConfirmButton
+                title="Убрать доступ в проект?"
+                description={`Команда ${teamKey} потеряет уровень в проекте ${p.project_key}`}
+                onConfirm={() => remove(p.project_key)}>
                 Убрать
-              </Button>
+              </ConfirmButton>
             ),
           },
         ]}
@@ -584,6 +606,7 @@ function IdPGroups({teamKey}: {teamKey: string}) {
           .map((g) => g.trim())
           .filter(Boolean),
       );
+      toast.success(`Группы провайдера команды ${teamKey} сохранены`);
       setText(undefined);
       groups.reload();
     } catch (err) {
@@ -657,6 +680,7 @@ function Budgets({teamKey}: {teamKey: string}) {
     setError(undefined);
     try {
       await api.setTeamBudget(teamKey, period, Number(limit.replace(',', '.')) || 0);
+      toast.success(`Предел команды ${teamKey} сохранён`);
       setLimit('');
       budgets.reload();
     } catch (err) {

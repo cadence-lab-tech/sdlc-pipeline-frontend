@@ -49,7 +49,7 @@ export function TaskDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [live, taskKey]);
 
-  if (task.error) return <div className="p-6"><Failure error={task.error} /></div>;
+  if (task.error) return <div className="p-6"><Failure error={task.error} reload={task.reload} /></div>;
   if (!task.data) return <Loading />;
 
   const detail = task.data;

@@ -81,8 +81,8 @@ export function Board() {
   // прогоне этапа, а не на задаче, поэтому в списке задач её нет.
   const queue = useResource(() => api.queue(projectKey), [projectKey]);
 
-  if (workflow.error) return <div className="p-6"><Failure error={workflow.error} /></div>;
-  if (tasks.error) return <div className="p-6"><Failure error={tasks.error} /></div>;
+  if (workflow.error) return <div className="p-6"><Failure error={workflow.error} reload={workflow.reload} /></div>;
+  if (tasks.error) return <div className="p-6"><Failure error={tasks.error} reload={tasks.reload} /></div>;
   if (!workflow.data || !tasks.data) return <Loading />;
 
   const reload = () => {

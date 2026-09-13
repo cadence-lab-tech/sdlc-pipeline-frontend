@@ -1,4 +1,5 @@
 import {useState} from 'react';
+import {toast} from 'sonner';
 
 import {Button} from '@/components/ui/button';
 import {Card} from '@/components/ui/card';
@@ -34,7 +35,7 @@ export function RoleVersionForm({
     setBusy(true);
     setError(undefined);
     try {
-      await api.createRoleVersion(projectKey, roleKey, {
+      const created = await api.createRoleVersion(projectKey, roleKey, {
         instructions,
         changelog: changelog || undefined,
         input_kinds: splitList(inputKinds),
@@ -44,6 +45,7 @@ export function RoleVersionForm({
         context_budget: base?.context_budget ?? {},
         model_hint: base?.model_hint,
       });
+      toast.success(`Версия ${created.version} роли ${roleKey} создана`);
       onCreated();
     } catch (err) {
       setError(err instanceof ApiError ? err : new ApiError('internal', String(err)));

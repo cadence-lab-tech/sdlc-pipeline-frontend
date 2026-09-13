@@ -1,5 +1,6 @@
 import {useState} from 'react';
 import {useParams} from 'react-router-dom';
+import {toast} from 'sonner';
 
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
@@ -7,7 +8,7 @@ import {Card} from '@/components/ui/card';
 import {Separator} from '@/components/ui/separator';
 import {FormLayout, MultiSelector, NumberInput, Selector, TextArea, TextInput} from '@/components/fields';
 import {DataTable} from '@/components/DataTable';
-import {CodeBlock, EmptyState, Note, Page, PageHeader, Section, Token} from '@/components/kit';
+import {CodeBlock, ConfirmButton, EmptyState, Note, Page, PageHeader, Section, Token} from '@/components/kit';
 
 import {ApiError, api} from '../api/client';
 import {startInstall, startReauth} from '../api/github';
@@ -145,14 +146,22 @@ function Members({projectKey}: {projectKey: string}) {
                 header: '',
                 width: 110,
                 align: 'end',
-                renderCell: (m) => (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => act(() => api.removeMember(projectKey, `${m.kind}:${m.handle}`))}>
-                    Убрать
-                  </Button>
-                ),
+                renderCell: (m) => {
+                  const who = `${m.kind}:${m.handle}`;
+                  return (
+                    <ConfirmButton
+                      title="Убрать участника?"
+                      description={`${who} потеряет доступ к проекту ${projectKey}`}
+                      onConfirm={() =>
+                        act(async () => {
+                          await api.removeMember(projectKey, who);
+                          toast.success(`${who} убран из проекта ${projectKey}`);
+                        })
+                      }>
+                      Убрать
+                    </ConfirmButton>
+                  );
+                },
               },
             ]}
           />
@@ -183,7 +192,9 @@ function Members({projectKey}: {projectKey: string}) {
             disabled={principal.trim() === ''}
             onClick={() =>
               act(async () => {
-                await api.setMember(projectKey, principal.trim(), level, roleKeys);
+                const who = principal.trim();
+                await api.setMember(projectKey, who, level, roleKeys);
+                toast.success(`Уровень ${who} сохранён`);
                 setPrincipal('');
                 setRoleKeys([]);
               })
@@ -308,12 +319,17 @@ function Teams({projectKey}: {projectKey: string}) {
                 width: 110,
                 align: 'end',
                 renderCell: (t) => (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => act(() => api.removeProjectTeam(projectKey, t.team_key))}>
+                  <ConfirmButton
+                    title="Убрать команду из проекта?"
+                    description={`Участники команды ${t.team_key} потеряют уровень в проекте ${projectKey}`}
+                    onConfirm={() =>
+                      act(async () => {
+                        await api.removeProjectTeam(projectKey, t.team_key);
+                        toast.success(`Команда ${t.team_key} убрана из проекта ${projectKey}`);
+                      })
+                    }>
                     Убрать
-                  </Button>
+                  </ConfirmButton>
                 ),
               },
             ]}
@@ -344,7 +360,9 @@ function Teams({projectKey}: {projectKey: string}) {
             disabled={team.trim() === ''}
             onClick={() =>
               act(async () => {
-                await api.setProjectTeam(projectKey, team.trim(), level, roleKeys);
+                const key = team.trim();
+                await api.setProjectTeam(projectKey, key, level, roleKeys);
+                toast.success(`Уровень команды ${key} сохранён`);
                 setTeam('');
                 setRoleKeys([]);
               })
@@ -449,6 +467,7 @@ function GitHubAccess({projectKey}: {projectKey: string}) {
                     run(async () => {
                       const ref = (credential ?? '').trim();
                       await api.setProjectGitHub(projectKey, {credential_ref: ref === '' ? null : ref});
+                      toast.success(ref === '' ? 'Секрет доступа снят' : `Секрет доступа ${ref} сохранён`);
                       setCredential(undefined);
                       setStatus(undefined);
                       github.reload();
@@ -556,6 +575,7 @@ function Tokens({projectKey, me}: {projectKey: string; me: Me}) {
         expires_in_days: days ? Number(days) : undefined,
       });
       setIssued(res.token);
+      toast.success(`Токен ${name.trim()} выдан`);
       setName('');
       setPrincipal('');
       setRoles('');
@@ -565,10 +585,11 @@ function Tokens({projectKey, me}: {projectKey: string; me: Me}) {
     }
   };
 
-  const revoke = async (id: string) => {
+  const revoke = async (token: AccessToken) => {
     setError(undefined);
     try {
-      await api.revokeToken(id);
+      await api.revokeToken(token.id);
+      toast.success(`Токен ${token.name} отозван`);
       tokens.reload();
     } catch (err) {
       setError(err instanceof ApiError ? err : new ApiError('internal', String(err)));
@@ -620,9 +641,12 @@ function Tokens({projectKey, me}: {projectKey: string; me: Me}) {
                 align: 'end',
                 renderCell: (t) =>
                   t.revoked_at ? null : (
-                    <Button size="sm" variant="ghost" onClick={() => revoke(t.id)}>
+                    <ConfirmButton
+                      title="Отозвать токен?"
+                      description={`Токен ${t.name} перестанет действовать сразу; вернуть его нельзя`}
+                      onConfirm={() => revoke(t)}>
                       Отозвать
-                    </Button>
+                    </ConfirmButton>
                   ),
               },
             ]}
@@ -736,7 +760,12 @@ function Transfer({projectKey}: {projectKey: string}) {
           </Button>
           <Button
             disabled={busy || text.trim() === ''}
-            onClick={() => run(async () => setReport(await api.importBundle(projectKey, parse(), false)))}>
+            onClick={() =>
+              run(async () => {
+                setReport(await api.importBundle(projectKey, parse(), false));
+                toast.success('Связка импортирована');
+              })
+            }>
             Применить
           </Button>
         </div>

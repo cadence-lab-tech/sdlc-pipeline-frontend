@@ -48,7 +48,7 @@ export function DriftPanel({taskKey}: {taskKey: string}) {
     }
   };
 
-  if (drift.error) return <Failure error={drift.error} title="Дрейф не прочитан" />;
+  if (drift.error) return <Failure error={drift.error} title="Дрейф не прочитан" reload={drift.reload} />;
   if (!drift.data) return null;
 
   const {baselines, signals} = drift.data;

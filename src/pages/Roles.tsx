@@ -1,12 +1,13 @@
 import {useState} from 'react';
 import {useParams} from 'react-router-dom';
+import {toast} from 'sonner';
 
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Card} from '@/components/ui/card';
 import {Separator} from '@/components/ui/separator';
 import {Switch} from '@/components/fields';
-import {EmptyState, Markdown, Note, Row, Timestamp, Token} from '@/components/kit';
+import {ConfirmButton, EmptyState, Markdown, Note, Row, Timestamp, Token} from '@/components/kit';
 
 import {ApiError, api} from '../api/client';
 import type {Role, RoleUsage, RoleVersion} from '../api/types';
@@ -25,7 +26,7 @@ export function Roles() {
     [projectKey, includeArchived],
   );
 
-  if (roles.error) return <Failure error={roles.error} />;
+  if (roles.error) return <Failure error={roles.error} reload={roles.reload} />;
   if (!roles.data) return <Loading />;
 
   // Выбранная роль вычисляется, а не досылается эффектом: пока никого не
@@ -103,7 +104,7 @@ function RoleDetail({
   const [error, setError] = useState<ApiError>();
   const [adding, setAdding] = useState(false);
 
-  if (role.error) return <Failure error={role.error} />;
+  if (role.error) return <Failure error={role.error} reload={role.reload} />;
   if (!role.data) return <Loading />;
 
   const {role: head, versions = [], used_on: usedOn} = role.data;
@@ -113,6 +114,7 @@ function RoleDetail({
     setError(undefined);
     try {
       await (archived ? api.archiveRole(projectKey, roleKey) : api.restoreRole(projectKey, roleKey));
+      toast.success(archived ? `Роль ${roleKey} в архиве` : `Роль ${roleKey} возвращена из архива`);
       role.reload();
       onChanged();
     } catch (err) {
@@ -128,9 +130,21 @@ function RoleDetail({
           <p className="text-muted-foreground text-sm">{head.summary}</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="secondary" onClick={() => archive(!head.archived_at)}>
-            {head.archived_at ? 'Вернуть из архива' : 'В архив'}
-          </Button>
+          {/* Возврат из архива обратим — подтверждения не просит. */}
+          {head.archived_at ? (
+            <Button variant="secondary" onClick={() => archive(false)}>
+              Вернуть из архива
+            </Button>
+          ) : (
+            <ConfirmButton
+              variant="secondary"
+              size="default"
+              title="Отправить роль в архив?"
+              description={`Роль ${head.name} (${head.key}) пропадёт из выбора ролей у статусов`}
+              onConfirm={() => archive(true)}>
+              В архив
+            </ConfirmButton>
+          )}
           <Button onClick={() => setAdding(true)}>Новая версия</Button>
         </div>
       </div>

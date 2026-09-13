@@ -119,10 +119,21 @@ let r = await run('return inviteRows();');
 check('выданное приглашение наверху списка: «выдан», уровень, любые роли',
   (r[0] ?? '').includes('выдан') && r[0].includes('viewer') && r[0].includes('любые') && r[0].includes('Отозвать'),
   r.join(' | '));
-await run('await clickIn("Приглашения", "Отозвать"); await sleep(1500);');
+await run('await clickIn("Приглашения", "Отозвать"); await sleep(300);');
+// Отзыв необратим: запрос уходит только после подтверждения.
+let alert = await run(`
+  const d = document.querySelector('[role=alertdialog]');
+  return d ? d.innerText.replace(/\\s+/g, ' ') : '';
+`);
+check('отзыв приглашения просит подтверждения', alert.includes('Отозвать приглашение?'), alert);
+r = await run('return inviteRows();');
+check('до подтверждения приглашение выдано', (r[0] ?? '').includes('выдан') && r[0].includes('Отозвать'), r.join(' | '));
+await run('await confirm("Отозвать"); await sleep(600);');
 r = await run('return inviteRows();');
 check('отозванное — «отозван», кнопки больше нет',
   (r[0] ?? '').includes('отозван') && !r[0].includes('Отозвать'), r.join(' | '));
+let toastList = await run('return toasts();');
+check('об отзыве сообщил тост', toastList.some((x) => x.includes('Приглашение отозвано')), toastList.join(' | '));
 
 console.log('токены');
 await run(`
@@ -134,6 +145,35 @@ await run(`
 t = await run('return texts();');
 check('токен показан один раз', t.includes('скопируйте его сейчас') && t.includes('sdlc_'), t.slice(0, 800));
 check('токен в списке', t.includes('e2e-token') && t.includes('действует'));
+// Тост называет токен и исчезает сам; выданный токен при этом остаётся на
+// экране — тост не заменяет результат.
+toastList = await run('return toasts();');
+check('о выдаче сообщил тост с именем токена', toastList.some((x) => x.includes('Токен e2e-token выдан')), toastList.join(' | '));
+await new Promise((r) => setTimeout(r, 6000));
+toastList = await run('return toasts();');
+t = await run('return texts();');
+check('тост исчез сам, токен остался на экране',
+  toastList.length === 0 && t.includes('скопируйте его сейчас') && t.includes('sdlc_'), toastList.join(' | '));
+
+console.log('отзыв токена');
+await run('await clickIn("Токены", "Отозвать"); await sleep(300);');
+alert = await run(`
+  const d = document.querySelector('[role=alertdialog]');
+  return d ? d.innerText.replace(/\\s+/g, ' ') : '';
+`);
+check('отзыв токена просит подтверждения с именем токена',
+  alert.includes('Отозвать токен?') && alert.includes('e2e-token'), alert);
+// Esc закрывает диалог без запроса: токен по-прежнему действует.
+await run(`
+  document.activeElement.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}));
+  await sleep(600);
+`);
+t = await run('return texts();');
+check('Esc закрывает диалог, токен действует',
+  !(await run('return Boolean(document.querySelector("[role=alertdialog]"));')) && t.includes('действует'), t.slice(0, 800));
+await run('await clickIn("Токены", "Отозвать"); await sleep(300); await confirm("Отозвать"); await sleep(600);');
+t = await run('return texts();');
+check('токен отозван', t.includes('отозван') && t.includes('e2e-token'), t.slice(0, 800));
 
 console.log('перенос связки');
 await run('await clickExact("Экспортировать проект"); await sleep(1500); return true;');
