@@ -191,6 +191,26 @@ const restored = await run(statusHelpers + `
 check('повторный клик проходит и возвращает порядок', restored.keys.join(',') === order.join(','), restored.keys.join(','));
 check('баннер отказа снят удачной перестановкой', !restored.page.includes('Порядок статусов не изменён'), restored.page.slice(0, 300));
 
+console.log('проверка цикла ещё не ответила');
+// Ответ проверки задержан: до него «Активировать» выключена, и подсказка
+// обязана говорить именно про идущую проверку, а не про непройденную.
+const pending = await run(statusHelpers + `
+  const orig = window.fetch;
+  window.fetch = async (input, init) => {
+    const url = typeof input === 'string' ? input : input.url;
+    if (/\\/validation$/.test(url)) await sleep(4000);
+    return orig(input, init);
+  };
+  await pickVersion('Default SDLC · v1');
+  await pickVersion('Default SDLC · v2');
+  const tip = await tipOf('Активировать');
+  await sleep(4500);
+  window.fetch = orig;
+  return tip;
+`);
+check('пока проверка не ответила, подсказка называет её',
+  pending.disabled && pending.text.includes('Идёт проверка цикла'), JSON.stringify(pending));
+
 console.log('проверка цикла отказала');
 // Версия перевыбирается в панели: проверка запрашивается на монтировании
 // редактора, и подменённый fetch пережил бы не перезагрузку, а только это.
