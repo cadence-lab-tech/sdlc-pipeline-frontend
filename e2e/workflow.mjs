@@ -235,6 +235,25 @@ check('отказ проверки цикла виден на экране',
 const tipBroken = await run(statusHelpers + "return tipOf('Активировать');");
 check('«Активировать» выключена, подсказка называет невыполненную проверку',
   tipBroken.disabled && tipBroken.text.includes('Проверку не удалось выполнить'), JSON.stringify(tipBroken));
+// Та же подсказка одной клавиатурой: указателя не касаемся вовсе. Выключенная
+// кнопка событий указателя не получает, и если бы фокус обёртки подсказку не
+// открывал, причина недоступности осталась бы доступна только мыши.
+const tipKeys = await run(`
+  const btn = all('button').find((b) => (b.innerText || '').trim() === 'Активировать');
+  const wrap = btn.parentElement;
+  wrap.dispatchEvent(new PointerEvent('pointerleave', {bubbles: true}));
+  wrap.blur();
+  await sleep(1200);
+  const closed = !document.querySelector('[data-slot=tooltip-content]');
+  wrap.focus();
+  await sleep(1000);
+  const tip = document.querySelector('[data-slot=tooltip-content]');
+  return {closed, focused: document.activeElement === wrap,
+    text: tip ? tip.innerText.replace(/\\s+/g, ' ').trim() : ''};
+`);
+check('подсказка недоступной активации открывается одним фокусом, без указателя',
+  tipKeys.closed && tipKeys.focused && tipKeys.text.includes('Проверку не удалось выполнить'),
+  JSON.stringify(tipKeys));
 const recovered = await run(`
   window.__restoreFetch();
   const again = all('button').find((b) => (b.innerText || '').trim() === 'Повторить');
