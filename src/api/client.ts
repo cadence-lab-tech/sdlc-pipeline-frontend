@@ -25,6 +25,8 @@ import type {
   Principal,
   Project,
   ProjectDocument,
+  ProjectRemoved,
+  RepositoryRemoved,
   ProjectMember,
   ProjectDetail,
   Role,
@@ -40,6 +42,7 @@ import type {
   Team,
   TeamBudgets,
   TeamDetail,
+  TeamRemoved,
   TeamMember,
   ProjectTeam,
   Transition,
@@ -392,7 +395,13 @@ export const api = {
     },
   ) => request<Team>(`/teams/${teamKey}`, patch(body)),
 
-  archiveTeam: (teamKey: string) => request<void>(`/teams/${teamKey}`, del()),
+  // Удаление арендатора необратимо и делается только отсюда: в CLI и MCP
+  // его нет. Ответ называет цену действия — что ушло вместе с командой.
+  deleteTeam: (teamKey: string) =>
+    request<TeamRemoved>(`/teams/${teamKey}`, del()).then((r) => ({
+      ...r,
+      removed: {...r.removed, project_keys: r.removed.project_keys ?? []},
+    })),
 
   // Личный аккаунт становится организацией: проекты остаются, участников
   // теперь можно звать (решение 0033). Пустые ключ и название — прежние.
@@ -545,6 +554,20 @@ export const api = {
     description?: string;
     team?: string;
   }) => request<Project>("/projects", post(body)),
+
+  // Проект уходит целиком вместе с задачами: незакрытые задачи удалению не
+  // мешают — они исчезают вместе с ним, рассогласовывать нечего.
+  deleteProject: (projectKey: string) =>
+    request<ProjectRemoved>(`/projects/${projectKey}`, del()),
+
+  // Координаты репозитория стоят в пути, а не в теле: это удаление, и адрес
+  // обязан называть, что удаляется. Точка и дефис в имени — обычное дело,
+  // поэтому оба сегмента экранируются.
+  removeRepository: (projectKey: string, owner: string, name: string) =>
+    request<RepositoryRemoved>(
+      `/projects/${projectKey}/repositories/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`,
+      del(),
+    ),
 
   // ── цикл ──────────────────────────────────────────────────────────────────
   // Цикл выбирается типом задач: у доски эпиков другие колонки.

@@ -1,5 +1,5 @@
 import {useState} from 'react';
-import {useParams} from 'react-router-dom';
+import {useNavigate, useParams} from 'react-router-dom';
 import {toast} from 'sonner';
 
 import {Badge} from '@/components/ui/badge';
@@ -14,6 +14,7 @@ import {ApiError, api} from '../api/client';
 import {startInstall, startReauth} from '../api/github';
 import {InstallationsList} from '../components/Installations';
 import {InviteDialog, InvitesTable} from '../components/Invites';
+import {counted} from '../components/removals';
 import type {
   AccessToken,
   GitHubStatus,
@@ -23,6 +24,7 @@ import type {
   ProjectMember,
   ProjectTeam,
   RepoAccess,
+  Repository,
   Role,
 } from '../api/types';
 import {useResource} from '../api/useResource';
@@ -60,9 +62,13 @@ export function Settings() {
             <Separator />
             <GitHubAccess projectKey={projectKey} />
             <Separator />
+            <Repositories projectKey={projectKey} />
+            <Separator />
             <Tokens projectKey={projectKey} me={who} />
             <Separator />
             <Transfer projectKey={projectKey} />
+            <Separator />
+            <DangerZone projectKey={projectKey} />
           </div>
         )}
       </Loaded>
@@ -541,6 +547,160 @@ function accessSource(r: RepoAccess): string {
       // Бэкенд новее интерфейса: показать как есть, а не прятать.
       return String(r.source);
   }
+}
+
+// ── репозитории ─────────────────────────────────────────────────────────────
+
+// Репозитории в области проекта: на них висят индекс, документы и привязки
+// задач. Отвязка необратима, а пока репозиторий стоит в области незакрытой
+// задачи, бэкенд её не даёт — и называет ключи задач в отказе.
+function Repositories({projectKey}: {projectKey: string}) {
+  const project = useResource(() => api.getProject(projectKey), [projectKey]);
+  const [error, setError] = useState<ApiError>();
+
+  const remove = async (repo: Repository) => {
+    setError(undefined);
+    try {
+      const {repository, removed} = await api.removeRepository(projectKey, repo.owner, repo.name);
+      const full = `${repository.owner}/${repository.name}`;
+      toast.success(`Репозиторий ${full} отвязан`, {
+        description: counted([
+          ['прогонов индексации', removed.index_runs],
+          ['файлов', removed.code_files],
+          ['чанков', removed.code_chunks],
+          ['документов', removed.documents],
+          ['сигналов дрейфа снято', removed.drift_signals_dismissed],
+        ]),
+      });
+      project.reload();
+    } catch (err) {
+      setError(err instanceof ApiError ? err : new ApiError('internal', String(err)));
+    }
+  };
+
+  return (
+    <Section
+      title="Репозитории"
+      description="Область проекта по репозиториям: по ним идёт индексация, из них приходят документы, на них ссылаются ветки и PR задач. Привязываются они через доступ к GitHub или связку правил.">
+      {error ? <Failure error={error} /> : null}
+      <Loaded resource={project}>
+        {(detail) => (
+          <DataTable<Repository>
+            data={detail.repositories}
+            idKey="id"
+            empty={
+              <EmptyState
+                title="Репозиториев в проекте нет"
+                description="Выберите их в разделе «Доступ к GitHub» или привезите связкой правил"
+              />
+            }
+            columns={[
+              {
+                key: 'repository',
+                header: 'Репозиторий',
+                renderCell: (r) => `${r.owner}/${r.name}`,
+              },
+              {key: 'default_branch', header: 'Ветка', width: 140},
+              {
+                key: 'role_hint',
+                header: 'Подсказка роли',
+                width: 160,
+                renderCell: (r) => (r.role_hint ? <Token label={r.role_hint} /> : '—'),
+              },
+              {
+                key: 'unavailable_at',
+                header: 'Состояние',
+                width: 180,
+                renderCell: (r) =>
+                  r.unavailable_at ? (
+                    <Badge variant="destructive">убран из установки</Badge>
+                  ) : (
+                    <Badge>в области</Badge>
+                  ),
+              },
+              {
+                key: 'actions',
+                header: '',
+                width: 110,
+                align: 'end',
+                renderCell: (r) => (
+                  <ConfirmButton
+                    title="Отвязать репозиторий?"
+                    description={`Вместе с ${r.owner}/${r.name} из проекта ${projectKey} уйдут прогоны индексации, файлы и чанки кода, документы репозитория, привязки веток и PR у задач и сам репозиторий из области задач; открытые сигналы дрейфа по нему снимутся. Отменить это нельзя, но репозиторий можно привязать заново и проиндексировать.`}
+                    onConfirm={() => remove(r)}>
+                    Отвязать
+                  </ConfirmButton>
+                ),
+              },
+            ]}
+          />
+        )}
+      </Loaded>
+    </Section>
+  );
+}
+
+// ── опасная зона ────────────────────────────────────────────────────────────
+
+// Удаление проекта стоит отдельно от остальных настроек и просит ввести ключ
+// проекта: цена ошибки здесь — весь проект целиком. Незакрытые задачи ему не
+// мешают намеренно — они уходят вместе с проектом, рассогласовывать нечего.
+function DangerZone({projectKey}: {projectKey: string}) {
+  const navigate = useNavigate();
+  const [error, setError] = useState<ApiError>();
+
+  const remove = async () => {
+    setError(undefined);
+    try {
+      const {project, removed} = await api.deleteProject(projectKey);
+      toast.success(`Проект ${project.key} удалён`, {
+        description: counted([
+          ['задач', removed.tasks],
+          ['прогонов', removed.stage_runs],
+          ['артефактов', removed.artifacts],
+          ['репозиториев', removed.repositories],
+          ['документов', removed.documents],
+          ['участников', removed.members],
+          ['токенов', removed.tokens],
+          ['ролей', removed.roles],
+          ['версий цикла', removed.workflows],
+          ['приглашений', removed.invites],
+        ]),
+      });
+      navigate('/projects');
+    } catch (err) {
+      setError(err instanceof ApiError ? err : new ApiError('internal', String(err)));
+    }
+  };
+
+  return (
+    <Section
+      title="Опасная зона"
+      description="Действия отсюда необратимы: восстановления и корзины у сервиса нет.">
+      {error ? <Failure error={error} /> : null}
+      <Card className="border-destructive/40 bg-destructive/5 gap-3 p-4">
+        <div className="space-y-1">
+          <h3 className="text-destructive text-base font-semibold">Удалить проект {projectKey}</h3>
+          <p className="text-muted-foreground text-sm">
+            Проект исчезает целиком и сразу: задачи со всеми прогонами и артефактами, репозитории с
+            индексом, документы, участники, токены проекта, роли, версии цикла и приглашения.
+            Незакрытые задачи удалению не мешают — они уходят вместе с проектом.
+          </p>
+        </div>
+        <div>
+          <ConfirmButton
+            variant="destructive"
+            title={`Удалить проект ${projectKey}?`}
+            description={`Проект ${projectKey} исчезнет вместе с задачами, их прогонами и артефактами, репозиториями и собранным индексом, документами, участниками, токенами проекта, ролями, версиями цикла и приглашениями. Это происходит сразу, восстановления не будет. Введите ключ проекта, чтобы подтвердить.`}
+            confirmPhrase={projectKey}
+            phraseLabel={`Ключ проекта (${projectKey})`}
+            onConfirm={remove}>
+            Удалить проект
+          </ConfirmButton>
+        </div>
+      </Card>
+    </Section>
+  );
 }
 
 // ── токены ──────────────────────────────────────────────────────────────────

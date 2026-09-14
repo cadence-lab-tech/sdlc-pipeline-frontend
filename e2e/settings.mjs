@@ -14,9 +14,34 @@ const check = (name, cond, extra = '') => {
 // Диалог рисуется в портале в конце документа, а подпись «Срок в днях» есть и
 // у формы токенов: поле ищется внутри диалога. Строки приглашений читаются из
 // своего раздела, чтобы «выдан» у токенов их не путал.
+//
+// dialog() отвечает и за AlertDialog: подтверждение вводом ключа — такое же
+// поле с подписью, и находить его отдельным помощником незачем.
 const dialogHelpers = `
-  const dialog = () => document.querySelector('[role=dialog]');
+  const dialog = () => document.querySelector('[role=dialog], [role=alertdialog]');
   const dialogText = () => ((dialog() || {}).innerText || '').replace(/\\s+/g, ' ');
+  const alertText = () => {
+    const d = document.querySelector('[role=alertdialog]');
+    return d ? d.innerText.replace(/\\s+/g, ' ') : '';
+  };
+  // Кнопка в строке таблицы: одинаковых кнопок в таблице столько же, сколько
+  // строк, и нужна та, что стоит против названного объекта.
+  const clickInRow = async (rowText, buttonText) => {
+    const row = all('tr').find((tr) => (tr.innerText || '').includes(rowText));
+    if (!row) throw new Error('строка не найдена: ' + rowText);
+    const btn = Array.from(row.querySelectorAll('button')).find((b) => (b.innerText || '').trim() === buttonText);
+    if (!btn) throw new Error('в строке нет кнопки: ' + rowText + ' / ' + buttonText);
+    btn.click();
+    await sleep(700);
+    return true;
+  };
+  // Кнопка подтверждения в открытом AlertDialog: до ввода ключа она выключена.
+  const confirmDisabled = (t) => {
+    const d = document.querySelector('[role=alertdialog]');
+    const b = d && Array.from(d.querySelectorAll('button')).find((x) => (x.innerText || '').trim() === t);
+    if (!b) throw new Error('в диалоге нет кнопки: ' + t);
+    return b.disabled;
+  };
   const fillIn = async (label, value) => {
     const root = dialog();
     const lbl = root && Array.from(root.querySelectorAll('label')).find((l) => l.innerText.trim().startsWith(label));
@@ -198,6 +223,94 @@ t = await run('return texts();');
 check('сухой прогон отчитался', t.includes('Сухой прогон'), t.slice(0, 500));
 check('ничего не изменится', t.includes('unchanged') && !t.includes('new_version'), t.slice(0, 900));
 check('цикл пришёл бы черновиком', t.includes('draft_created'), t.slice(0, 900));
+
+console.log('репозитории: отвязка и живая задача');
+t = await run('return texts();');
+check('раздел репозиториев показывает область проекта',
+  t.includes('Репозитории') && t.includes('cadence-lab-tech/sdlc-pipeline-backend') && t.includes('в области'),
+  t.slice(0, 1500));
+await run('await clickInRow("cadence-lab-tech/sdlc-pipeline-backend", "Отвязать"); await sleep(300);');
+alert = await run('return alertText();');
+// Счётчиков до удаления бэкенд не отдаёт, поэтому диалог называет категории.
+check('диалог называет репозиторий и что уйдёт вместе с ним',
+  alert.includes('Отвязать репозиторий?') && alert.includes('cadence-lab-tech/sdlc-pipeline-backend') &&
+    alert.includes('прогоны индексации') && alert.includes('сигналы дрейфа'), alert);
+await run('await confirm("Отвязать"); await sleep(800);');
+t = await run('return texts();');
+// SDLC-1 и SDLC-3 стоят на нетерминальных статусах, и репозиторий у них в
+// области: бэкенд называет ключи задач, а интерфейс показывает его текст как есть.
+check('живая задача не даёт отвязать, репозиторий на месте',
+  t.includes('терминального статуса') && t.includes('SDLC-') && t.includes('cadence-lab-tech/sdlc-pipeline-backend'),
+  t.slice(0, 1500));
+toastList = await run('return toasts();');
+check('об отказе тоста нет', toastList.length === 0, toastList.join(' | '));
+
+console.log('свой проект: отвязка репозитория и удаление проекта');
+// Удаление проверяется только на том, что сценарий завёл сам: демонстрационный
+// проект нужен следующим сценариям целым.
+await s.goto(BASE + '/projects');
+await new Promise((r) => setTimeout(r, 2000));
+await run(`
+  await clickExact("Новый проект");
+  await sleep(300);
+  await fill("Ключ", "delme");
+  await fill("Название", "Проект на удаление");
+  await sleep(200);
+  await clickExact("Создать проект");
+  await sleep(2000);
+`);
+// Репозиторий привязывается ручкой: в интерфейсе он приходит из установки
+// GitHub, которой у dev-инстанса нет. Точка в имени проверяет экранирование
+// пути отвязки.
+const added = await run(`
+  const r = await fetch('/v1/projects/DELME/repositories', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-SDLC-Actor': 'web'},
+    body: JSON.stringify({
+      repository: 'e2e-org/repo.one',
+      default_branch: 'main',
+      clone_url: 'https://example.invalid/e2e-org/repo.one.git',
+      role_hint: 'e2e',
+    }),
+  });
+  return r.status;
+`);
+check('репозиторий привязан ручкой', added === 200 || added === 201, String(added));
+await s.goto(BASE + '/p/DELME/settings');
+await new Promise((r) => setTimeout(r, 2500));
+t = await run('return texts();');
+check('репозиторий виден в настройках нового проекта',
+  t.includes('e2e-org/repo.one') && t.includes('main'), t.slice(0, 1500));
+await run('await clickInRow("e2e-org/repo.one", "Отвязать"); await sleep(300); await confirm("Отвязать"); await sleep(1000);');
+t = await run('return texts();');
+check('репозиторий отвязан и список перезапрошен',
+  !t.includes('e2e-org/repo.one') && t.includes('Репозиториев в проекте нет'), t.slice(0, 1500));
+toastList = await run('return toasts();');
+check('тост называет репозиторий и снятое',
+  toastList.some((x) => x.includes('e2e-org/repo.one') && x.includes('отвязан')), toastList.join(' | '));
+
+t = await run('return texts();');
+check('опасная зона стоит отдельно и объясняет цену',
+  t.includes('Опасная зона') && t.includes('Удалить проект DELME') && t.includes('восстановления и корзины у сервиса нет'),
+  t.slice(-1500));
+await run('await clickExact("Удалить проект"); await sleep(500);');
+alert = await run('return alertText();');
+check('диалог называет проект, что исчезнет и что это навсегда',
+  alert.includes('Удалить проект DELME?') && alert.includes('задачами') && alert.includes('артефактами') &&
+    alert.includes('восстановления не будет'), alert);
+check('без ключа подтверждение выключено', await run('return confirmDisabled("Удалить проект");') === true);
+await run('await fillIn("Ключ проекта", "DELM"); await sleep(300);');
+check('неполный ключ не открывает подтверждение', await run('return confirmDisabled("Удалить проект");') === true);
+await run('await fillIn("Ключ проекта", "DELME"); await sleep(300);');
+check('ключ введён — подтверждение доступно', await run('return confirmDisabled("Удалить проект");') === false);
+await run('await confirm("Удалить проект"); await sleep(2000);');
+check('после удаления интерфейс ушёл на список проектов',
+  (await run('return location.pathname;')) === '/projects', await run('return location.pathname;'));
+t = await run('return texts();');
+check('удалённого проекта в списке нет', !t.includes('DELME'), t.slice(0, 1000));
+toastList = await run('return toasts();');
+check('тост называет ключ проекта и счётчики',
+  toastList.some((x) => x.includes('Проект DELME удалён')), toastList.join(' | '));
 
 console.log('метрики');
 await s.goto(BASE + '/p/SDLC/metrics');
