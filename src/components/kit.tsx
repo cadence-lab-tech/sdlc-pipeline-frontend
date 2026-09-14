@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
+import {TextInput} from '@/components/fields';
 
 // Мелочь, которой в shadcn нет: пустые состояния, метки-жетоны, точки статуса,
 // время, блок кода, разметка и кнопка с подтверждением. Всё остальное берётся
@@ -184,10 +185,16 @@ export function Spinner({className}: {className?: string}) {
 // кнопки заняты и диалог не закрывается; по завершении — успех или отказ —
 // диалог закрывается. Про ошибки кнопка не знает: исключение уходит
 // вызывающему, и его показывает тот же Failure рядом с формой, что и сегодня.
+//
+// Самое дорогое — удаление проекта и организации — просит вдобавок ввести
+// ключ объекта: confirmPhrase. Пока введённое не совпало ровно, кнопка
+// подтверждения выключена. Без этого параметра кнопка ведёт себя как прежде.
 export function ConfirmButton({
   title,
   description,
   confirmLabel,
+  confirmPhrase,
+  phraseLabel,
   onConfirm,
   variant = 'ghost',
   size = 'sm',
@@ -199,6 +206,9 @@ export function ConfirmButton({
   description: React.ReactNode;
   // Глагол на кнопке подтверждения; по умолчанию — тот же, что на триггере.
   confirmLabel?: React.ReactNode;
+  // Фраза, которую нужно ввести ровно: обычно ключ удаляемого объекта.
+  confirmPhrase?: string;
+  phraseLabel?: string;
   onConfirm: () => Promise<unknown> | unknown;
   variant?: React.ComponentProps<typeof Button>['variant'];
   size?: React.ComponentProps<typeof Button>['size'];
@@ -208,6 +218,9 @@ export function ConfirmButton({
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [typed, setTyped] = useState('');
+
+  const isPhraseTyped = !confirmPhrase || typed.trim() === confirmPhrase;
 
   const confirm = async () => {
     setBusy(true);
@@ -216,11 +229,20 @@ export function ConfirmButton({
     } finally {
       setBusy(false);
       setIsOpen(false);
+      setTyped('');
     }
   };
 
   return (
-    <AlertDialog open={isOpen} onOpenChange={(open) => !busy && setIsOpen(open)}>
+    <AlertDialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (busy) return;
+        // Введённое живёт не дольше открытого диалога: закрыли и открыли
+        // снова — подтверждать нужно заново.
+        setTyped('');
+        setIsOpen(open);
+      }}>
       <AlertDialogTrigger asChild>
         <Button variant={variant} size={size} disabled={disabled} className={className}>
           {children}
@@ -231,13 +253,21 @@ export function ConfirmButton({
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>{description}</AlertDialogDescription>
         </AlertDialogHeader>
+        {confirmPhrase ? (
+          <TextInput
+            label={phraseLabel ?? `Введите ${confirmPhrase}, чтобы подтвердить`}
+            value={typed}
+            onChange={setTyped}
+            isDisabled={busy}
+          />
+        ) : null}
         <AlertDialogFooter>
           <AlertDialogCancel disabled={busy}>Отмена</AlertDialogCancel>
           {/* Radix закрывает диалог по клику на Action сам; preventDefault
               оставляет его открытым до ответа бэкенда. */}
           <AlertDialogAction
             variant="destructive"
-            disabled={busy}
+            disabled={busy || !isPhraseTyped}
             onClick={(e) => {
               e.preventDefault();
               void confirm();

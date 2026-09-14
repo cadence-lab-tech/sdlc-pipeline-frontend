@@ -1,5 +1,5 @@
 import {useState} from 'react';
-import {useSearchParams} from 'react-router-dom';
+import {useNavigate, useSearchParams} from 'react-router-dom';
 import {toast} from 'sonner';
 
 import {Badge} from '@/components/ui/badge';
@@ -14,6 +14,7 @@ import {ApiError, api} from '../api/client';
 import {startInstall} from '../api/github';
 import {InstallationsList} from '../components/Installations';
 import {InviteDialog, InvitesTable} from '../components/Invites';
+import {counted} from '../components/removals';
 import type {Me, Plan, Principal, ProjectTeam, Team, TeamDetail as TeamDetailData, TeamMember} from '../api/types';
 import {useResource} from '../api/useResource';
 import {Failure, Loaded, Loading} from '../components/Feedback';
@@ -50,6 +51,7 @@ export function Teams() {
   const [picked, setPicked] = useState<string>();
   const [creating, setCreating] = useState(false);
   const [search] = useSearchParams();
+  const navigate = useNavigate();
 
   if (teams.error) return <Failure error={teams.error} reload={teams.reload} />;
   if (!teams.data) return <Loading />;
@@ -72,13 +74,7 @@ export function Teams() {
               setCreating(false);
               setPicked(team.key);
             }}
-            end={
-              team.archived_at ? (
-                <Token label="в архиве" />
-              ) : team.can_create_projects ? (
-                <Token label="проекты" />
-              ) : null
-            }>
+            end={team.can_create_projects ? <Token label="проекты" /> : null}>
             <p className="truncate font-medium">{team.name}</p>
             <p className="text-muted-foreground truncate text-xs">{team.key}</p>
           </Row>
@@ -132,6 +128,13 @@ export function Teams() {
             onChanged={teams.reload}
             onConverted={(org) => {
               setPicked(org.key);
+              teams.reload();
+            }}
+            onDeleted={() => {
+              // Удалённую команду выбирать нечем: выбор сбрасывается, а адрес
+              // теряет ?team= — иначе список открылся бы на том, чего нет.
+              setPicked(undefined);
+              navigate('/teams');
               teams.reload();
             }}
           />
@@ -222,31 +225,21 @@ function TeamDetail({
   me,
   onChanged,
   onConverted,
+  onDeleted,
 }: {
   teamKey: string;
   me?: Me;
   onChanged: () => void;
   onConverted: (org: Team) => void;
+  onDeleted: () => void;
 }) {
   const team = useResource(() => api.getTeam(teamKey), [teamKey]);
-  const [error, setError] = useState<ApiError>();
 
   // Список слева показывает имя и право заводить проекты, поэтому он
   // перезапрашивается вместе с командой, а не только при её создании.
   const reload = () => {
     team.reload();
     onChanged();
-  };
-
-  const archive = async () => {
-    setError(undefined);
-    try {
-      await api.archiveTeam(teamKey);
-      toast.success(`Команда ${teamKey} в архиве`);
-      reload();
-    } catch (err) {
-      setError(err instanceof ApiError ? err : new ApiError('internal', String(err)));
-    }
   };
 
   return (
@@ -259,13 +252,6 @@ function TeamDetail({
               <div className="flex items-center gap-2">
                 <Token label={kindLabel(detail.team)} />
                 {detail.team.can_create_projects ? <Token label="заводит проекты" /> : null}
-                {detail.team.archived_at ? <Token label="в архиве" /> : null}
-                <ConfirmButton
-                  title="Архивировать команду?"
-                  description={`Команда ${detail.team.name} (${detail.team.key}) уйдёт в архив`}
-                  onConfirm={archive}>
-                  Архивировать
-                </ConfirmButton>
               </div>
             </div>
             <p className="text-muted-foreground text-sm">
@@ -273,7 +259,6 @@ function TeamDetail({
               {detail.team.description ? ` · ${detail.team.description}` : ''}
             </p>
           </div>
-          {error ? <Failure error={error} /> : null}
 
           <PlanSection detail={detail} isAdmin={me?.principal.is_admin ?? false} onChanged={reload} />
           <Separator />
@@ -290,6 +275,8 @@ function TeamDetail({
           <IdPGroups teamKey={teamKey} />
           <Separator />
           <Budgets teamKey={teamKey} />
+          <Separator />
+          <TeamDanger team={detail.team} onDeleted={onDeleted} />
         </div>
       )}
     </Loaded>
@@ -750,6 +737,85 @@ function Budgets({teamKey}: {teamKey: string}) {
           <Button disabled={limit.trim() === ''} onClick={save}>
             Сохранить
           </Button>
+        </div>
+      </Card>
+    </Section>
+  );
+}
+
+// ── опасная зона ────────────────────────────────────────────────────────────
+
+// Удаление арендатора делается только отсюда: ни в CLI, ни в MCP его нет.
+// Уходит всё, чем команда владеет, — её проекты целиком, — поэтому зона стоит
+// отдельно от состава и приглашений и просит ввести ключ организации.
+//
+// У личного аккаунта её нет: он уходит вместе с человеком и отдельно не
+// удаляется. Вид команды — данные (team.kind), а не уровень доступа; по
+// уровню кнопки по-прежнему не прячутся, 403 показывает бэкенд.
+function TeamDanger({team, onDeleted}: {team: Team; onDeleted: () => void}) {
+  const [error, setError] = useState<ApiError>();
+
+  const remove = async () => {
+    setError(undefined);
+    try {
+      const {team: deleted, removed} = await api.deleteTeam(team.key);
+      toast.success(`Организация ${deleted.key} удалена`, {
+        description:
+          removed.project_keys.length > 0
+            ? `вместе с проектами: ${removed.project_keys.join(', ')}`
+            : counted([
+                ['проектов', removed.projects],
+                ['участников', removed.members],
+                ['доступов в чужие проекты', removed.project_grants],
+                ['приглашений', removed.invites],
+                ['установок GitHub', removed.installations],
+                ['пределов бюджета', removed.budgets],
+                ['групп провайдера', removed.idp_groups],
+              ]),
+      });
+      onDeleted();
+    } catch (err) {
+      setError(err instanceof ApiError ? err : new ApiError('internal', String(err)));
+    }
+  };
+
+  if (team.kind === 'personal') {
+    return (
+      <Section title="Опасная зона">
+        <p className="text-muted-foreground text-sm">
+          Личный аккаунт уходит вместе с человеком и отдельно не удаляется. Чтобы работать с
+          коллегами, превратите его в организацию — её потом можно удалить целиком.
+        </p>
+      </Section>
+    );
+  }
+
+  return (
+    <Section
+      title="Опасная зона"
+      description="Действия отсюда необратимы: восстановления и корзины у сервиса нет.">
+      {error ? <Failure error={error} /> : null}
+      <Card className="border-destructive/40 bg-destructive/5 gap-3 p-4">
+        <div className="space-y-1">
+          <h3 className="text-destructive text-base font-semibold">
+            Удалить организацию {team.key}
+          </h3>
+          <p className="text-muted-foreground text-sm">
+            Вместе с организацией удаляются проекты, которыми она владеет, — целиком, со всеми
+            задачами и артефактами. Состав, приглашения, установки GitHub, бюджеты и группы
+            провайдера исчезают тоже. Это единственный способ удалить арендатора: в CLI его нет.
+          </p>
+        </div>
+        <div>
+          <ConfirmButton
+            variant="destructive"
+            title={`Удалить организацию ${team.key}?`}
+            description={`Организация ${team.name} (${team.key}) исчезнет вместе со своими проектами — каждый целиком, с задачами, прогонами и артефактами, — а также с составом, приглашениями, установками GitHub, бюджетами и группами провайдера. Данные удаляются сразу, восстановления не будет. Введите ключ организации, чтобы подтвердить.`}
+            confirmPhrase={team.key}
+            phraseLabel={`Ключ организации (${team.key})`}
+            onConfirm={remove}>
+            Удалить организацию
+          </ConfirmButton>
         </div>
       </Card>
     </Section>

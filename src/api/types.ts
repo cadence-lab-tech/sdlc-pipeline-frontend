@@ -99,6 +99,63 @@ export interface TeamBudgets {
   budgets: BudgetState[];
 }
 
+// ── цена удаления ───────────────────────────────────────────────────────────
+// Что ушло вместе с объектом. Счётчики бэкенд считает до удаления и отдаёт
+// только в ответе: ручки-предпросмотра нет, поэтому диалог называет
+// категории, а числа показываются после действия.
+
+export interface TeamRemoval {
+  projects: number;
+  project_keys: string[];
+  members: number;
+  // Участие команды в чужих проектах: те проекты остаются, исчезает доступ.
+  project_grants: number;
+  invites: number;
+  installations: number;
+  budgets: number;
+  idp_groups: number;
+}
+
+export interface ProjectRemoval {
+  tasks: number;
+  stage_runs: number;
+  artifacts: number;
+  repositories: number;
+  index_runs: number;
+  code_files: number;
+  code_chunks: number;
+  documents: number;
+  members: number;
+  tokens: number;
+  roles: number;
+  workflows: number;
+  invites: number;
+  cost_usd: number;
+}
+
+export interface RepositoryRemoval {
+  index_runs: number;
+  code_files: number;
+  code_chunks: number;
+  documents: number;
+  drift_signals_dismissed: number;
+}
+
+export interface TeamRemoved {
+  team: Team;
+  removed: TeamRemoval;
+}
+
+export interface ProjectRemoved {
+  project: Project;
+  removed: ProjectRemoval;
+}
+
+export interface RepositoryRemoved {
+  repository: Repository;
+  removed: RepositoryRemoval;
+}
+
 export interface Repository {
   id: UUID;
   project_id: UUID;

@@ -14,8 +14,18 @@ const check = (name, cond, extra = '') => {
 // Диалог рисуется в портале в конце документа, а подписи его полей есть и на
 // странице: поле ищется внутри диалога, строки приглашений — в своём разделе.
 const dialogHelpers = `
-  const dialog = () => document.querySelector('[role=dialog]');
+  const dialog = () => document.querySelector('[role=dialog], [role=alertdialog]');
   const dialogText = () => ((dialog() || {}).innerText || '').replace(/\\s+/g, ' ');
+  const alertText = () => {
+    const d = document.querySelector('[role=alertdialog]');
+    return d ? d.innerText.replace(/\\s+/g, ' ') : '';
+  };
+  const confirmDisabled = (t) => {
+    const d = document.querySelector('[role=alertdialog]');
+    const b = d && Array.from(d.querySelectorAll('button')).find((x) => (x.innerText || '').trim() === t);
+    if (!b) throw new Error('в диалоге нет кнопки: ' + t);
+    return b.disabled;
+  };
   const fillIn = async (label, value) => {
     const root = dialog();
     const lbl = root && Array.from(root.querySelectorAll('label')).find((l) => l.innerText.trim().startsWith(label));
@@ -62,6 +72,12 @@ check('личный аккаунт: отказ бэкенда в диалоге,
 await run('await clickExact("Отмена"); await sleep(500);');
 t = await run('return texts();');
 check('у личного аккаунта список приглашений пуст', t.includes('Приглашений нет'), t.slice(0, 1500));
+// Личный аккаунт уходит вместе с человеком: кнопки удаления у него нет, а
+// вместо неё — объяснение. Вид команды — данные, а не уровень доступа.
+check('у личного аккаунта вместо удаления объяснение',
+  t.includes('Опасная зона') && t.includes('Личный аккаунт уходит вместе с человеком') &&
+    !t.includes('Удалить организацию'),
+  t.slice(-1200));
 
 await run(`
   await clickExact("Завести организацию");
@@ -195,6 +211,30 @@ check('проверка отчиталась по репозиториям',
 check('проверка показывает, чем проверяли',
   t.includes('Чем проверяли') && t.includes('секрет проекта E2E_TOKEN'),
   t.slice(0, 1500));
+
+console.log('удаление организации');
+// Последним шагом: дальше e2e-team никому не нужна, а удаление проверяется
+// только на том, что сценарий завёл сам.
+await s.goto(BASE + '/teams');
+await new Promise((r) => setTimeout(r, 2500));
+await run('await clickExact("Команда e2e", "p"); await sleep(900);');
+t = await run('return texts();');
+check('у организации есть опасная зона',
+  t.includes('Опасная зона') && t.includes('Удалить организацию e2e-team'), t.slice(-1500));
+await run('await clickExact("Удалить организацию"); await sleep(500);');
+let alert = await run('return alertText();');
+check('диалог называет организацию, её проекты и необратимость',
+  alert.includes('Удалить организацию e2e-team?') && alert.includes('проектами') &&
+    alert.includes('восстановления не будет'), alert);
+check('без ключа подтверждение выключено', await run('return confirmDisabled("Удалить организацию");') === true);
+await run('await fillIn("Ключ организации", "e2e-team"); await sleep(300);');
+check('ключ введён — подтверждение доступно', await run('return confirmDisabled("Удалить организацию");') === false);
+await run('await confirm("Удалить организацию"); await sleep(2000);');
+t = await run('return texts();');
+check('организации в списке команд нет', !t.includes('Команда e2e'), t.slice(0, 1200));
+const teamToasts = await run('return toasts();');
+check('тост называет удалённую организацию',
+  teamToasts.some((x) => x.includes('Организация e2e-team удалена')), teamToasts.join(' | '));
 
 s.close();
 console.log(`\n${ok} ok, ${fail} fail`);
