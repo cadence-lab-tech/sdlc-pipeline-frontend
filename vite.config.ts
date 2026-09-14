@@ -13,7 +13,9 @@ export default defineConfig({
     alias: {'@': fileURLToPath(new URL('./src', import.meta.url))},
   },
   server: {
-    port: 5173,
+    // Порт и адрес API — из окружения: параллельные задачи поднимают каждая
+    // свой стек (backend/dev/stack.sh), и интерфейс должен смотреть в свой.
+    port: Number(process.env.SDLC_UI_PORT ?? 5173),
     proxy: {
       '/v1': {target: process.env.SDLC_API_URL ?? 'http://localhost:8088', changeOrigin: true},
     },
