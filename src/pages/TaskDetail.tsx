@@ -16,6 +16,7 @@ import {Failure, Loading} from '../components/Feedback';
 import {DriftPanel} from '../components/DriftPanel';
 import {EditTaskDialog} from '../components/EditTaskDialog';
 import {SubmitArtifactDialog} from '../components/SubmitArtifactDialog';
+import {TaskLabels} from '../components/TaskLabels';
 import {priorityClass, priorityLabel} from '../components/priorities';
 import {Actions} from '../components/task/Actions';
 import {CollapsibleSection} from '../components/task/CollapsibleSection';
@@ -139,6 +140,7 @@ function Header({detail, onChanged}: {detail: TaskDetailData; onChanged: () => v
             ↑ {task.parent_key}
           </Link>
         ) : null}
+        <TaskLabels labels={task.labels} />
       </div>
       {task.description ? <Description text={task.description} /> : null}
     </div>

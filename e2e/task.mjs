@@ -343,6 +343,31 @@ check('решётки заголовка не показаны текстом', 
 t = await run('return texts();');
 check('у короткой постановки нет кнопки «Показать целиком»', !t.includes('Показать целиком'), t.slice(0, 400));
 
+// Метки читаются с самой карточки, а не из формы: диалог к этому моменту
+// закрыт, и всё, что найдено, нарисовано шапкой.
+const labelsOnCard = `
+  return all('span')
+    .filter((el) => el.children.length === 0 && /^#[^\\s#]+$/.test((el.innerText || '').trim()))
+    .map((el) => el.innerText.trim());
+`;
+let labels = await run(labelsOnCard);
+check('карточка показывает сохранённые метки', labels.includes('#ux') && labels.includes('#phase8'), JSON.stringify(labels));
+
+// Пустое поле снимает все метки — с карточки они обязаны пропасть там же, без
+// перезагрузки страницы.
+await run(openEdit);
+await run(`
+  await fill("Метки", "");
+  await clickExact("Сохранить");
+  await sleep(1500);
+  return true;
+`);
+labels = await run(labelsOnCard);
+check('снятые метки пропали с карточки', !labels.includes('#ux') && !labels.includes('#phase8'), JSON.stringify(labels));
+// Пропали метки, а не шапка целиком: ключ и заголовок на месте.
+t = await run('return texts();');
+check('шапка пережила снятие меток', t.includes('SDLC-1') && t.includes('Постановка поправлена из интерфейса'), t.slice(0, 400));
+
 // Длинная постановка сворачивается. Проверяется правкой в той же карточке:
 // мерка высоты обязана пересчитаться на новом тексте, а не остаться от прежнего.
 await run(openEdit);

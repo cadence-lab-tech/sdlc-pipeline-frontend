@@ -1,5 +1,6 @@
 import {Card} from '@/components/ui/card';
 import {Token, type TokenColor} from '@/components/kit';
+import {TaskLabels} from '@/components/TaskLabels';
 
 import type {Task} from '../api/types';
 
@@ -48,13 +49,7 @@ export function TaskCard({
         {multiRepo ? <Token label="мультирепо" color="blue" /> : null}
         {isOnOldWorkflow ? <Token label="прежняя версия цикла" color="orange" /> : null}
       </div>
-      {task.labels.length > 0 ? (
-        <div className="text-muted-foreground flex flex-wrap gap-1 text-xs">
-          {task.labels.map((l) => (
-            <span key={l}>#{l}</span>
-          ))}
-        </div>
-      ) : null}
+      <TaskLabels labels={task.labels} />
     </Card>
   );
 }
