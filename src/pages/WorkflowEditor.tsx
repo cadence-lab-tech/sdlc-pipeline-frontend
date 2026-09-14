@@ -1,11 +1,13 @@
 import {useState} from 'react';
 import {useParams} from 'react-router-dom';
+import {ArrowDown, ArrowUp} from 'lucide-react';
 import {toast} from 'sonner';
 
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Card} from '@/components/ui/card';
 import {Separator} from '@/components/ui/separator';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {Selector} from '@/components/fields';
 import {ConfirmButton, EmptyState, Note, Row, Section, StatusDot, Token, type DotVariant} from '@/components/kit';
 
@@ -183,6 +185,9 @@ function VersionEditor({
   const [error, setError] = useState<ApiError>();
   const [activation, setActivation] = useState<ActivationResult>();
   const [isEditingHead, setIsEditingHead] = useState(false);
+  // Запрос в пути. Пока он идёт, кнопка занята: второй клик по «Активировать»
+  // отправил бы вторую активацию той же версии.
+  const [isBusy, setIsBusy] = useState(false);
 
   if (workflow.error) return <Failure error={workflow.error} reload={workflow.reload} />;
   if (!workflow.data) return <Loading />;
@@ -198,12 +203,43 @@ function VersionEditor({
 
   const act = async (run: () => Promise<unknown>) => {
     setError(undefined);
+    setIsBusy(true);
     try {
       await run();
     } catch (err) {
       setError(err instanceof ApiError ? err : new ApiError('internal', String(err)));
+    } finally {
+      setIsBusy(false);
     }
   };
+
+  // «Активировать» выключается в четырёх разных случаях, и по самой кнопке они
+  // неразличимы: запрос уже идёт, проверка ещё не ответила, проверку не
+  // удалось выполнить, цикл проверку не прошёл. Причина называется подсказкой.
+  const blockedReason = isBusy
+    ? 'Запрос уже идёт'
+    : validation.loading || (!validation.data && !validation.error)
+      ? 'Идёт проверка цикла'
+      : validation.error
+        ? 'Проверку не удалось выполнить'
+        : validation.data?.valid
+          ? undefined
+          : 'Цикл не проходит проверку';
+
+  const activateButton = (
+    <Button
+      disabled={Boolean(blockedReason)}
+      onClick={() =>
+        void act(async () => {
+          const result = await api.activateWorkflow(workflowID);
+          setActivation(result);
+          toast.success(`Версия ${result.workflow.version} активирована`);
+          refresh();
+        })
+      }>
+      Активировать
+    </Button>
+  );
 
   return (
     <div className="space-y-4">
@@ -238,18 +274,19 @@ function VersionEditor({
               }>
               Удалить черновик
             </ConfirmButton>
-            <Button
-              disabled={validation.data ? !validation.data.valid : true}
-              onClick={() =>
-                act(async () => {
-                  const result = await api.activateWorkflow(workflowID);
-                  setActivation(result);
-                  toast.success(`Версия ${result.workflow.version} активирована`);
-                  refresh();
-                })
-              }>
-              Активировать
-            </Button>
+            {blockedReason ? (
+              // Выключенная кнопка не получает событий указателя, поэтому
+              // триггером подсказки служит обёртка вокруг неё; tabIndex даёт
+              // ту же подсказку с клавиатуры.
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span tabIndex={0}>{activateButton}</span>
+                </TooltipTrigger>
+                <TooltipContent>{blockedReason}</TooltipContent>
+              </Tooltip>
+            ) : (
+              activateButton
+            )}
           </div>
         ) : null}
       </div>
@@ -262,6 +299,10 @@ function VersionEditor({
           title="Эта версия не редактируется"
           description="По ней идут задачи. Правка цикла — новый черновик копией этой версии; он активируется целиком."
         />
+      ) : null}
+
+      {isDraft && validation.error ? (
+        <Failure error={validation.error} title="Проверка цикла не выполнена" reload={validation.reload} />
       ) : null}
 
       {isDraft && validation.data ? <ValidationReport validation={validation.data} /> : null}
@@ -374,7 +415,12 @@ function Statuses({
 }) {
   const [editing, setEditing] = useState<Status | undefined>();
   const [isOpen, setIsOpen] = useState(false);
-  const [error, setError] = useState<ApiError>();
+  // Отказ бэкенда показывается здесь же, у списка, и подписан тем действием,
+  // которое не прошло: удаление и перестановка отказывают по разным причинам.
+  const [failure, setFailure] = useState<{title: string; error: ApiError}>();
+  // Перестановка в пути. Заняты все стрелки, а не только нажатая: следующий
+  // порядок считается от того, что на экране, и до ответа он ещё прежний.
+  const [isMoving, setIsMoving] = useState(false);
 
   const open = (status?: Status) => {
     setEditing(status);
@@ -383,25 +429,55 @@ function Statuses({
 
   // Порядок колонок меняется одним запросом на весь набор: уникальность
   // позиции не переживает перестановку по одному статусу.
-  const move = (index: number, delta: number) => {
+  const move = async (index: number, delta: number) => {
     const keys = workflow.statuses.map((s) => s.key);
     const target = index + delta;
+    // Страховка: кнопка на краю списка выключена, но ранний выход дешевле
+    // запроса, который бэкенд всё равно отвергнет.
     if (target < 0 || target >= keys.length) return;
     [keys[index], keys[target]] = [keys[target], keys[index]];
-    void api.reorderStatuses(workflow.id, keys).then(onChanged);
+    setFailure(undefined);
+    setIsMoving(true);
+    try {
+      await api.reorderStatuses(workflow.id, keys);
+      onChanged();
+    } catch (err) {
+      setFailure({
+        title: 'Порядок статусов не изменён',
+        error: err instanceof ApiError ? err : new ApiError('internal', String(err)),
+      });
+    } finally {
+      setIsMoving(false);
+    }
   };
 
-  // Отказ бэкенда на удаление показывается здесь же, у списка. Занятость
-  // кнопок и ошибки перестановки — отдельная задача, эта правка их не трогает.
   const remove = async (status: Status) => {
-    setError(undefined);
+    setFailure(undefined);
     try {
       await api.deleteStatus(workflow.id, status.key);
       toast.success(`Статус ${status.name} (${status.key}) удалён`);
       onChanged();
     } catch (err) {
-      setError(err instanceof ApiError ? err : new ApiError('internal', String(err)));
+      setFailure({
+        title: 'Статус не удалён',
+        error: err instanceof ApiError ? err : new ApiError('internal', String(err)),
+      });
     }
+  };
+
+  // Статус уносит с собой не только свои роли: переходы ссылаются на статус
+  // с ON DELETE CASCADE, и вместе с ними пропадают гейты, которые на этих
+  // переходах стоят. Диалог называет это до подтверждения, а не после.
+  const removalDescription = (status: Status) => {
+    const linked = workflow.transitions.filter(
+      (t) => t.from_status_id === status.id || t.to_status_id === status.id,
+    );
+    const gates = linked.reduce((n, t) => n + (t.gates?.length ?? 0), 0);
+    const head = `Статус ${status.name} (${status.key}) пропадёт из черновика вместе со своими ролями.`;
+    if (linked.length === 0) return `${head} Переходов, которые его касаются, в цикле нет.`;
+    const list = linked.map((t) => `${t.name} (${t.key})`).join(', ');
+    const tail = gates > 0 ? `, а с ними и гейты на этих переходах: ${gates}` : '';
+    return `${head} Вместе с ним пропадут переходы, которые из него выходят или в него ведут: ${list}${tail}.`;
   };
 
   return (
@@ -414,7 +490,7 @@ function Statuses({
           </Button>
         ) : null
       }>
-      {error ? <Failure error={error} title="Статус не удалён" /> : null}
+      {failure ? <Failure error={failure.error} title={failure.title} /> : null}
       <ul className="divide-border overflow-hidden rounded-lg border divide-y">
         {workflow.statuses.map((status, index) => {
           const role = primaryRole(status);
@@ -436,18 +512,28 @@ function Statuses({
                     ) : null}
                     {isEditable ? (
                       <>
-                        <Button size="sm" variant="ghost" onClick={() => move(index, -1)}>
-                          ↑
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          aria-label={`Поднять статус «${status.name}» выше`}
+                          disabled={isMoving || index === 0}
+                          onClick={() => void move(index, -1)}>
+                          <ArrowUp />
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={() => move(index, 1)}>
-                          ↓
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          aria-label={`Опустить статус «${status.name}» ниже`}
+                          disabled={isMoving || index === workflow.statuses.length - 1}
+                          onClick={() => void move(index, 1)}>
+                          <ArrowDown />
                         </Button>
                         <Button size="sm" variant="ghost" onClick={() => open(status)}>
                           Править
                         </Button>
                         <ConfirmButton
                           title="Удалить статус?"
-                          description={`Статус ${status.name} (${status.key}) пропадёт из черновика вместе со своими ролями`}
+                          description={removalDescription(status)}
                           onConfirm={() => remove(status)}>
                           Удалить
                         </ConfirmButton>
