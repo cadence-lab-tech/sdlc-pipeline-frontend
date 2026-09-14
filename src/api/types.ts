@@ -544,9 +544,12 @@ export interface ActivationResult {
   workflow: WorkflowHead;
   retired_workflow_id?: UUID;
   retired_workflow_ids?: UUID[];
+  // Списки обрезаны сервером до первых ключей; полное число — в *_total.
   tasks_on_previous_version: OpenTaskOnWorkflow[];
+  tasks_on_previous_version_total?: number;
   // Задачи из бэклога, переехавшие на активированную версию (решение 0036).
   tasks_moved?: MovedTask[];
+  tasks_moved_total?: number;
   warnings: WorkflowProblem[];
 }
 

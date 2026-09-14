@@ -319,14 +319,18 @@ function ValidationReport({validation}: {validation: Validation}) {
 // потому что переклеивание результатов гейтов теряло бы решения людей.
 // Задачи из бэклога, которых никто не забирал, переезжают на новую версию
 // (решение 0036) — им терять нечего, а правила нужны актуальные.
+// Сервер перечисляет первые ключи и отдаёт полное число отдельно: бэклог
+// может быть в тысячи задач, и список на весь экран никому не нужен.
 function ActivationReport({result}: {result: ActivationResult}) {
   const moved = result.tasks_moved ?? [];
+  const movedTotal = result.tasks_moved_total ?? moved.length;
   const stayed = result.tasks_on_previous_version;
+  const stayedTotal = result.tasks_on_previous_version_total ?? stayed.length;
   return (
     <Note tone="success" title={`Версия ${result.workflow.version} активирована`}>
       {moved.length ? (
         <div className="space-y-1">
-          <p>Задачи из бэклога переехали на новую версию</p>
+          <p>Задачи из бэклога переехали на новую версию: {movedTotal}</p>
           <div className="flex flex-wrap gap-1">
             {moved.map((t) => (
               <Token
@@ -338,16 +342,18 @@ function ActivationReport({result}: {result: ActivationResult}) {
                 }
               />
             ))}
+            {movedTotal > moved.length ? <Token label={`и ещё ${movedTotal - moved.length}`} /> : null}
           </div>
         </div>
       ) : null}
       {stayed.length ? (
         <div className="space-y-1">
-          <p>Задачи в работе продолжают идти по прежней версии цикла</p>
+          <p>Задачи в работе продолжают идти по прежней версии цикла: {stayedTotal}</p>
           <div className="flex flex-wrap gap-1">
             {stayed.map((t) => (
               <Token key={t.task} label={`${t.task} · ${t.status}`} />
             ))}
+            {stayedTotal > stayed.length ? <Token label={`и ещё ${stayedTotal - stayed.length}`} /> : null}
           </div>
         </div>
       ) : null}
