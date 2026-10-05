@@ -97,8 +97,14 @@ const calls = await run(`
     .map((e) => e.name.replace(location.origin, ''))
     .filter((n) => n.startsWith('/v1/')))].sort();
 `);
+// Сводку проекта спрашивает оболочка, а не карточка (CLAB-79): она одна на
+// все страницы проекта и держит отметки в меню. Из набора карточки её запрос
+// вычитается и проверяется отдельно.
+const SHELL_HEALTH = '/v1/projects/SDLC/health';
+const own = calls.filter((n) => n !== SHELL_HEALTH);
 check('карточка ходит только за своим',
-  calls.length === 8 && calls.includes('/v1/tasks/SDLC-1/repo-refs'), JSON.stringify(calls));
+  own.length === 8 && own.includes('/v1/tasks/SDLC-1/repo-refs'), JSON.stringify(calls));
+check('сводку проекта на странице карточки спрашивает оболочка', calls.includes(SHELL_HEALTH), JSON.stringify(calls));
 
 console.log('ссылки на PR в области задачи');
 check('без привязок ссылок на PR нет и ошибки нет', !t.includes('PR #'), t.slice(0, 600));

@@ -40,11 +40,13 @@ import {
   SidebarProvider,
   SidebarRail,
   SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider, useTheme } from "@/lib/theme";
+import { cn } from "@/lib/utils";
 
 import {
   ApiError,
@@ -53,8 +55,13 @@ import {
   currentToken,
   setCurrentToken,
 } from "./api/client";
-import type { Me } from "./api/types";
+import type { Me, ProjectHealth } from "./api/types";
 import { Failure, Loading } from "./components/Feedback";
+import {
+  PROJECT_HEALTH_EVENT,
+  healthMarks,
+  type HealthMarks,
+} from "./components/health";
 import { Principals, Teams } from "./pages/Admin";
 import { Board } from "./pages/Board";
 import { CLILogin, CLI_LOGIN_PATH } from "./pages/CLILogin";
@@ -251,6 +258,35 @@ function Shell({ page, children }: { page: Page; children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Сводка состояния проекта — отметки в боковом меню (CLAB-79). Оболочка
+  // одна на все страницы проекта, поэтому отметку видит и тот, кто пришёл по
+  // ссылке сразу в карточку задачи. Запрос уходит при входе на страницу
+  // проекта, на каждом переходе между его страницами и по событию от страницы
+  // («Проверить доступ»); таймера нет. Страница сводку не ждёт: ответ придёт —
+  // отметки появятся, не придёт — их просто нет.
+  const [health, setHealth] = useState<{ key: string; data?: ProjectHealth }>();
+  const [healthTick, setHealthTick] = useState(0);
+  useEffect(() => {
+    if (!projectKey) return;
+    let live = true;
+    void api.projectHealth(projectKey).then((data) => {
+      if (live) setHealth({ key: projectKey, data });
+    });
+    return () => {
+      live = false;
+    };
+  }, [projectKey, location.pathname, healthTick]);
+  useEffect(() => {
+    const refresh = () => setHealthTick((n) => n + 1);
+    window.addEventListener(PROJECT_HEALTH_EVENT, refresh);
+    return () => window.removeEventListener(PROJECT_HEALTH_EVENT, refresh);
+  }, []);
+  // Сводка чужого проекта — не про этот: после перехода в другой проект
+  // прежние отметки не показываются, пока не придёт его собственная.
+  const marks =
+    projectKey && health?.key === projectKey ? healthMarks(health.data) : {};
+  const menuMark = [marks.settings, marks.search].filter(Boolean).join(". ");
+
   // Любой 401 посреди работы — токен отозван или истёк — возвращает на вход.
   useEffect(() => {
     const onUnauthenticated = () => {
@@ -277,10 +313,26 @@ function Shell({ page, children }: { page: Page; children: React.ReactNode }) {
 
   return (
     <SidebarProvider>
-      <Nav page={page} projectKey={projectKey} me={me} onLogout={logout} />
+      <Nav
+        page={page}
+        projectKey={projectKey}
+        me={me}
+        marks={marks}
+        onLogout={logout}
+      />
       <SidebarInset className="min-w-0 overflow-x-hidden">
         <header className="bg-background/80 sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b px-4 backdrop-blur">
-          <SidebarTrigger />
+          {/* На узком экране меню спрятано за этой кнопкой, и отметка стоит
+              на ней: иначе её не увидеть, не открыв меню. */}
+          <span className="relative inline-flex">
+            <SidebarTrigger />
+            {menuMark ? (
+              <>
+                <MarkDot data-menu-mark className="md:hidden" />
+                <span className="sr-only md:hidden">{menuMark}</span>
+              </>
+            ) : null}
+          </span>
           <Separator orientation="vertical" className="mr-1 h-4" />
           <span className="text-sm font-medium">
             {projectKey ? `${projectKey} · ${TITLES[page]}` : TITLES[page]}
@@ -308,17 +360,39 @@ type NavEntry = {
   label: string;
   href: string;
   icon: React.ComponentType<{ className?: string }>;
+  // Отметка у пункта: текст для подсказки и программ чтения с экрана.
+  mark?: string;
 };
+
+// MarkDot — точка-отметка. Цвет — токен темы destructive, он меняется вместе
+// с темой; кольцо цветом фона отделяет точку от иконки.
+function MarkDot({
+  className,
+  ...props
+}: React.ComponentProps<"span">) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "bg-destructive ring-background pointer-events-none absolute -top-0.5 -right-0.5 size-2 rounded-full ring-2",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
 
 function Nav({
   page,
   projectKey,
   me,
+  marks,
   onLogout,
 }: {
   page: Page;
   projectKey?: string;
   me?: Me;
+  marks: HealthMarks;
   onLogout: () => void;
 }) {
   const global: NavEntry[] = [
@@ -366,6 +440,7 @@ function Nav({
           label: "Поиск",
           icon: Search,
           href: `/p/${projectKey}/search`,
+          mark: marks.search,
         },
         {
           page: "metrics",
@@ -378,6 +453,7 @@ function Nav({
           label: "Настройки",
           icon: Settings2,
           href: `/p/${projectKey}/settings`,
+          mark: marks.settings,
         },
       ]
     : [];
@@ -474,18 +550,41 @@ function NavItem({
   href,
   icon: Icon,
   isActive,
+  mark,
 }: {
   label: string;
   href: string;
   icon: React.ComponentType<{ className?: string }>;
   isActive: boolean;
+  mark?: string;
 }) {
+  const { state, isMobile } = useSidebar();
+  // У свёрнутого до иконок меню подсказку пункта показывает сам компонент
+  // меню — в неё попадает и текст отметки. У развёрнутого его подсказка
+  // выключена, и текст отметки несёт обычный title.
+  const collapsed = state === "collapsed" && !isMobile;
   return (
     <SidebarMenuItem>
-      <SidebarMenuButton asChild isActive={isActive} tooltip={label}>
-        <Link to={href}>
-          <Icon />
-          <span>{label}</span>
+      <SidebarMenuButton
+        asChild
+        isActive={isActive}
+        tooltip={mark ? `${label} — ${mark}` : label}
+      >
+        <Link
+          to={href}
+          data-nav-mark={mark ? "" : undefined}
+          title={mark && !collapsed ? mark : undefined}
+        >
+          {/* Отметка стоит на иконке, а не справа от подписи: иконка остаётся
+              на экране и когда меню свёрнуто. */}
+          <span className="relative inline-flex shrink-0">
+            <Icon className="size-4" />
+            {mark ? <MarkDot className="ring-sidebar" /> : null}
+          </span>
+          <span>
+            {label}
+            {mark ? <span className="sr-only"> — {mark}</span> : null}
+          </span>
         </Link>
       </SidebarMenuButton>
     </SidebarMenuItem>

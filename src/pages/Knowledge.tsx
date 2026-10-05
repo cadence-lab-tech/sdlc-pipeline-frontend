@@ -12,6 +12,7 @@ import {api} from '../api/client';
 import type {IndexStatusRow, SearchHit} from '../api/types';
 import {useResource} from '../api/useResource';
 import {Loaded} from '../components/Feedback';
+import {failureSource, runState} from '../components/health';
 
 // Что известно проекту: гибридный поиск по коду, артефактам и документам плюс
 // состояние индекса, из которого он читает. Тем же поиском пользуется агент
@@ -199,7 +200,34 @@ function IndexState({projectKey}: {projectKey: string}) {
               />
             }
             columns={[
-              {key: 'repository', header: 'Репозиторий'},
+              {
+                key: 'repository',
+                header: 'Репозиторий',
+                // Причина нечитаемости стоит в самой строке, а не в подсказке
+                // бейджа: по подсказке её однажды не заметили (CLAB-79).
+                renderCell: (r) =>
+                  r.failure ? (
+                    <div className="min-w-80 space-y-1 whitespace-normal" data-unreadable={r.repository}>
+                      <div>{r.repository}</div>
+                      <p className="text-destructive text-xs">
+                        не читается с <Timestamp value={r.failure.since} className="text-xs text-inherit" /> —{' '}
+                        {failureSource(r.failure.source)}
+                      </p>
+                      <p className="text-muted-foreground text-xs break-words">{r.failure.error}</p>
+                      <p className="text-muted-foreground text-xs">
+                        {r.last_indexed_at ? (
+                          <>
+                            индекс собран <Timestamp value={r.last_indexed_at} format="relative" className="text-xs" />
+                          </>
+                        ) : (
+                          'индекс ещё не собирался'
+                        )}
+                      </p>
+                    </div>
+                  ) : (
+                    r.repository
+                  ),
+              },
               {
                 key: 'branch',
                 header: 'Ветка',
@@ -261,16 +289,12 @@ function IndexState({projectKey}: {projectKey: string}) {
 }
 
 function RunState({row}: {row: IndexStatusRow}) {
-  if (!row.index_enabled) return <Badge variant="secondary">выключена</Badge>;
-  if (!row.state) return <Badge variant="secondary">не запускалась</Badge>;
-  if (row.state === 'failed') {
-    return (
-      <span className="inline-flex items-center gap-1" title={row.error ?? undefined}>
-        <Badge variant="destructive">сорвался</Badge>
-      </span>
-    );
-  }
-  return <Badge>{row.state}</Badge>;
+  const state = runState(row);
+  return (
+    <span className="inline-flex items-center gap-1" title={state.title}>
+      <Badge variant={state.variant}>{state.label}</Badge>
+    </span>
+  );
 }
 
 function branches(list?: string[]): string {

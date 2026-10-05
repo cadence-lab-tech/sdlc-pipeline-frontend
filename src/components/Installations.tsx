@@ -1,17 +1,20 @@
 import {Badge} from '@/components/ui/badge';
-import {EmptyState, Token} from '@/components/kit';
+import {EmptyState, Note, Timestamp, Token} from '@/components/kit';
 
-import type {GitHubInstallation} from '../api/types';
+import type {GitHubAppStatus, GitHubInstallation} from '../api/types';
+import {appNotice, installationState} from './health';
 
 // Установки GitHub App команды (решение 0034): общий список для страницы
-// команды, настроек проекта и страницы подключения.
-function stateOf(i: GitHubInstallation): {label: string; variant: 'default' | 'secondary' | 'destructive'} {
-  if (i.removed_at) return {label: 'снята', variant: 'destructive'};
-  if (i.suspended_at) return {label: 'приостановлена', variant: 'secondary'};
-  return {label: 'работает', variant: 'default'};
-}
-
-export function InstallationsList({installations}: {installations: GitHubInstallation[]}) {
+// команды, настроек проекта и страницы подключения. app — состояние
+// приложения у провайдера, если страница его знает: при отбитом ключе живая
+// установка не называется работающей (CLAB-79).
+export function InstallationsList({
+  installations,
+  app,
+}: {
+  installations: GitHubInstallation[];
+  app?: GitHubAppStatus;
+}) {
   if (installations.length === 0) {
     return (
       <EmptyState
@@ -23,7 +26,7 @@ export function InstallationsList({installations}: {installations: GitHubInstall
   return (
     <div className="space-y-1">
       {installations.map((i) => {
-        const state = stateOf(i);
+        const state = installationState(i, app);
         return (
           <div key={i.id} className="flex flex-wrap items-center gap-2 text-sm">
             <span className="font-mono">{i.account_login}</span>
@@ -33,6 +36,31 @@ export function InstallationsList({installations}: {installations: GitHubInstall
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// AppStateNote — состояние приложения GitHub у провайдера: отказ ключа,
+// «не удалось проверить», «не настроено», расхождение часов. Ключ принят и
+// часы в порядке — ничего не рисует. Показывается при открытии раздела, без
+// кнопок: о восемнадцати днях отбитого ключа однажды узнали случайно.
+export function AppStateNote({app}: {app?: GitHubAppStatus}) {
+  const notice = appNotice(app);
+  if (!notice) return null;
+  return (
+    <div data-app-state={app?.state}>
+      <Note tone={notice.tone} title={notice.title}>
+        {notice.lines.map((line) => (
+          <p key={line} className="break-words opacity-90">
+            {line}
+          </p>
+        ))}
+        {notice.checkedAt ? (
+          <p className="text-xs opacity-75">
+            Проверено <Timestamp value={notice.checkedAt} className="text-xs text-inherit" />
+          </p>
+        ) : null}
+      </Note>
     </div>
   );
 }
