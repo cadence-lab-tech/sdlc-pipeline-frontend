@@ -196,7 +196,35 @@ export interface GitHubStatus {
   installation_id?: number;
   credential_ref?: string;
   app_configured: boolean;
+  // Состояние приложения, проверенное этим же вызовом. Бэкенд до CLAB-79
+  // поля не отдаёт.
+  app?: GitHubAppStatus;
   repositories: RepoAccess[];
+}
+
+// Состояние приложения GitHub у провайдера (CLAB-79). app_configured —
+// «настроено», а не «работает»: принимает ли провайдер ключ, говорит state.
+// unknown — проверить не удалось, это не отказ ключа.
+export interface GitHubAppStatus {
+  state: "ok" | "rejected" | "unknown" | "not_configured" | (string & {});
+  // Ответ провайдера при rejected, причина при unknown.
+  error?: string;
+  checked_at?: string;
+  // Измеренное расхождение часов; плюс — часы машины отстают от провайдера.
+  clock_offset_seconds?: number;
+}
+
+// Сводка состояния проекта для оболочки: отметки в боковом меню. Текста
+// провайдера и расхождения часов в ней нет — подробности в настройках.
+export interface ProjectHealth {
+  app?: Pick<GitHubAppStatus, "state" | "checked_at">;
+  unreadable_repositories?: number;
+}
+
+// Установки команды вместе с состоянием приложения.
+export interface TeamGitHub {
+  installations: GitHubInstallation[];
+  app?: GitHubAppStatus;
 }
 
 // Установка GitHub App на аккаунт человека или организации (решение 0034).
@@ -216,14 +244,16 @@ export interface GitHubInstallation {
   removed_at?: string;
 }
 
-// Настройки GitHub проекта без похода в сеть: установки команды-владельца и
-// учётные данные самого проекта.
+// Настройки GitHub проекта при открытии страницы: установки
+// команды-владельца, учётные данные самого проекта и состояние приложения
+// из кэша бэкенда.
 export interface ProjectGitHub {
   owner_team_key: string;
   installations: GitHubInstallation[];
   installation_id?: number;
   credential_ref?: string;
   app_configured: boolean;
+  app?: GitHubAppStatus;
 }
 
 // Репозиторий на выбор: он в установке команды, и вошедший видит его сам.
@@ -927,6 +957,16 @@ export interface IndexStatusRow {
   attempt?: number;
   error?: string;
   finished_at?: string;
+  // Репозиторий не читается повторно (CLAB-79): прогон в failed, вторая
+  // неудачная попытка либо голова ветки, не прочитанная два прохода подряд.
+  failure?: IndexFailure;
+}
+
+export interface IndexFailure {
+  since: string;
+  error: string;
+  // run — не проходит прогон, head — не читается голова ветки.
+  source: "run" | "head" | (string & {});
 }
 
 export interface SearchHit {

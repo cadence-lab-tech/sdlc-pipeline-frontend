@@ -16,6 +16,8 @@ import type {
   ImportReport,
   IssuedToken,
   GitHubStatus,
+  ProjectHealth,
+  TeamGitHub,
   ProjectGitHub,
   RepoPick,
   AttachResult,
@@ -357,6 +359,14 @@ export const api = {
     request<{ installations: GitHubInstallation[] }>(
       `/teams/${teamKey}/github/installations`,
     ).then((r) => r.installations ?? []),
+
+  // Те же установки вместе с состоянием приложения у провайдера (из кэша
+  // бэкенда): странице команды нужно сказать, что ключ не принят.
+  teamGitHub: (teamKey: string) =>
+    request<TeamGitHub>(`/teams/${teamKey}/github/installations`).then((r) => ({
+      ...r,
+      installations: r.installations ?? [],
+    })),
 
   // Возврат от GitHub: код повторной авторизации доказывает право на
   // установку и открывает список репозиториев, которые вошедший видит сам.
@@ -847,6 +857,24 @@ export const api = {
     request<{ repositories: IndexStatusRow[] }>(
       `/projects/${projectKey}/index`,
     ).then((r) => r.repositories ?? []),
+
+  // Сводка состояния проекта для оболочки: отметки в боковом меню. Читает
+  // кэш и базу бэкенда, поэтому зовётся на каждом переходе по страницам
+  // проекта. Отказ сводки (нет ручки у старого бэкенда, 403, сбой) наружу
+  // не поднимается: индикатор вспомогательный, страница от него не зависит.
+  // Мимо request намеренно — тот на 401 уводит на вход, а решать это должна
+  // страница со своими данными, а не индикатор.
+  projectHealth: async (projectKey: string): Promise<ProjectHealth | undefined> => {
+    try {
+      const res = await fetch(`${BASE}/projects/${projectKey}/health`, {
+        headers: authHeaders(),
+      });
+      if (!res.ok) return undefined;
+      return (await res.json()) as ProjectHealth;
+    } catch {
+      return undefined;
+    }
+  },
 
   search: (
     projectKey: string,

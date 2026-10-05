@@ -8,11 +8,12 @@ import {Card} from '@/components/ui/card';
 import {Separator} from '@/components/ui/separator';
 import {FormLayout, MultiSelector, NumberInput, Selector, TextArea, TextInput} from '@/components/fields';
 import {DataTable} from '@/components/DataTable';
-import {CodeBlock, ConfirmButton, EmptyState, Note, Page, PageHeader, Section, Token} from '@/components/kit';
+import {CodeBlock, ConfirmButton, EmptyState, Note, Page, PageHeader, Section, Timestamp, Token} from '@/components/kit';
 
 import {ApiError, api} from '../api/client';
 import {startInstall, startReauth} from '../api/github';
-import {InstallationsList} from '../components/Installations';
+import {PROJECT_HEALTH_EVENT} from '../components/health';
+import {AppStateNote, InstallationsList} from '../components/Installations';
 import {InviteDialog, InvitesTable} from '../components/Invites';
 import {counted} from '../components/removals';
 import type {
@@ -388,6 +389,8 @@ function Teams({projectKey}: {projectKey: string}) {
 // GitHub. В базе лежат ссылки, а не секреты: имя секрета для запасного пути
 // приезжает из окружения (SDLC_GITHUB_TOKEN_<ИМЯ>). Проверка доступа ходит в
 // провайдера, поэтому делается по кнопке, а не при открытии страницы.
+// Состояние самого приложения видно сразу: бэкенд отдаёт его из кэша, а
+// кнопка «Проверить доступ» спрашивает провайдера заново (CLAB-79).
 function GitHubAccess({projectKey}: {projectKey: string}) {
   const github = useResource(() => api.getProjectGitHub(projectKey), [projectKey]);
   const settings = useResource(() => api.githubSettings(), []);
@@ -418,13 +421,16 @@ function GitHubAccess({projectKey}: {projectKey: string}) {
         {(gh) => {
           const installURL = settings.data?.install_url;
           const canPick = (settings.data?.enabled ?? false) && gh.installations.some((i) => !i.removed_at && !i.suspended_at);
+          // Ответ свежей проверки новее кэша, с которым открылась страница.
+          const app = status?.app ?? gh.app;
           return (
             <Card className="gap-4 p-4">
+              <AppStateNote app={app} />
               <div className="space-y-2">
                 <p className="text-muted-foreground text-xs">
                   Установки команды {gh.owner_team_key || '—'}
                 </p>
-                <InstallationsList installations={gh.installations} />
+                <InstallationsList installations={gh.installations} app={app} />
                 {gh.installation_id ? (
                   <p className="text-muted-foreground text-xs">
                     Установка по умолчанию у проекта: {gh.installation_id} — задана до перехода на установки команды и
@@ -447,7 +453,15 @@ function GitHubAccess({projectKey}: {projectKey: string}) {
                 <Button
                   variant="secondary"
                   disabled={busy}
-                  onClick={() => run(async () => setStatus(await api.checkProjectGitHub(projectKey)))}>
+                  onClick={() =>
+                    run(async () => {
+                      setStatus(await api.checkProjectGitHub(projectKey));
+                      // Проверка обновила кэш состояния приложения на бэкенде:
+                      // оболочка перечитывает сводку, и отметка в меню уходит
+                      // или появляется сразу, без перехода.
+                      window.dispatchEvent(new Event(PROJECT_HEALTH_EVENT));
+                    })
+                  }>
                   Проверить доступ
                 </Button>
               </div>
@@ -494,7 +508,9 @@ function GitHubAccess({projectKey}: {projectKey: string}) {
 function AccessReport({status}: {status: GitHubStatus}) {
   return (
     <div className="space-y-2">
-      {status.app_configured ? null : (
+      {/* Состояние приложения показывает сам раздел; заметка здесь — только
+          для бэкенда, который его ещё не отдаёт. */}
+      {status.app || status.app_configured ? null : (
         <Note
           title="Приложение у инстанса не настроено"
           description="Без SDLC_GITHUB_APP_ID и ключа установку прописывать некуда: доступ пойдёт именованным секретом или общим токеном."
@@ -556,6 +572,10 @@ function accessSource(r: RepoAccess): string {
 // задачи, бэкенд её не даёт — и называет ключи задач в отказе.
 function Repositories({projectKey}: {projectKey: string}) {
   const project = useResource(() => api.getProject(projectKey), [projectKey]);
+  // Состояние индекса — ради пометки «не читается» (CLAB-79). Не ответило —
+  // колонка выглядит как раньше: раздел про область, а не про индекс.
+  const index = useResource(() => api.indexStatus(projectKey), [projectKey]);
+  const failures = new Map((index.data ?? []).map((row) => [row.repository, row.failure]));
   const [error, setError] = useState<ApiError>();
 
   const remove = async (repo: Repository) => {
@@ -610,13 +630,21 @@ function Repositories({projectKey}: {projectKey: string}) {
               {
                 key: 'unavailable_at',
                 header: 'Состояние',
-                width: 180,
-                renderCell: (r) =>
-                  r.unavailable_at ? (
-                    <Badge variant="destructive">убран из установки</Badge>
-                  ) : (
-                    <Badge>в области</Badge>
-                  ),
+                width: 280,
+                renderCell: (r) => {
+                  if (r.unavailable_at) return <Badge variant="destructive">убран из установки</Badge>;
+                  const failure = failures.get(`${r.owner}/${r.name}`);
+                  if (!failure) return <Badge>в области</Badge>;
+                  return (
+                    <div className="space-y-1 whitespace-normal" data-unreadable={`${r.owner}/${r.name}`}>
+                      <Badge variant="destructive">не читается</Badge>{' '}
+                      <span className="text-muted-foreground text-xs">
+                        с <Timestamp value={failure.since} className="text-xs" />
+                      </span>
+                      <p className="text-muted-foreground text-xs break-words">{failure.error}</p>
+                    </div>
+                  );
+                },
               },
               {
                 key: 'actions',

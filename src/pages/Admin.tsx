@@ -12,7 +12,7 @@ import {ConfirmButton, EmptyState, Note, Page, PageHeader, Row, Section, Timesta
 
 import {ApiError, api} from '../api/client';
 import {startInstall} from '../api/github';
-import {InstallationsList} from '../components/Installations';
+import {AppStateNote, InstallationsList} from '../components/Installations';
 import {InviteDialog, InvitesTable} from '../components/Invites';
 import {counted} from '../components/removals';
 import type {Me, Plan, Principal, ProjectTeam, Team, TeamDetail as TeamDetailData, TeamMember} from '../api/types';
@@ -632,13 +632,18 @@ function IdPGroups({teamKey}: {teamKey: string}) {
 // выбираются уже из настроек проекта.
 function Installations({team, installations}: {team: Team; installations: TeamDetailData['installations']}) {
   const settings = useResource(() => api.githubSettings(), []);
+  // Состояние приложения у провайдера приходит вместе с установками команды
+  // (CLAB-79). Не ответило или бэкенд его не отдаёт — раздел как раньше.
+  const github = useResource(() => api.teamGitHub(team.key), [team.key]);
+  const app = github.data?.app;
   const installURL = settings.data?.install_url;
   return (
     <Section
       title="GitHub"
       description="Установки приложения на аккаунтах и организациях GitHub, чьи репозитории команда подключает к проектам. Одна команда может держать несколько установок.">
       <Card className="gap-3 p-4">
-        <InstallationsList installations={installations} />
+        <AppStateNote app={app} />
+        <InstallationsList installations={installations} app={app} />
         <div>
           <Button
             size="sm"
