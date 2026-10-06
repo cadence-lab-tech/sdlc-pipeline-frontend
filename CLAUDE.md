@@ -290,6 +290,33 @@ e2e/           сквозные проверки в headless-Chrome поверх
 бэкенд — там это и проверяется. База поднимается заново
 (`cd ../backend && make reset && make up`) — сиды не идемпотентны.
 
+## Окружение container-use
+
+Код задачи правится и проверяется в окружении container-use
+([решение 0039](../docs/decisions/0039-container-use-environments.md)), git и
+PR — в рабочей копии `.worktrees/<ключ>/frontend` на хосте. Порядок целиком —
+`../docs/PROCESS.md`, раздел «Окружения container-use».
+
+Окружение описано в `.container-use/environment.json`: `node:24-bookworm`,
+`npm ci` выполнен при создании. container-use читает конфиг из основной
+копии, то есть с `main`.
+
+- `environment_source` — абсолютный путь к этому каталогу (основная копия),
+  `from_git_ref` — ветка задачи, заголовок `<ключ> frontend: …`.
+- Внутри: `npm run typecheck`, `npm run lint`, `npm run build`,
+  `node e2e/labels.mjs`. Поменялись зависимости — `npm ci` там же.
+- `npm run e2e` и просмотр экранов — на хосте: им нужны headless-Chrome и
+  живой бэкенд. Стек задачи `../backend/dev/stack.sh up <ключ>`, интерфейс —
+  `SDLC_API_URL=<адрес> SDLC_UI_PORT=<порт> npm run dev` в рабочей копии
+  после `container-use apply` и коммита; для этого в копии нужен свой
+  `npm ci`.
+- git в окружении не запускать; результат переносится `container-use apply
+  <id>` в чистой рабочей копии.
+- Общие точки, где сходятся параллельные задачи, — роутер, навигация,
+  словари подписей, общие компоненты `components/ui/`. Кто ещё правит
+  фронтенд на этой машине — `container-use list` здесь, что именно —
+  `container-use diff <id>`; правь такие места точечно.
+
 ## Статус
 
 Интерфейс переведён с Astryx на shadcn/ui

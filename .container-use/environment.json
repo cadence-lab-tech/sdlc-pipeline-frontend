@@ -1,0 +1,7 @@
+{
+  "workdir": "/workdir",
+  "base_image": "node:24-bookworm",
+  "install_commands": [
+    "npm ci --no-audit --no-fund"
+  ]
+}
