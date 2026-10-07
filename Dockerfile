@@ -14,9 +14,15 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
+# LICENSE из корня репозитория ложится в корень образа, /LICENSE. Файла нет —
+# каталог пуст и сборка по SHA для нашего инстанса не падает; образ версии
+# без лицензии не выпускает release.yml, он проверяет файл до сборки.
+RUN mkdir -p /out/license && if [ -f LICENSE ]; then cp LICENSE /out/license/; fi
+
 # Раздача статики. Caddy, а не nginx: тот же образ, что у внешнего прокси,
 # и конфиг в три строки вместо блока location.
 FROM caddy:2-alpine
 COPY deploy/Caddyfile /etc/caddy/Caddyfile
 COPY --from=build /app/dist /srv
+COPY --from=build /out/license/ /
 EXPOSE 80

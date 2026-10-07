@@ -62,6 +62,24 @@ npm run e2e      # сквозные проверки в headless-Chrome пове
 [deploy/README.md](https://github.com/cadence-lab-tech/sdlc-pipeline-backend/blob/main/deploy/README.md)
 в репозитории бэкенда.
 
+Выпуск версии — тег `vX.Y.Z` на `main` здесь и тот же тег в
+[backend](https://github.com/cadence-lab-tech/sdlc-pipeline-backend). Тег
+здесь запускает `.github/workflows/release.yml`: образ
+`ghcr.io/cadence-lab-tech/sdlc-pipeline-frontend:vX.Y.Z` с файлом `LICENSE`
+из корня репозитория по пути `/LICENSE`; без `LICENSE` выпуск падает до
+сборки, а `deploy.yml` тег не запускает. Тот выпуск, что опубликовал образ
+вторым, шлёт событие `cadence-release` в
+[`cadence-lab-tech/self-hosted`](https://github.com/cadence-lab-tech/self-hosted)
+(`.github/release/notify-self-hosted.sh`, такой же в backend; проверка —
+`bash .github/release/notify-self-hosted.test.sh`). Нужны секрет
+`SELF_HOSTED_DISPATCH_TOKEN` (fine-grained PAT с Contents: Read and write
+только на `self-hosted`) и, пока пакеты приватные, доступ на чтение чужого
+пакета из прогона (Manage Actions access в настройках пакета). Пришла только
+половина выпуска — в логе шага «оповестить self-hosted» написано, какого
+образа нет: поставить тег во втором репозитории или перезапустить упавший
+прогон. Подробно — раздел «Выпуск версии» в
+[README бэкенда](https://github.com/cadence-lab-tech/sdlc-pipeline-backend#выпуск-версии).
+
 ## Страницы
 
 | Страница | Назначение |
