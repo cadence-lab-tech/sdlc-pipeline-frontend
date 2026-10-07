@@ -2,6 +2,7 @@
   "workdir": "/workdir",
   "base_image": "node:24-bookworm",
   "install_commands": [
-    "npm ci --no-audit --no-fund"
+    "mkdir -p /opt/deps && cp /workdir/package.json /workdir/package-lock.json /opt/deps/ && cd /opt/deps && npm ci --no-audit --no-fund",
+    "rm -rf /workdir/node_modules && ln -s /opt/deps/node_modules /workdir/node_modules"
   ]
 }
