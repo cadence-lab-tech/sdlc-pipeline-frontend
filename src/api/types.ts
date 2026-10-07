@@ -701,6 +701,23 @@ export interface Me {
   can_create_projects: boolean;
 }
 
+// Сведения об инстансе (CLAB-87): открытая ручка GET /v1/instance, тот же
+// ответ, что в backend/internal/workflow/instance.go. Профиль — tenancy:
+// shared у нашего общего инстанса, single у инстанса компании (CLAB-88).
+export type Tenancy = "shared" | "single";
+
+export interface Instance {
+  // vX.Y.Z у выпуска, SHA у нашего инстанса, dev у локальной сборки.
+  version: string;
+  tenancy: Tenancy;
+  project_creation: "open" | "teams";
+  login: {
+    methods: ("token" | "github" | "oidc")[];
+    github?: GitHubSettings & { available: boolean };
+    oidc?: OIDCSettings & { available: boolean; error?: string };
+  };
+}
+
 // Вход через корпоративного провайдера (решение 0027). Адреса приходят из
 // discovery-документа: фронтенд их не выдумывает.
 export interface OIDCSettings {
