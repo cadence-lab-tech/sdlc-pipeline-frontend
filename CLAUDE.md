@@ -298,13 +298,22 @@ PR — в рабочей копии `.worktrees/<ключ>/frontend` на хос
 `../docs/PROCESS.md`, раздел «Окружения container-use».
 
 Окружение описано в `.container-use/environment.json`: `node:24-bookworm`,
-`npm ci` выполнен при создании. container-use читает конфиг из основной
-копии, то есть с `main`.
+`npm ci` выполнен при создании в `/opt/deps`, а `/workdir/node_modules` —
+симлинк туда. container-use после каждой правки переносит весь `/workdir`
+на хост, и 20 тысяч файлов `node_modules` на каждом переносе клинили общий
+движок Dagger для всех агентов машины. Поэтому `.gitignore` ловит
+`node_modules` без слеша: шаблон со слешем симлинк пропускает. container-use
+читает конфиг из основной копии, то есть с `main`.
 
 - `environment_source` — абсолютный путь к этому каталогу (основная копия),
   `from_git_ref` — ветка задачи, заголовок `<ключ> frontend: …`.
 - Внутри: `npm run typecheck`, `npm run lint`, `npm run build`,
-  `node e2e/labels.mjs`. Поменялись зависимости — `npm ci` там же.
+  `node e2e/labels.mjs`. Поменялись зависимости — `cp package.json
+  package-lock.json /opt/deps/ && cd /opt/deps && npm ci`; `npm install`
+  в `/workdir` не запускать.
+- Вызовы тулов container-use — по одному, не параллельно; долгие команды —
+  под `timeout`. Движок Dagger один на машину: зависший вызов останавливает
+  окружения всех агентов.
 - `npm run e2e` и просмотр экранов — на хосте: им нужны headless-Chrome и
   живой бэкенд. Стек задачи `../backend/dev/stack.sh up <ключ>`, интерфейс —
   `SDLC_API_URL=<адрес> SDLC_UI_PORT=<порт> npm run dev` в рабочей копии
