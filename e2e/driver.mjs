@@ -70,6 +70,17 @@ export async function session(url) {
       await send('Emulation.setEmulatedMedia', {features});
       await new Promise((r) => setTimeout(r, 300));
     },
+    // Скрипт, который выполняется в каждом новом документе до кода страницы:
+    // так подменяется ответ сервера, которого стенд дать не может (404 у
+    // ручки, сбой сети), — а не заглушкой всего бэкенда. Возвращает
+    // идентификатор для removeInitScript.
+    addInitScript: async (source) => {
+      const r = await send('Page.addScriptToEvaluateOnNewDocument', {source});
+      return r.result?.identifier;
+    },
+    removeInitScript: async (identifier) => {
+      await send('Page.removeScriptToEvaluateOnNewDocument', {identifier});
+    },
     close: () => ws.close(),
   };
 }
