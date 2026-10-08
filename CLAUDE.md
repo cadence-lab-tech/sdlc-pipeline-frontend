@@ -310,41 +310,34 @@ e2e/           сквозные проверки в headless-Chrome поверх
 e2e/single.mjs` при поднятом headless-Chrome. «Человек без команды» и лид
 там — агенты с токенами от администратора: человека заранее не завести.
 
-## Окружение container-use
+## Верстак задачи
 
-Код задачи правится и проверяется в окружении container-use
-([решение 0039](../docs/decisions/0039-container-use-environments.md)), git и
-PR — в рабочей копии `.worktrees/<ключ>/frontend` на хосте. Порядок целиком —
-`../docs/PROCESS.md`, раздел «Окружения container-use».
+Файлы задачи правятся в рабочей копии `.worktrees/<ключ>/frontend` на хосте,
+а проверяются в верстаке стека задачи — контейнере `node:24-bookworm` с
+примонтированной копией
+([решение 0041](../docs/decisions/0041-task-toolbox-in-compose.md)). Порядок
+целиком — `../docs/PROCESS.md`, раздел «Верстак задачи»; устройство —
+`../backend/dev/README.md`, «Верстаки задачи».
 
-Окружение описано в `.container-use/environment.json`: `node:24-bookworm`,
-`npm ci` выполнен при создании в `/opt/deps`, а `/workdir/node_modules` —
-симлинк туда. container-use после каждой правки переносит весь `/workdir`
-на хост, и 20 тысяч файлов `node_modules` на каждом переносе клинили общий
-движок Dagger для всех агентов машины. Поэтому `.gitignore` ловит
-`node_modules` без слеша: шаблон со слешем симлинк пропускает. container-use
-читает конфиг из основной копии, то есть с `main`.
-
-- `environment_source` — абсолютный путь к этому каталогу (основная копия),
-  `from_git_ref` — ветка задачи, заголовок `<ключ> frontend: …`.
-- Внутри: `npm run typecheck`, `npm run lint`, `npm run build`,
-  `node e2e/labels.mjs`. Поменялись зависимости — `cp package.json
-  package-lock.json /opt/deps/ && cd /opt/deps && npm ci`; `npm install`
-  в `/workdir` не запускать.
-- Вызовы тулов container-use — по одному, не параллельно; долгие команды —
-  под `timeout`. Движок Dagger один на машину: зависший вызов останавливает
-  окружения всех агентов.
+- Стек поднимается из копии backend задачи (`dev/stack.sh up <ключ>`), и
+  копию фронтенда он берёт соседнюю: `.worktrees/<ключ>/frontend`. Задача
+  только по фронтенду — из основной копии backend с явным путём:
+  `../backend/dev/stack.sh up <ключ> --frontend <эта копия>`.
+- Внутри: `../backend/dev/stack.sh exec <ключ> frontend npm run typecheck`,
+  так же `npm run lint`, `npm run build`, `node e2e/labels.mjs`.
+  Зависимости ставятся сами при первом `exec` и после смены
+  `package-lock.json` — в том стека, не в копию; `npm install` внутри не
+  запускать, новая зависимость — правка `package.json` и `npm install` на
+  хосте в копии, после чего верстак подхватит lock-файл.
 - `npm run e2e` и просмотр экранов — на хосте: им нужны headless-Chrome и
-  живой бэкенд. Стек задачи `../backend/dev/stack.sh up <ключ>`, интерфейс —
-  `SDLC_API_URL=<адрес> SDLC_UI_PORT=<порт> npm run dev` в рабочей копии
-  после `container-use apply` и коммита; для этого в копии нужен свой
-  `npm ci`.
-- git в окружении не запускать; результат переносится `container-use apply
-  <id>` в чистой рабочей копии.
+  живой бэкенд. Интерфейс — `SDLC_API_URL=<адрес стека> SDLC_UI_PORT=<порт>
+  npm run dev` в копии, для этого в ней свой `npm ci` под macOS; `node_modules`
+  копии и верстака не пересекаются.
+- git внутри верстака не работает: ветка, коммиты и push — на хосте.
 - Общие точки, где сходятся параллельные задачи, — роутер, навигация,
   словари подписей, общие компоненты `components/ui/`. Кто ещё правит
-  фронтенд на этой машине — `container-use list` здесь, что именно —
-  `container-use diff <id>`; правь такие места точечно.
+  фронтенд на этой машине — `git worktree list` здесь, что именно —
+  `git diff --stat origin/main...<ветка соседа>`; правь такие места точечно.
 
 ## Статус
 
