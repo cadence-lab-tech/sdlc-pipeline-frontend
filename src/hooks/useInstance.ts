@@ -59,11 +59,3 @@ export const isSingle = (view?: InstanceView) => view?.tenancy === 'single';
 // позвали, — одно на «Командах» и «Проектах»: оба пути к доступу названы.
 export const NO_ACCESS_HINT =
   'Доступ даёт команда: попросите у коллеги приглашение ссылкой или обратитесь к администратору инстанса.';
-
-// Версия выпуска — по тому же правилу, что parseRelease в CLI
-// (backend/cmd/clab/version.go): vMAJOR.MINOR.PATCH, суффикс после «-» или
-// «+» допустим. dev, SHA нашего инстанса и всё прочее выпуском не считаются.
-export function releaseVersion(version?: string): string | undefined {
-  const v = version?.trim();
-  return v && /^v\d+\.\d+\.\d+(?:[-+].*)?$/.test(v) ? v : undefined;
-}

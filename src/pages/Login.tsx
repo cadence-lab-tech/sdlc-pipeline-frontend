@@ -6,10 +6,13 @@ import {Alert, AlertDescription, AlertTitle} from '@/components/ui/alert';
 import {Button} from '@/components/ui/button';
 import {Collapsible, CollapsibleContent, CollapsibleTrigger} from '@/components/ui/collapsible';
 import {FormLayout, TextInput} from '@/components/fields';
+import {CodeBlock} from '@/components/kit';
 
 import {ApiError, api, setCurrentToken} from '../api/client';
 import type {GitHubSettings, OIDCSettings, Session} from '../api/types';
 import {useResource} from '../api/useResource';
+import {installCommand, loginCommand} from '../components/cli';
+import {useInstance} from '../hooks/useInstance';
 
 // Вход: токеном (решение 0021) или через корпоративного провайдера
 // (решение 0027). Второго транспорта провайдер не заводит — обмен ID-токена
@@ -61,6 +64,10 @@ export function Login() {
 const Terminal = lazy(() => import('@/components/login/Terminal'));
 
 function Showcase() {
+  // Версия CLI — та же, что у сервера (CLAB-89): ответ /v1/instance общий с
+  // оболочкой. Пока он не пришёл, команда стоит без версии, как у сервера,
+  // который не ответил.
+  const instance = useInstance();
   return (
     <aside className="bg-muted/40 hidden flex-col justify-center gap-6 border-r p-8 lg:order-1 lg:flex">
       <Suspense fallback={<div className="bg-zinc-950 h-[19.5rem] rounded-xl border border-white/10" />}>
@@ -83,16 +90,20 @@ function Showcase() {
           text="Апрув ставит человек; без него переход остаётся закрытым."
         />
       </div>
-      <p className="text-muted-foreground text-xs">
-        Работа идёт из терминала:{' '}
-        <a
-          className="underline underline-offset-4"
-          href="https://github.com/cadence-lab-tech/homebrew-tap"
-          target="_blank"
-          rel="noopener noreferrer">
-          как поставить CLI clab
-        </a>
-      </p>
+      <div className="space-y-2">
+        <p className="text-muted-foreground text-xs">
+          Работа идёт из терминала:{' '}
+          <a
+            className="underline underline-offset-4"
+            href="https://github.com/cadence-lab-tech/homebrew-tap"
+            target="_blank"
+            rel="noopener noreferrer">
+            как поставить CLI clab
+          </a>
+        </p>
+        <CodeBlock title="установить clab" language="sh" code={installCommand(instance?.version)} />
+        <CodeBlock title="войти на этот инстанс" language="sh" code={loginCommand(window.location.origin)} />
+      </div>
     </aside>
   );
 }
