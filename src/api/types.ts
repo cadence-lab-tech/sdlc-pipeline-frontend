@@ -80,7 +80,9 @@ export interface TeamDetail {
   team: Team;
   members: TeamMember[];
   projects: ProjectTeam[];
-  plan: Plan;
+  // Тариф бывает не везде: при SDLC_TENANCY=single (CLAB-88) тарифов нет, и
+  // бэкенд поле не отдаёт вовсе.
+  plan?: Plan;
   // Установки GitHub App, записанные на команду (решение 0034).
   installations: GitHubInstallation[];
 }
@@ -699,6 +701,23 @@ export interface Me {
   // системы или лид команды с правом на это. Бэкенд решает, интерфейс лишь
   // не показывает кнопку тому, у кого она отобьётся.
   can_create_projects: boolean;
+}
+
+// Сведения об инстансе (CLAB-87): открытая ручка GET /v1/instance, тот же
+// ответ, что в backend/internal/workflow/instance.go. Профиль — tenancy:
+// shared у нашего общего инстанса, single у инстанса компании (CLAB-88).
+export type Tenancy = "shared" | "single";
+
+export interface Instance {
+  // vX.Y.Z у выпуска, SHA у нашего инстанса, dev у локальной сборки.
+  version: string;
+  tenancy: Tenancy;
+  project_creation: "open" | "teams";
+  login: {
+    methods: ("token" | "github" | "oidc")[];
+    github?: GitHubSettings & { available: boolean };
+    oidc?: OIDCSettings & { available: boolean; error?: string };
+  };
 }
 
 // Вход через корпоративного провайдера (решение 0027). Адреса приходят из

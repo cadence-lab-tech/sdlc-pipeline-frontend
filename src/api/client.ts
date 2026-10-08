@@ -57,6 +57,7 @@ import type {
   Invite,
   IssuedInvite,
   AcceptedInvite,
+  Instance,
 } from "./types";
 
 const BASE = import.meta.env.VITE_API_URL ?? "/v1";
@@ -221,6 +222,29 @@ const put = (body: unknown): RequestInit => ({ method: "PUT", ...json(body) });
 const del = (): RequestInit => ({ method: "DELETE" });
 
 export const api = {
+  // ── сведения об инстансе ──────────────────────────────────────────────────
+  // Ручка открытая (CLAB-87): её читают и страница входа, и оболочка, поэтому
+  // запрос идёт без токена и актора, а 401 здесь не повод уводить на вход.
+  // Отказ любого рода — ошибка; что показывать вместо ответа, решает
+  // hooks/useInstance.
+  instance: async (): Promise<Instance> => {
+    let res: Response;
+    try {
+      res = await fetch(BASE + "/instance");
+    } catch (cause) {
+      throw new ApiError("internal", `сервис недоступен: ${String(cause)}`);
+    }
+    if (!res.ok) {
+      throw new ApiError(
+        res.status === 404 ? "not_found" : "internal",
+        `сведения об инстансе: статус ${res.status}`,
+        undefined,
+        res.status,
+      );
+    }
+    return (await res.json()) as Instance;
+  },
+
   // ── кто я, токены, участники ──────────────────────────────────────────────
   me: () =>
     request<Me>("/auth/me").then((m) => ({

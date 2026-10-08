@@ -101,7 +101,10 @@ const calls = await run(`
 // все страницы проекта и держит отметки в меню. Из набора карточки её запрос
 // вычитается и проверяется отдельно.
 const SHELL_HEALTH = '/v1/projects/SDLC/health';
-const own = calls.filter((n) => n !== SHELL_HEALTH);
+// Сведения об инстансе (версия в подвале меню) оболочка спрашивает один раз
+// на загрузку страницы (CLAB-89) — это тоже не запрос карточки.
+const SHELL_INSTANCE = '/v1/instance';
+const own = calls.filter((n) => n !== SHELL_HEALTH && n !== SHELL_INSTANCE);
 check('карточка ходит только за своим',
   own.length === 8 && own.includes('/v1/tasks/SDLC-1/repo-refs'), JSON.stringify(calls));
 check('сводку проекта на странице карточки спрашивает оболочка', calls.includes(SHELL_HEALTH), JSON.stringify(calls));

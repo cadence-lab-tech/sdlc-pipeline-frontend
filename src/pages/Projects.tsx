@@ -5,21 +5,32 @@ import {ChevronRight} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Card, CardContent, CardDescription, CardHeader, CardTitle} from '@/components/ui/card';
 import {FormLayout, Selector, TextInput} from '@/components/fields';
-import {EmptyState, Page, PageHeader, Token} from '@/components/kit';
+import {EmptyState, Note, Page, PageHeader, Token} from '@/components/kit';
 
 import {ApiError, api} from '../api/client';
 import type {Me, Project} from '../api/types';
 import {useResource} from '../api/useResource';
-import {Failure, Loaded} from '../components/Feedback';
+import {Failure, Loaded, Loading} from '../components/Feedback';
+import {NO_ACCESS_HINT, isSingle, useInstance} from '../hooks/useInstance';
 
 export function Projects() {
   const projects = useResource(() => api.listProjects(), []);
   const me = useResource(() => api.me(), []);
+  const instance = useInstance();
   const [creating, setCreating] = useState(false);
 
   // Кнопка показывается тому, у кого она сработает: решает бэкенд
   // (can_create_projects), интерфейс лишь не предлагает заведомо отбитое.
-  const canCreate = me.data?.can_create_projects ?? false;
+  // На выделенном инстансе проект заводится только в команде: без команды,
+  // где человек лид, кнопку видит лишь администратор — форма скажет ему, где
+  // завести команду.
+  const single = isSingle(instance);
+  const isAdmin = me.data?.principal.is_admin ?? false;
+  const leads = me.data?.teams.some((t) => t.role === 'lead') ?? false;
+  const canCreate =
+    instance !== undefined && (me.data?.can_create_projects ?? false) && (!single || leads || isAdmin);
+  // Человек, которого ещё никуда не позвали: ни команды, ни проекта.
+  const noAccess = single && !isAdmin && me.data !== undefined && me.data.teams.length === 0;
 
   return (
     <Page>
@@ -35,6 +46,7 @@ export function Projects() {
       {creating && me.data ? (
         <NewProject
           me={me.data}
+          single={single}
           onDone={() => {
             setCreating(false);
             projects.reload();
@@ -42,26 +54,34 @@ export function Projects() {
           onCancel={() => setCreating(false)}
         />
       ) : null}
-      <Loaded resource={projects}>
-        {(list) =>
-          list.length === 0 ? (
-            <EmptyState
-              title="Проектов пока нет"
-              description={
-                canCreate
-                  ? 'Проект заводит цикл, роли и задачи. Создайте первый.'
-                  : 'Доступ к проектам выдают их администраторы.'
-              }
-            />
-          ) : (
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {list.map((p) => (
-                <ProjectCard key={p.id} projectKey={p.key} name={p.name} description={p.description} />
-              ))}
-            </div>
-          )
-        }
-      </Loaded>
+      {/* Пустое состояние зависит от профиля: ждём его, чтобы не мигать
+          текстом общего инстанса. */}
+      {!instance ? (
+        <Loading />
+      ) : (
+        <Loaded resource={projects}>
+          {(list) =>
+            list.length === 0 ? (
+              <EmptyState
+                title="Проектов пока нет"
+                description={
+                  noAccess
+                    ? NO_ACCESS_HINT
+                    : canCreate
+                      ? 'Проект заводит цикл, роли и задачи. Создайте первый.'
+                      : 'Доступ к проектам выдают их администраторы.'
+                }
+              />
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {list.map((p) => (
+                  <ProjectCard key={p.id} projectKey={p.key} name={p.name} description={p.description} />
+                ))}
+              </div>
+            )
+          }
+        </Loaded>
+      )}
     </Page>
   );
 }
@@ -70,20 +90,34 @@ export function Projects() {
 // Без выбора он уходит в личный аккаунт создателя; предлагаются команды,
 // где человек лид — остальным бэкенд откажет. Создатель — администратор
 // проекта и сам добавляет коллег.
-function NewProject({me, onDone, onCancel}: {me: Me; onDone: (p: Project) => void; onCancel: () => void}) {
-  const [key, setKey] = useState('');
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [team, setTeam] = useState('');
-  const [error, setError] = useState<ApiError>();
-  const [busy, setBusy] = useState(false);
-
+//
+// На выделенном инстансе (CLAB-88) личного аккаунта нет: команда обязательна,
+// без выбора бэкенд отвечает 400. Единственная подходящая команда выбрана
+// сразу, а без подходящих форма объясняет, где завести команду.
+function NewProject({
+  me,
+  single,
+  onDone,
+  onCancel,
+}: {
+  me: Me;
+  single: boolean;
+  onDone: (p: Project) => void;
+  onCancel: () => void;
+}) {
   const teams = me.teams
     .filter((t) => t.role === 'lead')
     .map((t) => ({
       value: t.team_key,
-      label: t.team_kind === 'personal' ? `Личный аккаунт (${t.team_key})` : t.team_key,
+      label: t.team_kind === 'personal' && !single ? `Личный аккаунт (${t.team_key})` : t.team_key,
     }));
+
+  const [key, setKey] = useState('');
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [team, setTeam] = useState(single && teams.length === 1 ? teams[0].value : '');
+  const [error, setError] = useState<ApiError>();
+  const [busy, setBusy] = useState(false);
 
   const submit = async () => {
     setBusy(true);
@@ -118,7 +152,29 @@ function NewProject({me, onDone, onCancel}: {me: Me; onDone: (p: Project) => voi
         />
         <TextInput label="Название" value={name} onChange={setName} isRequired />
         <TextInput label="Описание" value={description} onChange={setDescription} />
-        {teams.length > 0 ? (
+        {single ? (
+          teams.length > 0 ? (
+            <Selector
+              label="Команда"
+              description="проект принадлежит команде, её лид — администратор проекта"
+              options={teams}
+              value={team}
+              onChange={setTeam}
+              isRequired
+            />
+          ) : (
+            <Note title="Нужна команда">
+              <p className="text-sm">
+                Проект заводится в команде, где вы лид, а таких команд у вас нет. Команды заводятся на
+                странице{' '}
+                <Link to="/teams" className="underline underline-offset-4">
+                  «Команды»
+                </Link>
+                .
+              </p>
+            </Note>
+          )
+        ) : teams.length > 0 ? (
           <Selector
             label="Владелец"
             description="проект принадлежит команде, её лид — администратор проекта; пусто — личный аккаунт"
@@ -131,7 +187,9 @@ function NewProject({me, onDone, onCancel}: {me: Me; onDone: (p: Project) => voi
         ) : null}
       </FormLayout>
       <div className="flex gap-2">
-        <Button disabled={busy || key.trim() === '' || name.trim() === ''} onClick={submit}>
+        <Button
+          disabled={busy || key.trim() === '' || name.trim() === '' || (single && team === '')}
+          onClick={submit}>
           Создать проект
         </Button>
         <Button variant="ghost" onClick={onCancel}>

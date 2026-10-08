@@ -164,6 +164,7 @@ export function Selector({
   placeholder = 'Выберите',
   isDisabled,
   hasClear,
+  isRequired,
   isLabelHidden,
 }: {
   label?: string;
@@ -174,11 +175,12 @@ export function Selector({
   placeholder?: string;
   isDisabled?: boolean;
   hasClear?: boolean;
+  isRequired?: boolean;
   isLabelHidden?: boolean;
 }) {
   const id = useId();
   return (
-    <Field id={id} label={label} description={description} isLabelHidden={isLabelHidden}>
+    <Field id={id} label={label} description={description} isRequired={isRequired} isLabelHidden={isLabelHidden}>
       <div className="flex items-center gap-1">
         <Select value={value} onValueChange={onChange} disabled={isDisabled}>
           <SelectTrigger id={id} className="w-full">
