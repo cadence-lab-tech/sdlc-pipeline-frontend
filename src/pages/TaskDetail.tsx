@@ -1,6 +1,6 @@
 import {useEffect, useRef, useState} from 'react';
 import {Link, useParams} from 'react-router-dom';
-import {Check, Copy} from 'lucide-react';
+import {Check, Copy, ExternalLink} from 'lucide-react';
 
 import {cn} from '@/lib/utils';
 import {Badge} from '@/components/ui/badge';
@@ -17,6 +17,7 @@ import {DriftPanel} from '../components/DriftPanel';
 import {EditTaskDialog} from '../components/EditTaskDialog';
 import {SubmitArtifactDialog} from '../components/SubmitArtifactDialog';
 import {TaskLabels} from '../components/TaskLabels';
+import {externalLinks} from '../components/externalRef';
 import {priorityClass, priorityLabel} from '../components/priorities';
 import {Actions} from '../components/task/Actions';
 import {CollapsibleSection} from '../components/task/CollapsibleSection';
@@ -140,11 +141,31 @@ function Header({detail, onChanged}: {detail: TaskDetailData; onChanged: () => v
             ↑ {task.parent_key}
           </Link>
         ) : null}
+        <ExternalRefs externalRef={task.external_ref} />
         <TaskLabels labels={task.labels} />
       </div>
       {task.description ? <Description text={task.description} /> : null}
     </div>
   );
+}
+
+// Ссылки на тикеты основного трекера — рядом с родителем: это тоже «откуда
+// пришла работа». Открываются в новой вкладке: трекер — чужое приложение, и
+// уводить из карточки в него незачем. Правка ссылок — через CLI и MCP.
+function ExternalRefs({externalRef}: {externalRef: unknown}) {
+  return externalLinks(externalRef).map((link) => (
+    <a
+      key={link.system}
+      href={link.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      data-external-ref={link.system}
+      className="inline-flex items-center gap-1 underline underline-offset-4">
+      <span className="text-muted-foreground">{link.system}</span>
+      <span>{link.key}</span>
+      <ExternalLink className="size-3" aria-hidden />
+    </a>
+  ));
 }
 
 // Ключ задачи — то, чем на неё ссылаются в ветке, PR и разговоре, поэтому он

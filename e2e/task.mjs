@@ -520,6 +520,53 @@ check('отказ показан текстом бэкенда',
 check('раскрытый список гейтов не схлопнулся', refused.gatesStillOpen === 'open', JSON.stringify(refused.gatesStillOpen));
 check('карточка осталась в прежнем статусе', refused.panel.includes('Analysis'), refused.panel.slice(0, 300));
 
+// Ссылка на основной трекер (CLAB-95) ставится через API: в интерфейсе её
+// только показывают. Проверяется на SDLC-2, чтобы SDLC-1 осталась такой, какой
+// её ждут следующие сценарии.
+console.log('ссылка на основной трекер');
+const apiPatch = (path, body) =>
+  fetch(API + path, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json', 'X-SDLC-Actor': 'e2e'},
+    body: JSON.stringify(body),
+  });
+const externalOnCard = `
+  return all('a[data-external-ref]').map((a) => ({
+    system: a.getAttribute('data-external-ref'),
+    text: (a.innerText || '').replace(/\\s+/g, ' ').trim(),
+    href: a.getAttribute('href'),
+    target: a.getAttribute('target'),
+    rel: a.getAttribute('rel'),
+  }));
+`;
+let res = await apiPatch('/v1/tasks/SDLC-2', {external_ref: {
+  jira: {key: 'PROJ-12', url: 'https://jira.example.com/browse/PROJ-12'},
+}});
+check('ссылка записана через API', res.ok, String(res.status));
+await s.goto(BASE + '/p/SDLC/tasks/SDLC-2');
+await wait(2500);
+let refs = await run(externalOnCard);
+check('карточка показывает «jira PROJ-12» ссылкой',
+  refs.length === 1 && refs[0].text === 'jira PROJ-12' && refs[0].href === 'https://jira.example.com/browse/PROJ-12',
+  JSON.stringify(refs));
+check('ссылка открывается в новой вкладке без доступа к opener',
+  refs[0]?.target === '_blank' && refs[0]?.rel === 'noopener noreferrer', JSON.stringify(refs));
+// Ссылка стоит в шапке рядом с метаданными, а не где-то в ленте.
+t = await run(`
+  const a = all('a[data-external-ref]')[0];
+  return a && a.closest('.border-b') ? a.closest('.border-b').innerText : '';
+`);
+check('ссылка — в шапке карточки', t.includes('SDLC-2'), t.slice(0, 200));
+
+res = await apiPatch('/v1/tasks/SDLC-2', {external_ref: {}});
+check('ссылка снята через API', res.ok, String(res.status));
+await s.goto(BASE + '/p/SDLC/tasks/SDLC-2');
+await wait(2500);
+refs = await run(externalOnCard);
+check('без ссылок в шапке их нет', refs.length === 0, JSON.stringify(refs));
+t = await run('return texts();');
+check('карточка без ссылок цела', t.includes('SDLC-2') && !t.includes('PROJ-12'), t.slice(0, 300));
+
 console.log('повторная попытка этапа');
 await apiPost('/v1/tasks/SDLC-2/transitions/reject_to_analysis/gates/problem_report/decision', {status: 'waived'});
 await apiPost('/v1/tasks/SDLC-2/transitions/reject_to_analysis', {comment: 'возврат ради второй попытки'});

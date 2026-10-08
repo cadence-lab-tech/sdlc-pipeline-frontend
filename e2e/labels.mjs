@@ -11,6 +11,7 @@ import {
   installationState,
   runState,
 } from '../src/components/health.ts';
+import {externalLinks} from '../src/components/externalRef.ts';
 
 let ok = 0, fail = 0;
 const check = (name, cond, extra = '') => {
@@ -91,6 +92,27 @@ for (const state of ['ok', 'unknown', 'not_configured']) {
 }
 check('сводки нет — отметок нет', marks(undefined) === '{}');
 check('сводка без полей — отметок нет', marks({}) === '{}');
+
+// ── ссылка на основной трекер (CLAB-95) ────────────────────────────────────
+// Что показывать ссылкой, решает правило, а не разметка: старые данные бывают
+// любыми, и `javascript:` в href превратил бы карточку в дыру.
+console.log('ссылки на основной трекер');
+const links = (ref) => JSON.stringify(externalLinks(ref));
+check('ссылка jira разобрана',
+  links({jira: {key: 'PROJ-12', url: 'https://jira.example.com/browse/PROJ-12'}}) ===
+    JSON.stringify([{system: 'jira', key: 'PROJ-12', url: 'https://jira.example.com/browse/PROJ-12'}]),
+  links({jira: {key: 'PROJ-12', url: 'https://jira.example.com/browse/PROJ-12'}}));
+check('системы по порядку',
+  externalLinks({youtrack: {key: 'YT-1', url: 'http://yt.example.com/YT-1'}, jira: {key: 'P-1', url: 'https://j.example.com/P-1'}})
+    .map((l) => l.system).join(',') === 'jira,youtrack');
+check('legacy_epic_key не ссылка', links({legacy_epic_key: 'SDLC-E1'}) === '[]', links({legacy_epic_key: 'SDLC-E1'}));
+check('javascript: не выводится ссылкой', links({jira: {key: 'P-1', url: 'javascript:alert(1)'}}) === '[]');
+check('ftp: не выводится ссылкой', links({jira: {key: 'P-1', url: 'ftp://j.example.com/P-1'}}) === '[]');
+check('относительный адрес не выводится ссылкой', links({jira: {key: 'P-1', url: '/browse/P-1'}}) === '[]');
+check('без ключа не выводится', links({jira: {url: 'https://j.example.com/P-1'}}) === '[]');
+for (const empty of [undefined, null, {}, [], 'PROJ-12']) {
+  check(`нет ссылок у ${JSON.stringify(empty)}`, links(empty) === '[]');
+}
 
 console.log(`\n${ok} ok, ${fail} fail`);
 process.exit(fail ? 1 : 0);
