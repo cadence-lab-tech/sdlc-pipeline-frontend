@@ -260,8 +260,20 @@ function TeamDetail({
             </p>
           </div>
 
-          <PlanSection detail={detail} isAdmin={me?.principal.is_admin ?? false} onChanged={reload} />
-          <Separator />
+          {/* Тариф — только если бэкенд его отдал: на выделенном инстансе
+              (SDLC_TENANCY=single) поля plan в ответе нет, и раздел без него
+              ронял бы всю страницу. */}
+          {detail.plan ? (
+            <>
+              <PlanSection
+                detail={detail}
+                plan={detail.plan}
+                isAdmin={me?.principal.is_admin ?? false}
+                onChanged={reload}
+              />
+              <Separator />
+            </>
+          ) : null}
           {detail.team.kind === 'personal' ? (
             <Convert team={detail.team} onDone={onConverted} />
           ) : (
@@ -286,17 +298,27 @@ function TeamDetail({
 // Тариф — набор пределов (решение 0033). Показывается всем участникам:
 // упёршись в предел, надо видеть, во что. Назначает тариф администратор
 // инстанса, и только ему предлагается выбор.
-function PlanSection({detail, isAdmin, onChanged}: {detail: TeamDetailData; isAdmin: boolean; onChanged: () => void}) {
+function PlanSection({
+  detail,
+  plan,
+  isAdmin,
+  onChanged,
+}: {
+  detail: TeamDetailData;
+  plan: Plan;
+  isAdmin: boolean;
+  onChanged: () => void;
+}) {
   const plans = useResource(() => (isAdmin ? api.listPlans() : Promise.resolve([] as Plan[])), [isAdmin]);
   const [code, setCode] = useState<string>();
   const [error, setError] = useState<ApiError>();
 
   const members = detail.members.length;
-  const limit = detail.plan.members_max;
+  const limit = plan.members_max;
   const save = async () => {
     setError(undefined);
     try {
-      await api.setTeamPlan(detail.team.key, code ?? detail.plan.code);
+      await api.setTeamPlan(detail.team.key, code ?? plan.code);
       toast.success(`Тариф команды ${detail.team.key} сохранён`);
       setCode(undefined);
       onChanged();
@@ -312,7 +334,7 @@ function PlanSection({detail, isAdmin, onChanged}: {detail: TeamDetailData; isAd
       {error ? <Failure error={error} /> : null}
       <Card className="gap-3 p-4">
         <div className="flex flex-wrap items-baseline justify-between gap-3 text-sm">
-          <span className="font-medium">{detail.plan.name}</span>
+          <span className="font-medium">{plan.name}</span>
           <span className="text-muted-foreground">
             {limit === undefined || limit === null
               ? `участников ${members}, без предела`
@@ -328,11 +350,11 @@ function PlanSection({detail, isAdmin, onChanged}: {detail: TeamDetailData; isAd
                   value: p.code,
                   label: `${p.name}${p.members_max ? ` — до ${p.members_max} участников` : ' — без предела'}`,
                 }))}
-                value={code ?? detail.plan.code}
+                value={code ?? plan.code}
                 onChange={setCode}
               />
             </div>
-            <Button disabled={code === undefined || code === detail.plan.code} onClick={save}>
+            <Button disabled={code === undefined || code === plan.code} onClick={save}>
               Сохранить
             </Button>
           </div>

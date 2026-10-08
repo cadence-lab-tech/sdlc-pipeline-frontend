@@ -80,7 +80,9 @@ export interface TeamDetail {
   team: Team;
   members: TeamMember[];
   projects: ProjectTeam[];
-  plan: Plan;
+  // Тариф бывает не везде: при SDLC_TENANCY=single (CLAB-88) тарифов нет, и
+  // бэкенд поле не отдаёт вовсе.
+  plan?: Plan;
   // Установки GitHub App, записанные на команду (решение 0034).
   installations: GitHubInstallation[];
 }
