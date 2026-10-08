@@ -18,6 +18,7 @@ import {counted} from '../components/removals';
 import type {Me, Plan, Principal, ProjectTeam, Team, TeamDetail as TeamDetailData, TeamMember} from '../api/types';
 import {useResource} from '../api/useResource';
 import {Failure, Loaded, Loading} from '../components/Feedback';
+import {NO_ACCESS_HINT, isSingle, useInstance} from '../hooks/useInstance';
 
 // Команды и принципалы (решения 0027, 0033). Команда живёт над проектами: она
 // даёт уровень доступа сразу в несколько, владеет проектами, несёт бюджет и
@@ -25,6 +26,12 @@ import {Failure, Loaded, Loading} from '../components/Feedback';
 // организацию заводит любой вошедший. Права на каждое действие проверяет
 // бэкенд — страница их не угадывает и кнопки не прячет; исключение одно,
 // список принципалов, он общесистемный и лиду команды не отдаётся вовсе.
+//
+// На выделенном инстансе компании (SDLC_TENANCY=single, CLAB-88) этого
+// самообслуживания нет: команды заводит администратор, личных аккаунтов,
+// организаций по кнопке и тарифов нет. Страница ветвится по профилю
+// инстанса (useInstance), а не по виду команд и не по уровню доступа: там,
+// где профиль действие предусматривает, кнопки по-прежнему не прячутся.
 
 const TEAM_ROLES = [
   {value: 'member', label: 'участник'},
@@ -48,13 +55,22 @@ const teamRoleLabel = (role?: string) =>
 export function Teams() {
   const teams = useResource(() => api.listTeams(), []);
   const me = useResource(() => api.me(), []);
+  const instance = useInstance();
   const [picked, setPicked] = useState<string>();
   const [creating, setCreating] = useState(false);
   const [search] = useSearchParams();
   const navigate = useNavigate();
 
   if (teams.error) return <Failure error={teams.error} reload={teams.reload} />;
-  if (!teams.data) return <Loading />;
+  // Профиль ждём вместе со списком: иначе страница мигнула бы разделами
+  // общего инстанса до ответа /v1/instance.
+  if (!teams.data || !instance) return <Loading />;
+
+  const single = isSingle(instance);
+  const isAdmin = me.data?.principal.is_admin ?? false;
+  // На выделенном инстансе команду заводит только администратор — остальным
+  // кнопка заведомо отбитого действия не предлагается.
+  const canStart = single ? isAdmin : true;
 
   // Выбранная команда вычисляется, а не досылается эффектом: пока никого не
   // выбрали, открыта команда из адреса (?team=, туда ведёт принятое
@@ -62,7 +78,7 @@ export function Teams() {
   const personal = teams.data.filter((t) => t.kind === 'personal');
   const organizations = teams.data.filter((t) => t.kind !== 'personal');
   const fromAddress = teams.data.find((t) => t.key === search.get('team'))?.key;
-  const selected = picked ?? fromAddress ?? personal[0]?.key ?? teams.data[0]?.key;
+  const selected = picked ?? fromAddress ?? (single ? undefined : personal[0]?.key) ?? teams.data[0]?.key;
 
   const list = (items: Team[]) => (
     <ul className="divide-border divide-y">
@@ -91,11 +107,17 @@ export function Teams() {
             <h2 className="text-base font-semibold">Команды</h2>
             <Badge variant="secondary">{teams.data.length}</Badge>
           </div>
-          <Button size="sm" className="w-full" onClick={() => setCreating(true)}>
-            Завести организацию
-          </Button>
+          {canStart ? (
+            <Button size="sm" className="w-full" onClick={() => setCreating(true)}>
+              {single ? 'Завести команду' : 'Завести организацию'}
+            </Button>
+          ) : null}
         </div>
-        {personal.length > 0 ? (
+        {single ? (
+          // Плоский список: групп «Личный аккаунт / Организации» в профиле нет,
+          // заголовок «Команды» стоит выше.
+          list(teams.data)
+        ) : personal.length > 0 ? (
           <>
             <p className="text-muted-foreground px-3 pt-3 pb-1 text-xs font-medium uppercase">
               {personal.length === 1 ? 'Личный аккаунт' : 'Личные аккаунты'}
@@ -103,7 +125,7 @@ export function Teams() {
             {list(personal)}
           </>
         ) : null}
-        {organizations.length > 0 ? (
+        {!single && organizations.length > 0 ? (
           <>
             <p className="text-muted-foreground px-3 pt-3 pb-1 text-xs font-medium uppercase">Организации</p>
             {list(organizations)}
@@ -114,6 +136,7 @@ export function Teams() {
         {creating ? (
           <NewTeam
             me={me.data}
+            single={single}
             onDone={(team) => {
               setCreating(false);
               setPicked(team.key);
@@ -125,6 +148,7 @@ export function Teams() {
           <TeamDetail
             teamKey={selected}
             me={me.data}
+            single={single}
             onChanged={teams.reload}
             onConverted={(org) => {
               setPicked(org.key);
@@ -137,6 +161,15 @@ export function Teams() {
               navigate('/teams');
               teams.reload();
             }}
+          />
+        ) : single ? (
+          <EmptyState
+            title="Команд нет"
+            description={
+              isAdmin
+                ? 'Заведите первую команду кнопкой слева и позовите в неё коллег: команда даёт доступ сразу в несколько проектов и владеет теми, что завела сама.'
+                : NO_ACCESS_HINT
+            }
           />
         ) : (
           <EmptyState
@@ -152,7 +185,19 @@ export function Teams() {
 // Организацию заводит любой вошедший и становится её лидом (решение 0033).
 // Право заводить проекты новая команда получает по режиму инстанса; выдать
 // его явно может только администратор — остальным переключатель не показывается.
-function NewTeam({me, onDone, onCancel}: {me?: Me; onDone: (team: Team) => void; onCancel: () => void}) {
+// На выделенном инстансе форма та же, но это просто команда: тарифа и личного
+// аккаунта там нет, и заводит её администратор.
+function NewTeam({
+  me,
+  single,
+  onDone,
+  onCancel,
+}: {
+  me?: Me;
+  single: boolean;
+  onDone: (team: Team) => void;
+  onCancel: () => void;
+}) {
   const [key, setKey] = useState('');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -182,10 +227,17 @@ function NewTeam({me, onDone, onCancel}: {me?: Me; onDone: (team: Team) => void;
 
   return (
     <div className="space-y-4">
-      <PageHeader
-        title="Новая организация"
-        description="Вы станете её первым лидом: позовёте коллег и заведёте проекты. На бесплатном тарифе в организации до трёх участников. Личный аккаунт с уже заведёнными проектами можно превратить в организацию вместо этого."
-      />
+      {single ? (
+        <PageHeader
+          title="Новая команда"
+          description="Команда даёт уровень доступа сразу в несколько проектов и владеет теми, что завела. Вы станете её первым лидом: позовёте коллег и передадите лидерство, когда команда соберётся."
+        />
+      ) : (
+        <PageHeader
+          title="Новая организация"
+          description="Вы станете её первым лидом: позовёте коллег и заведёте проекты. На бесплатном тарифе в организации до трёх участников. Личный аккаунт с уже заведёнными проектами можно превратить в организацию вместо этого."
+        />
+      )}
       {error ? <Failure error={error} /> : null}
       <Card className="gap-3 p-4">
         <FormLayout>
@@ -223,12 +275,14 @@ function NewTeam({me, onDone, onCancel}: {me?: Me; onDone: (team: Team) => void;
 function TeamDetail({
   teamKey,
   me,
+  single,
   onChanged,
   onConverted,
   onDeleted,
 }: {
   teamKey: string;
   me?: Me;
+  single: boolean;
   onChanged: () => void;
   onConverted: (org: Team) => void;
   onDeleted: () => void;
@@ -250,7 +304,7 @@ function TeamDetail({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h1 className="text-2xl font-semibold tracking-tight">{detail.team.name}</h1>
               <div className="flex items-center gap-2">
-                <Token label={kindLabel(detail.team)} />
+                {single ? null : <Token label={kindLabel(detail.team)} />}
                 {detail.team.can_create_projects ? <Token label="заводит проекты" /> : null}
               </div>
             </div>
@@ -262,8 +316,9 @@ function TeamDetail({
 
           {/* Тариф — только если бэкенд его отдал: на выделенном инстансе
               (SDLC_TENANCY=single) поля plan в ответе нет, и раздел без него
-              ронял бы всю страницу. */}
-          {detail.plan ? (
+              ронял бы всю страницу. В профиле single раздела нет в любом
+              случае: профиль решает tenancy, а не наличие поля. */}
+          {detail.plan && !single ? (
             <>
               <PlanSection
                 detail={detail}
@@ -274,7 +329,10 @@ function TeamDetail({
               <Separator />
             </>
           ) : null}
-          {detail.team.kind === 'personal' ? (
+          {/* Превращать личный аккаунт в организацию на выделенном инстансе
+              незачем: у оставшейся с общего инстанса личной команды просто
+              показывается состав. */}
+          {detail.team.kind === 'personal' && !single ? (
             <Convert team={detail.team} onDone={onConverted} />
           ) : (
             <Members teamKey={teamKey} members={detail.members} onChanged={reload} />
@@ -288,7 +346,7 @@ function TeamDetail({
           <Separator />
           <Budgets teamKey={teamKey} />
           <Separator />
-          <TeamDanger team={detail.team} onDeleted={onDeleted} />
+          <TeamDanger team={detail.team} single={single} onDeleted={onDeleted} />
         </div>
       )}
     </Loaded>
@@ -779,7 +837,7 @@ function Budgets({teamKey}: {teamKey: string}) {
 // У личного аккаунта её нет: он уходит вместе с человеком и отдельно не
 // удаляется. Вид команды — данные (team.kind), а не уровень доступа; по
 // уровню кнопки по-прежнему не прячутся, 403 показывает бэкенд.
-function TeamDanger({team, onDeleted}: {team: Team; onDeleted: () => void}) {
+function TeamDanger({team, single, onDeleted}: {team: Team; single: boolean; onDeleted: () => void}) {
   const [error, setError] = useState<ApiError>();
 
   const remove = async () => {
@@ -805,6 +863,19 @@ function TeamDanger({team, onDeleted}: {team: Team; onDeleted: () => void}) {
       setError(err instanceof ApiError ? err : new ApiError('internal', String(err)));
     }
   };
+
+  if (team.kind === 'personal' && single) {
+    // Личная команда, оставшаяся с общего инстанса: удаляется вместе с
+    // человеком. Про личный аккаунт и организации здесь не говорится — в
+    // профиле их нет.
+    return (
+      <Section title="Опасная зона">
+        <p className="text-muted-foreground text-sm">
+          Эта команда принадлежит одному человеку и уходит вместе с ним, отдельно она не удаляется.
+        </p>
+      </Section>
+    );
+  }
 
   if (team.kind === 'personal') {
     return (
