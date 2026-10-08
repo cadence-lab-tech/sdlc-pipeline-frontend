@@ -68,6 +68,7 @@ import { CLILogin, CLI_LOGIN_PATH } from "./pages/CLILogin";
 import { GITHUB_RETURN_PATH, Login } from "./pages/Login";
 import { GitHubConnect } from "./pages/GitHubConnect";
 import { GITHUB_CONNECT_PATH } from "./api/github";
+import { useInstance } from "./hooks/useInstance";
 import { INVITE_PATH, Invite } from "./pages/Invite";
 import { Knowledge } from "./pages/Knowledge";
 import { Metrics } from "./pages/Metrics";
@@ -395,6 +396,9 @@ function Nav({
   marks: HealthMarks;
   onLogout: () => void;
 }) {
+  // Версия сервера — из /v1/instance, общего со страницей входа. Старый
+  // сервер без ручки или сбой — строки нет.
+  const instance = useInstance();
   const global: NavEntry[] = [
     {
       page: "projects",
@@ -527,6 +531,11 @@ function Nav({
                 ? "вход по токену"
                 : "режим отладки: актор из заголовка"}
             </p>
+            {instance?.version ? (
+              <p className="text-muted-foreground">
+                сервер {instance.version}
+              </p>
+            ) : null}
           </div>
           {me.mode === "token" || currentToken() ? (
             <SidebarMenu>
