@@ -50,10 +50,17 @@ jobs:
 
       # Тот же Dockerfile, что у deploy.yml. Метка source привязывает пакет
       # к репозиторию — видимость в GHCR тогда переключается на пакете.
+      #
+      # Образ выходит индексом под две платформы: self-hosted ставят и на
+      # amd64-серверы, и на arm64 (Graviton, Ampere, Apple Silicon). Статика
+      # собирается один раз на раннере (Dockerfile, $BUILDPLATFORM), QEMU
+      # намеренно не подключён: RUN под целевой платформой должен ронять
+      # сборку, а не тихо уходить в эмуляцию.
       - uses: docker/build-push-action@v6
         with:
           context: .
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.registry }}/sdlc-pipeline-frontend:${{ github.ref_name }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
