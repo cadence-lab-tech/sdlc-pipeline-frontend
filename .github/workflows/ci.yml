@@ -1,0 +1,54 @@
+# Проверка кода на каждом pull request и на каждом push в main.
+#
+# Без секретов: прогон одинаков для ветки clab/* и для PR из форка, права
+# токена — только чтение. Один job с закреплённым именем `frontend` — это
+# строка обязательной проверки в защите main (CLAB-142); шаги внутри можно
+# менять, имя — нет. Выкладка (deploy.yml) ждёт зелёный прогон этого
+# workflow'а для того же коммита.
+#
+# Фильтра по путям нет намеренно: обязательная проверка должна выставляться
+# на любой PR, иначе PR с одной правкой документации повиснет в «expected».
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# PR: новый push отменяет прогон предыдущего коммита. main: нет — прогон на
+# main ждёт deploy.yml, и отменённый он увидел бы как провал.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  frontend:
+    name: frontend
+    # Раннер закреплён, а не ubuntu-latest: смена образа под ногами не
+    # должна менять поведение проверки (CLAB-151).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          # Та же мажорная версия, что в Dockerfile и верстаке задачи.
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+
+      # Словари подписей — без браузера и без бэкенда (первый шаг e2e/run.sh);
+      # остальным сценариям e2e нужен живой стек, в CI они не идут.
+      - run: node e2e/labels.mjs
+
+      # Скрипт оповещения self-hosted о релизе (release.yml) проверяется без
+      # сети: docker и gh подменены заглушками.
+      - run: bash .github/release/notify-self-hosted.test.sh
