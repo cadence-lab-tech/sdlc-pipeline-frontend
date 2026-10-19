@@ -11,6 +11,12 @@
 # Обычный `docker build` (deploy.yml) ничего не замечает.
 
 FROM --platform=$BUILDPLATFORM node:24-alpine AS build
+# SBOM образа (release.yml, sbom: true) по умолчанию описывает только
+# финальный этап — Caddy со статикой, без npm-зависимостей, из которых
+# собран бандл. Флаг просит BuildKit просканировать и этот этап: в SBOM
+# попадают пакеты из package-lock.json (CLAB-130). На обычную сборку без
+# --sbom не влияет.
+ARG BUILDKIT_SBOM_SCAN_STAGE=true
 WORKDIR /app
 
 # Манифесты отдельным слоем: правка кода не выбрасывает кэш установки.

@@ -68,8 +68,13 @@ npm run e2e      # сквозные проверки в headless-Chrome пове
 здесь запускает `.github/workflows/release.yml`: образ
 `ghcr.io/cadence-lab-tech/sdlc-pipeline-frontend:vX.Y.Z` с файлом `LICENSE`
 из корня репозитория по пути `/LICENSE`; без `LICENSE` выпуск падает до
-сборки, а `deploy.yml` тег не запускает. Тот выпуск, что опубликовал образ
-вторым, шлёт событие `cadence-release` в
+сборки, а `deploy.yml` тег не запускает. С v0.9.0 у образа в индексе SBOM
+(SPDX, вместе с npm-пакетами этапа сборки — `BUILDKIT_SBOM_SCAN_STAGE` в
+`Dockerfile`) и provenance (SLSA v1), а digest индекса подписан cosign без
+ключей — identity `release.yml` этого репозитория на теге ([решение
+0046](https://github.com/cadence-lab-tech/sdlc-pipeline-docs/blob/main/decisions/0046-supply-chain-signatures-pins.md)).
+Тот выпуск, что опубликовал и подписал образ вторым, шлёт событие
+`cadence-release` с digest обоих образов в
 [`cadence-lab-tech/self-hosted`](https://github.com/cadence-lab-tech/self-hosted)
 (`.github/release/notify-self-hosted.sh`, такой же в backend; проверка —
 `bash .github/release/notify-self-hosted.test.sh`). Нужны секрет
