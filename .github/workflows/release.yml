@@ -6,6 +6,14 @@
 # опубликует свой образ вторым, оповещает репозиторий поставки
 # cadence-lab-tech/self-hosted. Выкладку нашего инстанса тег не запускает:
 # она идёт из deploy.yml по push в main и по SHA.
+#
+# Цепочка поставки (CLAB-130, решение 0046): образ подписан cosign без
+# ключей — сертификатом на OIDC-токен этого прогона, identity
+# .../.github/workflows/release.yml@refs/tags/vX.Y.Z, — к нему приложены
+# SBOM (SPDX, включая npm-пакеты этапа сборки) и provenance (SLSA v1,
+# mode=max); подписан digest индекса, а с ним и манифесты аттестаций в
+# индексе. Команды проверки для клиента — docs/admin.md в self-hosted,
+# «Verifying a release».
 name: release
 
 on:
@@ -21,6 +29,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # OIDC-токен прогона — для подписи образа без ключей.
+      id-token: write
     env:
       # Секреты в условии шага недоступны, поэтому флаг считается здесь.
       HAS_SELF_HOSTED_TOKEN: ${{ secrets.SELF_HOSTED_DISPATCH_TOKEN != '' }}
@@ -56,10 +66,19 @@ jobs:
       # собирается один раз на раннере (Dockerfile, $BUILDPLATFORM), QEMU
       # намеренно не подключён: RUN под целевой платформой должен ронять
       # сборку, а не тихо уходить в эмуляцию.
-      - uses: docker/build-push-action@v6
+      #
+      # SBOM (SPDX, сканер BuildKit; этап сборки с npm-пакетами — флагом
+      # BUILDKIT_SBOM_SCAN_STAGE в Dockerfile) и provenance (SLSA v1) —
+      # манифесты аттестаций внутри индекса, по одному на платформу. Режим и
+      # версия provenance заданы явно: по умолчанию action даёт max только
+      # публичному репозиторию, а версию предиката выбирает BuildKit.
+      - id: build
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: true
+          sbom: true
+          provenance: mode=max,version=v1
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.registry }}/sdlc-pipeline-frontend:${{ github.ref_name }}
           labels: |
@@ -69,14 +88,29 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Событие cadence-release шлёт тот выпуск, который опубликовал свой
-      # образ вторым (см. скрипт). Без секрета шаг не падает, а печатает
-      # команду для отправки руками.
+      - uses: sigstore/cosign-installer@v4.1.2
+        with:
+          cosign-release: v3.1.3
+
+      # Подписывается digest индекса, не тег: тег в реестре переписываем,
+      # digest — нет. Индекс перечисляет манифесты платформ и аттестаций,
+      # поэтому подпись покрывает и SBOM с provenance.
+      - name: подписать образ
+        env:
+          IMAGE: ${{ steps.meta.outputs.registry }}/sdlc-pipeline-frontend@${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "$IMAGE"
+
+      # Событие cadence-release шлёт тот выпуск, который опубликовал и
+      # подписал свой образ вторым (см. скрипт): релиз-PR self-hosted пишет
+      # digest обоих образов в compose и проверяет их подписи. Без секрета
+      # шаг не падает, а печатает команду для отправки руками.
       - name: оповестить self-hosted
         env:
           VERSION: ${{ github.ref_name }}
           REGISTRY: ${{ steps.meta.outputs.registry }}
           SELF: frontend
+          DIGEST: ${{ steps.build.outputs.digest }}
+          SIGNED: "true"
           HAS_TOKEN: ${{ env.HAS_SELF_HOSTED_TOKEN }}
           GH_TOKEN: ${{ secrets.SELF_HOSTED_DISPATCH_TOKEN }}
         run: .github/release/notify-self-hosted.sh
