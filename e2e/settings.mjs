@@ -211,18 +211,52 @@ const exported = await run(`
 t = await run('return texts();');
 check('экспорт показан', t.includes('bundle.json') && exported.includes('"roles"'), t.slice(0, 300));
 
-// Экспорт целиком вставляется в поле импорта и проверяется сухим прогоном.
-await run(`
-  const bundle = ${JSON.stringify(exported)};
-  await fill("Связка JSON", bundle);
+// Сухой прогон связки и отчёт по строкам: «Что» и «Итог» каждой строки
+// таблицы отчёта и заголовки примечаний под ней. Читается только карточка
+// импорта, чтобы таблицы участников и токенов не попадали в отчёт.
+const dryRun = async (bundle) => run(`
+  await fill("Связка JSON", ${JSON.stringify(bundle)});
   await sleep(300);
   await clickExact("Проверить (без изменений)");
   await sleep(2000);
+  const card = all('h3').find((h) => h.innerText.trim() === 'Импортировать связку')?.parentElement;
+  if (!card) throw new Error('карточка импорта не найдена');
+  const rows = Array.from(card.querySelectorAll('tbody tr')).map((tr) => {
+    const cells = Array.from(tr.querySelectorAll('td')).map((td) => (td.innerText || '').trim());
+    return {section: cells[0], key: cells[1], outcome: cells[2]};
+  });
+  return {text: (card.innerText || '').replace(/\\s+/g, ' '), rows};
 `);
-t = await run('return texts();');
-check('сухой прогон отчитался', t.includes('Сухой прогон'), t.slice(0, 500));
-check('ничего не изменится', t.includes('unchanged') && !t.includes('new_version'), t.slice(0, 900));
-check('цикл пришёл бы черновиком', t.includes('draft_created'), t.slice(0, 900));
+const outcomes = (report, section) => report.rows.filter((r) => r.section === section).map((r) => r.outcome);
+
+// Экспорт целиком вставляется в поле импорта и проверяется сухим прогоном.
+// Контракт CLAB-108: цикл, совпадающий с действующей версией, черновика не
+// заводит и отчитывается unchanged, как и роли с той же инструкцией.
+let report = await dryRun(exported);
+let cycles = outcomes(report, 'цикл');
+check('сухой прогон отчитался', report.text.includes('Сухой прогон'), report.text.slice(0, 500));
+check('ничего не изменится', report.rows.length > 0 &&
+  report.rows.every((r) => r.outcome !== 'new_version' && r.outcome !== 'draft_created'), JSON.stringify(report.rows));
+check('цикл как есть отчитался unchanged', cycles.length > 0 && cycles.every((o) => o === 'unchanged'),
+  JSON.stringify(report.rows));
+check('примечание не зовёт активировать черновик неизменённого цикла',
+  report.text.includes('не изменился') && !report.text.includes('активируйте черновик'), report.text.slice(0, 1500));
+
+// Тот же экспорт с переименованным первым статусом первого цикла: имя статуса
+// входит в сравнение циклов, и такой цикл приходит черновиком. «Применить» не
+// нажимается — workflow.mjs рассчитывает на цикл демо-проекта без лишних
+// черновиков.
+const changed = JSON.parse(exported);
+changed.workflows[0].statuses[0].name += ' (e2e)';
+report = await dryRun(JSON.stringify(changed, null, 2));
+cycles = outcomes(report, 'цикл');
+check('изменённый цикл пришёл бы черновиком',
+  cycles[0] === 'draft_created' && cycles.slice(1).every((o) => o === 'unchanged'), JSON.stringify(report.rows));
+check('роли при изменённом цикле unchanged',
+  outcomes(report, 'роль').length > 0 && outcomes(report, 'роль').every((o) => o === 'unchanged') &&
+    report.rows.every((r) => r.outcome !== 'new_version'), JSON.stringify(report.rows));
+check('примечание зовёт активировать черновик изменённого цикла',
+  report.text.includes('активируйте черновик'), report.text.slice(0, 1500));
 
 console.log('репозитории: отвязка и живая задача');
 t = await run('return texts();');

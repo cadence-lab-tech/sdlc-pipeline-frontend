@@ -912,7 +912,7 @@ function Transfer({projectKey}: {projectKey: string}) {
   return (
     <Section
       title="Перенос правил"
-      description="Связка — репозитории, роли с инструкциями, документы и цикл одним JSON. Импорт идемпотентен: роль с другой инструкцией получает новую версию, документ с тем же названием обновляется, цикл приходит черновиком. Агенту тот же перенос доступен промптом /mcp__sdlc__import_rules.">
+      description="Связка — репозитории, роли с инструкциями, документы и цикл одним JSON. Импорт идемпотентен: роль с другой инструкцией получает новую версию, документ с тем же названием обновляется, изменённый цикл приходит черновиком, а совпадающий с действующей версией или черновиком отчитывается unchanged. Агенту тот же перенос доступен промптом /mcp__sdlc__import_rules.">
       {error ? <Failure error={error} /> : null}
       <div>
         <Button
@@ -963,6 +963,20 @@ function Transfer({projectKey}: {projectKey: string}) {
   );
 }
 
+// Совпавший цикл черновика не заводит (CLAB-108): активировать нечего, и
+// примечание об этом говорит, а не зовёт в редактор цикла.
+function workflowNote(entry: ImportEntry | undefined, valid: boolean): string {
+  const key = entry?.key ?? '';
+  if (entry?.outcome === 'unchanged') {
+    return valid
+      ? `Цикл «${key}» не изменился и прошёл проверку графа; черновик не заводится`
+      : `Цикл «${key}» не изменился, но проверку графа не прошёл`;
+  }
+  return valid
+    ? `Цикл «${key}» прошёл проверку графа; активируйте черновик в редакторе цикла`
+    : `Черновик цикла «${key}» создан, но проверку не прошёл`;
+}
+
 function Report({report}: {report: ImportReport}) {
   const rows: (ImportEntry & {section: string})[] = [
     ...report.repositories.map((e) => ({...e, section: 'репозиторий'})),
@@ -998,11 +1012,7 @@ function Report({report}: {report: ImportReport}) {
         <Note
           key={report.workflows[i]?.key ?? i}
           tone={validation.valid ? 'success' : 'warning'}
-          title={
-            validation.valid
-              ? `Цикл «${report.workflows[i]?.key ?? ''}» прошёл проверку графа; активируйте черновик в редакторе цикла`
-              : `Черновик цикла «${report.workflows[i]?.key ?? ''}» создан, но проверку не прошёл`
-          }
+          title={workflowNote(report.workflows[i], validation.valid)}
           description={validation.problems.map((p) => p.message).join('; ')}
         />
       ))}
