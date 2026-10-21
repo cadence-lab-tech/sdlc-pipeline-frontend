@@ -23,3 +23,37 @@ export function installCommand(serverVersion?: string): string {
 // Вход на тот адрес, с которого открыта страница: у инстанса компании свой
 // домен, и подставлять наш нельзя.
 export const loginCommand = (origin: string) => `clab auth login --host ${origin}`;
+
+// ── страница /docs (CLAB-232) ───────────────────────────────────────────────
+// Подключение локального проекта: те же правила — адрес инстанса из
+// window.location.origin, ключ — выбранный проект, версия — сервера. Без
+// проекта в командах стоит заглушка KEY_PLACEHOLDER.
+
+export const BREW_COMMAND = 'brew install cadence-lab-tech/tap/clab';
+
+export const KEY_PLACEHOLDER = '<KEY>';
+
+// Корень локального клона, привязанного к проекту: проект clab нашёл бы и по
+// git remote, но с --project команда работает из любого каталога.
+export const setupCommand = (key?: string) => `clab setup --project ${key || KEY_PLACEHOLDER}`;
+
+export const mcpURL = (origin: string, key?: string) => `${origin}/mcp/projects/${key || KEY_PLACEHOLDER}`;
+
+// Ручное подключение Claude Code: токен в команду подставляет сам clab
+// (clab auth token), на странице его нет и быть не должно.
+export const mcpAddCommand = (origin: string, key?: string) =>
+  `claude mcp add --transport http --scope local sdlc ${mcpURL(origin, key)} \\\n` +
+  `  --header "Authorization: Bearer $(clab auth token)"`;
+
+// Конфигурация для агентов, понимающих MCP по HTTP. Вместо токена —
+// подсказка: настоящий заголовок печатает clab mcp config.
+export const mcpJSON = (origin: string, key?: string) =>
+  JSON.stringify(
+    {mcpServers: {sdlc: {type: 'http', url: mcpURL(origin, key), headers: {Authorization: 'Bearer <clab auth token>'}}}},
+    null,
+    2,
+  );
+
+// Адрес страницы с выбранным проектом: ссылка со страниц проекта приносит
+// его ключ.
+export const docsHref = (key?: string) => (key ? `/docs?project=${encodeURIComponent(key)}` : '/docs');

@@ -750,6 +750,20 @@ export interface Instance {
   };
 }
 
+// Набор агента инстанса (GET /v1/agent-kit, CLAB-232): скилы и саб-агент той
+// же версии, что сервер. Содержимое файлов странице не нужно — только
+// перечень с описаниями; ставит набор clab setup.
+export interface AgentKitEntry {
+  name: string;
+  description: string;
+}
+
+export interface AgentKit {
+  version: string;
+  skills: AgentKitEntry[];
+  agents: AgentKitEntry[];
+}
+
 // Вход через корпоративного провайдера (решение 0027). Адреса приходят из
 // discovery-документа: фронтенд их не выдумывает.
 export interface OIDCSettings {

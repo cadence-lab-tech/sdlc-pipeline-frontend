@@ -59,6 +59,7 @@ import type {
   Invite,
   IssuedInvite,
   AcceptedInvite,
+  AgentKit,
   Instance,
 } from "./types";
 
@@ -282,6 +283,28 @@ export const api = {
       );
     }
     return (await res.json()) as Instance;
+  },
+
+  // Набор агента (CLAB-232) — открытая ручка, как instance: запрос без токена
+  // и актора. 404 — сервер старше набора; что показать вместо, решает
+  // страница /docs.
+  agentKit: async (): Promise<AgentKit> => {
+    let res: Response;
+    try {
+      res = await fetch(BASE + "/agent-kit");
+    } catch (cause) {
+      throw new ApiError("internal", `сервис недоступен: ${String(cause)}`);
+    }
+    if (!res.ok) {
+      throw new ApiError(
+        res.status === 404 ? "not_found" : "internal",
+        `набор агента: статус ${res.status}`,
+        undefined,
+        res.status,
+      );
+    }
+    const kit = (await res.json()) as AgentKit;
+    return { ...kit, skills: kit.skills ?? [], agents: kit.agents ?? [] };
   },
 
   // ── кто я, токены, участники ──────────────────────────────────────────────
