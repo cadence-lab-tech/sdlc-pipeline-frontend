@@ -56,7 +56,11 @@ npm run e2e      # сквозные проверки в headless-Chrome пове
 ```
 
 Продовый образ — `Dockerfile`: сборка Vite, статика в Caddy с откатом на
-`index.html` для маршрутов React Router. Адрес API в бандл не вморожен:
+`index.html` для маршрутов React Router. Caddy образа собирается из
+исходников (`caddy/`: версия Caddy и модулей в `go.mod`/`go.sum`, текущий
+Go 1.26), а не берётся из `caddy:2-alpine` как есть: upstream на новом Go
+его не пересобирает. Тот же образ в пакете self-hosted работает и точкой
+входа стека. Адрес API в бандл не вморожен:
 клиент ходит в `/v1` того же origin, к сервису его ведёт внешний Caddy из
 `backend/deploy`. Пуш в `main` собирает образ в GHCR и выкладывает его
 (`.github/workflows/deploy.yml`); как устроен стек —
@@ -73,6 +77,8 @@ npm run e2e      # сквозные проверки в headless-Chrome пове
 `Dockerfile`) и provenance (SLSA v1), а digest индекса подписан cosign без
 ключей — identity `release.yml` этого репозитория на теге ([решение
 0046](https://github.com/cadence-lab-tech/sdlc-pipeline-docs/blob/main/decisions/0046-supply-chain-signatures-pins.md)).
+После v0.12.0 к digest приложен и OpenVEX из `.github/release/openvex.json`:
+известные ложные находки сканеров с обоснованием.
 Тот выпуск, что опубликовал и подписал образ вторым, шлёт событие
 `cadence-release` с digest обоих образов в
 [`cadence-lab-tech/self-hosted`](https://github.com/cadence-lab-tech/self-hosted)

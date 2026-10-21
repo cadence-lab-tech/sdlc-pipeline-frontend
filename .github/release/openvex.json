@@ -1,0 +1,53 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://github.com/cadence-lab-tech/sdlc-pipeline-frontend/blob/main/.github/release/openvex.json",
+  "author": "Cadence Lab <https://github.com/cadence-lab-tech>",
+  "role": "Document Creator",
+  "timestamp": "2026-10-21T00:00:00Z",
+  "version": 1,
+  "tooling": "hand-written; attached to every release image by .github/workflows/release.yml (cosign attest --type openvex)",
+  "statements": [
+    {
+      "vulnerability": {
+        "@id": "https://pkg.go.dev/vuln/GO-2026-5932",
+        "name": "GO-2026-5932",
+        "description": "golang.org/x/crypto/openpgp is unmaintained, unsafe by design, and has known security issues"
+      },
+      "timestamp": "2026-10-21T00:00:00Z",
+      "products": [
+        {
+          "@id": "pkg:oci/sdlc-pipeline-frontend?repository_url=ghcr.io/cadence-lab-tech/sdlc-pipeline-frontend",
+          "subcomponents": [
+            {
+              "@id": "pkg:golang/golang.org/x/crypto"
+            }
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "The advisory covers only the golang.org/x/crypto/openpgp packages. /usr/bin/caddy of the image is built from source by the Dockerfile (caddy/go.mod, caddy/go.sum), and the build fails if `go list -deps` of the Caddy main package lists any golang.org/x/crypto/openpgp package, so none of them is linked into the binary. Scanners that match by module version (govulncheck -mode=binary, Trivy, Grype) report it because the module golang.org/x/crypto is present for other packages."
+    },
+    {
+      "vulnerability": {
+        "@id": "https://nvd.nist.gov/vuln/detail/CVE-2026-85091",
+        "name": "CVE-2026-85091",
+        "description": "zlib 1.3.1.2 through 1.3.2: heap buffer overflow"
+      },
+      "timestamp": "2026-10-21T00:00:00Z",
+      "products": [
+        {
+          "@id": "pkg:oci/sdlc-pipeline-frontend?repository_url=ghcr.io/cadence-lab-tech/sdlc-pipeline-frontend",
+          "subcomponents": [
+            {
+              "@id": "pkg:apk/alpine/zlib"
+            }
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "zlib comes with the caddy:2-alpine base (Alpine 3.23), whose build with the fix (1.3.2-r1) is not published yet. The only process of the image is /usr/bin/caddy, a static Go binary built with CGO_ENABLED=0: it does not load libz (Go has its own compress packages). In the image libz is linked only by apk and curl, which neither the image nor the self-hosted package runs: the package executes only `caddy reload` and busybox `wget` in the caddy container. The finding goes away when the base image is republished with the fixed zlib; Dependabot then proposes the new digest."
+    }
+  ]
+}

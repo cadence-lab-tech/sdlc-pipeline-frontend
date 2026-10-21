@@ -10,10 +10,10 @@
 # Цепочка поставки (CLAB-130, решение 0046): образ подписан cosign без
 # ключей — сертификатом на OIDC-токен этого прогона, identity
 # .../.github/workflows/release.yml@refs/tags/vX.Y.Z, — к нему приложены
-# SBOM (SPDX, включая npm-пакеты этапа сборки) и provenance (SLSA v1,
-# mode=max); подписан digest индекса, а с ним и манифесты аттестаций в
-# индексе. Команды проверки для клиента — docs/admin.md в self-hosted,
-# «Verifying a release».
+# SBOM (SPDX, включая npm-пакеты этапа сборки), provenance (SLSA v1,
+# mode=max) и VEX (openvex.json, CLAB-234); подписан digest индекса, а с ним
+# и манифесты аттестаций в индексе. Команды проверки для клиента —
+# docs/admin.md в self-hosted, «Verifying a release».
 name: release
 
 on:
@@ -99,6 +99,16 @@ jobs:
         env:
           IMAGE: ${{ steps.meta.outputs.registry }}/sdlc-pipeline-frontend@${{ steps.build.outputs.digest }}
         run: cosign sign --yes "$IMAGE"
+
+      # Известные ложные находки сканеров по образу (GO-2026-5932 у Caddy,
+      # zlib базы Alpine) — подписанным OpenVEX рядом с образом, как у
+      # backend. Исходник утверждений правится PR в
+      # .github/release/openvex.json, не здесь. Невалидный файл роняет шаг —
+      # и self-hosted о выпуске не оповещается.
+      - name: VEX к образу
+        env:
+          IMAGE: ${{ steps.meta.outputs.registry }}/sdlc-pipeline-frontend@${{ steps.build.outputs.digest }}
+        run: cosign attest --yes --type openvex --predicate .github/release/openvex.json "$IMAGE"
 
       # Событие cadence-release шлёт тот выпуск, который опубликовал и
       # подписал свой образ вторым (см. скрипт): релиз-PR self-hosted пишет
