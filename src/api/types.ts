@@ -686,6 +686,36 @@ export interface AccessToken {
   revoked_at?: string;
 }
 
+// Запись журнала действий (CLAB-210, MCP_CONTRACT.md «Журнал действий»):
+// кто, каким токеном, через какой канал и каким вызовом действовал, с каким
+// исходом. Лента задачи — это что случилось с задачей; журнал — кто что
+// вызывал, включая отказы.
+export interface AuditEntry {
+  id: UUID;
+  at: string;
+  project_key: string | null;
+  task_key: string | null;
+  // null — отказ 401 по токену, которого нет в базе.
+  principal: {handle: string; kind: string} | null;
+  // Снимок токена на момент вызова; null — без токена (режим header).
+  // kind — вид из agent_tokens.kind: api, session, task или новый вид,
+  // который интерфейс показывает как есть.
+  token: {id: UUID | null; name: string | null; prefix: string | null; kind: string | null} | null;
+  channel: string;
+  // Имя тула или «МЕТОД шаблон пути».
+  action: string;
+  params: unknown;
+  outcome: {ok: boolean; code: string | null; status: number | null};
+  request_id: string | null;
+}
+
+// Страница журнала, новые сверху; next — курсор следующей, null — дальше
+// ничего.
+export interface AuditPage {
+  entries: AuditEntry[];
+  next: string | null;
+}
+
 // Ответ /auth/me. mode = header означает, что актор назван заголовком и не
 // проверен; в этом режиме форма входа не нужна.
 export interface Me {

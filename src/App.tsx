@@ -15,6 +15,7 @@ import {
   FolderKanban,
   LogOut,
   Moon,
+  ScrollText,
   Search,
   Settings2,
   Sun,
@@ -63,6 +64,7 @@ import {
   type HealthMarks,
 } from "./components/health";
 import { Principals, Teams } from "./pages/Admin";
+import { InstanceAudit } from "./pages/Audit";
 import { Board } from "./pages/Board";
 import { CLILogin, CLI_LOGIN_PATH } from "./pages/CLILogin";
 import { GITHUB_RETURN_PATH, Login } from "./pages/Login";
@@ -118,6 +120,14 @@ export function App() {
               element={
                 <Shell page="principals">
                   <Principals />
+                </Shell>
+              }
+            />
+            <Route
+              path="/audit"
+              element={
+                <Shell page="audit">
+                  <InstanceAudit />
                 </Shell>
               }
             />
@@ -203,6 +213,7 @@ type Page =
   | "projects"
   | "teams"
   | "principals"
+  | "audit"
   | "github"
   | "board"
   | "roles"
@@ -215,6 +226,7 @@ const TITLES: Record<Page, string> = {
   projects: "Проекты",
   teams: "Команды",
   principals: "Принципалы",
+  audit: "Журнал",
   github: "Подключение GitHub",
   board: "Доска",
   roles: "Роли",
@@ -416,6 +428,14 @@ function Nav({
       label: "Принципалы",
       icon: UserSquare,
       href: "/principals",
+    });
+    // Журнал инстанса — по тому же правилу, что «Принципалы»: ручка открыта
+    // только администратору системы (CLAB-210).
+    global.push({
+      page: "audit",
+      label: "Журнал",
+      icon: ScrollText,
+      href: "/audit",
     });
   }
 
