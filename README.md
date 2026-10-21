@@ -77,7 +77,7 @@ Go 1.26), а не берётся из `caddy:2-alpine` как есть: upstream
 `Dockerfile`) и provenance (SLSA v1), а digest индекса подписан cosign без
 ключей — identity `release.yml` этого репозитория на теге ([решение
 0046](https://github.com/cadence-lab-tech/sdlc-pipeline-docs/blob/main/decisions/0046-supply-chain-signatures-pins.md)).
-После v0.11.0 к digest приложен и OpenVEX из `.github/release/openvex.json`:
+После v0.12.0 к digest приложен и OpenVEX из `.github/release/openvex.json`:
 известные ложные находки сканеров с обоснованием.
 Тот выпуск, что опубликовал и подписал образ вторым, шлёт событие
 `cadence-release` с digest обоих образов в
