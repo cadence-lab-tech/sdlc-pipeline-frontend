@@ -1,0 +1,27 @@
+# Базовые образы Dockerfile (CLAB-203, решение 0051). Оба FROM
+# закреплены по digest; раз в неделю Dependabot открывает PR, если upstream
+# переопубликовал тот же тег (node:24-alpine, caddy:2-alpine с новыми
+# пакетами Alpine или пересобранным Caddy). PR проходит ci.yml со сборкой
+# образа, человек сливает его напрямую после зелёного CI.
+#
+# Смена линии тега — не автоматом: Node 26, Caddy 3 — решение человека
+# отдельной задачей, поэтому minor и major у node и caddy игнорируются.
+#
+# Только docker: npm и github-actions — не в этой политике.
+version: 2
+updates:
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "Dependabot"
+    ignore:
+      - dependency-name: node
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+      - dependency-name: caddy
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
