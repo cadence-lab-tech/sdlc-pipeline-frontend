@@ -12,8 +12,8 @@
 # .../.github/workflows/release.yml@refs/tags/vX.Y.Z, — к нему приложены
 # SBOM (SPDX, включая npm-пакеты этапа сборки), provenance (SLSA v1,
 # mode=max) и VEX (openvex.json, CLAB-234); подписан digest индекса, а с ним
-# и манифесты аттестаций в индексе. Команды проверки для клиента — docs/admin.md в self-hosted,
-# «Verifying a release».
+# и манифесты аттестаций в индексе. Команды проверки для клиента —
+# docs/admin.md в self-hosted, «Verifying a release».
 name: release
 
 on:
