@@ -11,6 +11,7 @@ import {
 import { BrowserRouter } from "react-router-dom";
 import {
   BarChart3,
+  BookOpen,
   Columns3,
   FolderKanban,
   LogOut,
@@ -67,6 +68,8 @@ import { Principals, Teams } from "./pages/Admin";
 import { InstanceAudit } from "./pages/Audit";
 import { Board } from "./pages/Board";
 import { CLILogin, CLI_LOGIN_PATH } from "./pages/CLILogin";
+import { Docs } from "./pages/Docs";
+import { docsHref } from "./components/cli";
 import { GITHUB_RETURN_PATH, Login } from "./pages/Login";
 import { GitHubConnect } from "./pages/GitHubConnect";
 import { GITHUB_CONNECT_PATH } from "./api/github";
@@ -120,6 +123,17 @@ export function App() {
               element={
                 <Shell page="principals">
                   <Principals />
+                </Shell>
+              }
+            />
+            {/* Подключение локального проекта (CLAB-232): страница общая, а
+                проект выбирается на ней же — ссылка со страниц проекта
+                приносит его ключ в ?project=. */}
+            <Route
+              path="/docs"
+              element={
+                <Shell page="docs">
+                  <Docs />
                 </Shell>
               }
             />
@@ -214,6 +228,7 @@ type Page =
   | "teams"
   | "principals"
   | "audit"
+  | "docs"
   | "github"
   | "board"
   | "roles"
@@ -227,6 +242,7 @@ const TITLES: Record<Page, string> = {
   teams: "Команды",
   principals: "Принципалы",
   audit: "Журнал",
+  docs: "Подключение",
   github: "Подключение GitHub",
   board: "Доска",
   roles: "Роли",
@@ -438,6 +454,14 @@ function Nav({
       href: "/audit",
     });
   }
+  // Подключение локального проекта — для всех; со страниц проекта ссылка
+  // несёт его ключ.
+  global.push({
+    page: "docs",
+    label: "Подключение",
+    icon: BookOpen,
+    href: docsHref(projectKey),
+  });
 
   const inProject: NavEntry[] = projectKey
     ? [
