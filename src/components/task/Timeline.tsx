@@ -1,9 +1,13 @@
-import {Row, RowList, Timestamp} from '@/components/kit';
+import {ChevronDown} from 'lucide-react';
+
+import {Collapsible, CollapsibleContent, CollapsibleTrigger} from '@/components/ui/collapsible';
+import {CodeBlock, RowList, Timestamp} from '@/components/kit';
 
 import type {TaskEvent} from '../../api/types';
 import type {Resource} from '../../api/useResource';
 import {Failure, Loading} from '../Feedback';
-import {eventLabel} from './events';
+import {priorityLabel} from '../priorities';
+import {eventDetails, eventLabel, hasPayload} from './events';
 
 // Лента показывает ресурс карточки, а не заводит свой: её перезапрашивает
 // каждое действие на странице (правка постановки, сдача артефакта, переход),
@@ -19,16 +23,71 @@ export function Timeline({events}: {events: Resource<TaskEvent[]>}) {
           <h3 className="text-muted-foreground text-xs font-medium">{dayLabel(day)}</h3>
           <RowList>
             {list.map((e) => (
-              <Row key={e.id} end={<Timestamp value={e.created_at} format="time" />}>
-                <p className="font-medium">{eventLabel(e.type)}</p>
-                {e.actor_handle ? (
-                  <p className="text-muted-foreground text-xs">{e.actor_handle}</p>
-                ) : null}
-              </Row>
+              <EventRow key={e.id} event={e} />
             ))}
           </RowList>
         </div>
       ))}
+    </div>
+  );
+}
+
+// Строка события: подпись, кто и короткая строка подробностей из payload.
+// Длинное (было/стало описания) и сырой payload — по раскрытию: строка ленты
+// остаётся строкой, а событие незнакомого типа не теряет того, что в нём есть.
+function EventRow({event}: {event: TaskEvent}) {
+  const details = eventDetails(event.type, event.payload, priorityLabel);
+  const expandable = hasPayload(event.payload);
+
+  const head = (
+    <div className="flex w-full items-start gap-3 px-3 py-2 text-left text-sm">
+      <div className="min-w-0 flex-1">
+        <p className="font-medium">{eventLabel(event.type)}</p>
+        {event.actor_handle ? (
+          <p className="text-muted-foreground text-xs">{event.actor_handle}</p>
+        ) : null}
+        {details.summary ? (
+          <p className="text-muted-foreground text-xs break-words" data-event-details>
+            {details.summary}
+          </p>
+        ) : null}
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <Timestamp value={event.created_at} format="time" />
+        {expandable ? (
+          <ChevronDown className="text-muted-foreground size-4 -rotate-90 transition-transform group-data-[state=open]:rotate-0" />
+        ) : null}
+      </div>
+    </div>
+  );
+
+  if (!expandable) return <div data-event={event.type}>{head}</div>;
+
+  return (
+    <Collapsible data-event={event.type}>
+      <CollapsibleTrigger className="group hover:bg-accent/60 w-full cursor-pointer transition-colors">
+        {head}
+      </CollapsibleTrigger>
+      <CollapsibleContent className="min-w-0 space-y-3 px-3 pb-3">
+        {details.long.map((change) => (
+          <div key={change.field} className="grid min-w-0 gap-2 md:grid-cols-2">
+            <LongValue title={`${change.field}: было`} value={change.from} />
+            <LongValue title={`${change.field}: стало`} value={change.to} />
+          </div>
+        ))}
+        <CodeBlock code={JSON.stringify(event.payload, null, 2)} language="json" title="payload" maxHeight={320} />
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+function LongValue({title, value}: {title: string; value: string}) {
+  return (
+    <div className="min-w-0 space-y-1">
+      <p className="text-muted-foreground text-xs">{title}</p>
+      <p className="bg-muted/40 max-h-60 overflow-auto rounded-md border p-2 text-xs break-words whitespace-pre-wrap">
+        {value || '—'}
+      </p>
     </div>
   );
 }

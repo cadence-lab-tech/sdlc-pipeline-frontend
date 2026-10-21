@@ -12,6 +12,7 @@ import {Markdown, Row, RowList, Token} from '@/components/kit';
 import {api} from '../api/client';
 import type {Task, TaskDetail as TaskDetailData, TaskLink, UsageSummary} from '../api/types';
 import {useResource} from '../api/useResource';
+import {AuditLog} from '../components/AuditLog';
 import {Failure, Loading} from '../components/Feedback';
 import {DriftPanel} from '../components/DriftPanel';
 import {EditTaskDialog} from '../components/EditTaskDialog';
@@ -38,6 +39,9 @@ export function TaskDetail() {
   // карточка: их кладёт агент по ходу прогона, и узнаётся это перезапросом.
   const refs = useResource(() => api.repoRefs(taskKey), [taskKey]);
   const [tab, setTab] = useState('stages');
+  // Знак перезапроса журнала: сам журнал живёт во вкладке и грузится только
+  // при её открытии, а перезапрашивается вместе с карточкой.
+  const [auditVersion, setAuditVersion] = useState(0);
 
   const live = (task.data?.stage_runs ?? []).some(isLeaseLive);
   useEffect(() => {
@@ -45,6 +49,7 @@ export function TaskDetail() {
     const timer = setInterval(() => {
       task.reload();
       refs.reload();
+      setAuditVersion((v) => v + 1);
     }, LIVE_POLL_MS);
     return () => clearInterval(timer);
     // Опрос заводится на время живой аренды, а не на каждый рендер карточки.
@@ -59,6 +64,7 @@ export function TaskDetail() {
     task.reload();
     events.reload();
     refs.reload();
+    setAuditVersion((v) => v + 1);
   };
 
   return (
@@ -75,6 +81,7 @@ export function TaskDetail() {
                   <TabsTrigger value="children">Нарезка · {detail.children.length}</TabsTrigger>
                 ) : null}
                 <TabsTrigger value="timeline">Лента</TabsTrigger>
+                <TabsTrigger value="audit">Журнал</TabsTrigger>
               </TabsList>
             </Tabs>
             <SubmitArtifactDialog
@@ -87,6 +94,12 @@ export function TaskDetail() {
             <Stages detail={detail} onChanged={reload} />
           ) : tab === 'children' ? (
             <Children detail={detail} />
+          ) : tab === 'audit' ? (
+            <AuditLog
+              load={(cursor) => api.taskAudit(detail.task.key, cursor)}
+              deps={['task-audit', detail.task.key]}
+              version={auditVersion}
+            />
           ) : (
             <Timeline events={events} />
           )}

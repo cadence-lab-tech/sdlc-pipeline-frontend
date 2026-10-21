@@ -32,3 +32,217 @@ const EVENT_LABELS: Record<string, string> = {
 export function eventLabel(type: string): string {
   return EVENT_LABELS[type] ?? type;
 }
+
+// ── подробности события ─────────────────────────────────────────────────────
+
+// Длинное значение правки (описание задачи) показывается не строкой ленты, а
+// по раскрытию: было и стало целиком.
+export interface LongChange {
+  field: string;
+  from: string;
+  to: string;
+}
+
+export interface EventDetails {
+  // Короткая строка под подписью события; пустая — строки нет.
+  summary: string;
+  long: LongChange[];
+}
+
+// Поля правки постановки в порядке показа и их подписи. Незнакомое поле
+// (бэкенд научился править что-то ещё) идёт в конце под своим ключом.
+const FIELD_LABELS: Record<string, string> = {
+  title: 'название',
+  priority: 'приоритет',
+  labels: 'метки',
+  external_ref: 'ссылки на трекер',
+  description: 'описание',
+};
+
+const FIELD_ORDER = Object.keys(FIELD_LABELS);
+
+type Payload = Record<string, unknown>;
+
+function isObject(v: unknown): v is Payload {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+// Скаляр строкой; пустое, null и составное — undefined: в строке ленты не
+// должно появиться «undefined», «null» или «[object Object]».
+function text(v: unknown): string | undefined {
+  if (typeof v === 'string') return v.trim() ? v : undefined;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  return undefined;
+}
+
+function list(v: unknown): string[] {
+  return Array.isArray(v) ? v.map(text).filter((s): s is string => s !== undefined) : [];
+}
+
+function quoted(v: unknown): string {
+  const s = text(v);
+  return s === undefined ? '—' : `«${s}»`;
+}
+
+// Ключи статусов и ролей показываются как пришли: их придумывает проект, и
+// подписывать их словарём нельзя.
+function move(from: unknown, to: unknown): string | undefined {
+  const a = text(from);
+  const b = text(to);
+  if (!a && !b) return undefined;
+  return `${a ?? '—'} → ${b ?? '—'}`;
+}
+
+function join(parts: (string | undefined | false)[]): string {
+  return parts.filter((p): p is string => Boolean(p)).join(' · ');
+}
+
+function updated(payload: Payload, priority: (p: string) => string): EventDetails {
+  const changed = isObject(payload.changed) ? payload.changed : {};
+  const names = [
+    ...FIELD_ORDER.filter((f) => f in changed),
+    ...Object.keys(changed).filter((f) => !FIELD_ORDER.includes(f)).sort(),
+  ];
+  const parts: string[] = [];
+  const long: LongChange[] = [];
+  for (const name of names) {
+    const change = isObject(changed[name]) ? changed[name] : {};
+    const label = FIELD_LABELS[name] ?? name;
+    switch (name) {
+      case 'title':
+        parts.push(`${label}: ${quoted(change.from)} → ${quoted(change.to)}`);
+        break;
+      case 'priority': {
+        const p = (v: unknown) => {
+          const s = text(v);
+          return s === undefined ? '—' : priority(s);
+        };
+        parts.push(`${label}: ${p(change.from)} → ${p(change.to)}`);
+        break;
+      }
+      case 'labels': {
+        const before = list(change.from);
+        const after = list(change.to);
+        const added = after.filter((l) => !before.includes(l));
+        const removed = before.filter((l) => !after.includes(l));
+        const delta = join([
+          added.length > 0 && `+ ${added.join(', ')}`,
+          removed.length > 0 && `− ${removed.join(', ')}`,
+        ]);
+        parts.push(`${label}: ${delta || 'порядок'}`);
+        break;
+      }
+      case 'description':
+        parts.push(`${label} изменено`);
+        long.push({field: label, from: text(change.from) ?? '', to: text(change.to) ?? ''});
+        break;
+      default:
+        parts.push(`${label} изменено`);
+    }
+  }
+  return {summary: parts.join(' · '), long};
+}
+
+function scope(payload: Payload): string {
+  const added = list(payload.added_repositories);
+  const removed = list(payload.removed_repositories);
+  const multi = payload.multi_repo;
+  return join([
+    added.length > 0 && `добавлено: ${added.join(', ')}`,
+    removed.length > 0 && `убрано: ${removed.join(', ')}`,
+    text(payload.primary_repository) && `основной: ${text(payload.primary_repository)}`,
+    typeof multi === 'boolean' && `multi_repo: ${multi ? 'да' : 'нет'}`,
+    text(payload.note) && `заметка: ${text(payload.note)}`,
+  ]);
+}
+
+// Исходы гейта, которые переход не держат (GateOutcome.Passed на бэкенде).
+const PASSING = ['passed', 'waived', 'skipped'];
+
+function money(v: unknown): string | undefined {
+  return typeof v === 'number' ? `${v.toFixed(2)} $` : undefined;
+}
+
+// Подробности события из его payload — короткой строкой, без разметки.
+// Незнакомый тип, пустой или неполный payload дают пустую строку, а не
+// исключение: сырой payload лента всё равно показывает по раскрытию.
+// Подпись приоритета передаётся снаружи (priorityLabel): словарь живёт в
+// своём модуле, а этот файл проверяется node без сборщика.
+export function eventDetails(
+  type: string,
+  payload: unknown,
+  priority: (p: string) => string = (p) => p,
+): EventDetails {
+  const p: Payload = isObject(payload) ? payload : {};
+  const only = (summary: string | undefined): EventDetails => ({summary: summary ?? '', long: []});
+  switch (type) {
+    case 'task.updated':
+      return updated(p, priority);
+    case 'task.scope_updated':
+      return only(scope(p));
+    case 'stage.released':
+      return only(text(p.note) && `заметка: ${text(p.note)}`);
+    case 'task.advanced':
+    case 'task.rejected':
+    case 'task.cancelled':
+      return only(join([text(p.transition), move(p.from, p.to), text(p.comment) && `«${text(p.comment)}»`]));
+    case 'task.created':
+      return only(join([
+        text(p.type) && `тип ${text(p.type)}`,
+        text(p.parent) && `эпик ${text(p.parent)}`,
+        list(p.blocks).length > 0 && `блокирует ${list(p.blocks).join(', ')}`,
+        text(p.assignee) && `исполнитель ${text(p.assignee)}`,
+      ]));
+    case 'task.assigned':
+      return only(text(p.assignee) ? `исполнитель ${text(p.assignee)}` : 'назначение снято');
+    case 'task.linked':
+    case 'task.unlinked':
+      return only(join([text(p.rel) && text(p.task) && `${text(p.rel)} → ${text(p.task)}`, text(p.note)]));
+    case 'task.workflow_moved':
+      return only(join([
+        text(p.workflow) && `${text(p.workflow)}${text(p.version) ? ` v${text(p.version)}` : ''}`,
+        move(p.from_status, p.to_status),
+      ]));
+    case 'stage.entered':
+      return only(join([text(p.status), text(p.attempt) && `попытка ${text(p.attempt)}`]));
+    case 'stage.claimed':
+      return only(join([text(p.role), text(p.kind), text(p.attempt) && `попытка ${text(p.attempt)}`]));
+    case 'lease.expired':
+      return only(text(p.holder) && `держал ${text(p.holder)}`);
+    case 'artifact.submitted':
+      return only(join([text(p.kind), text(p.version) && `v${text(p.version)}`, text(p.title)]));
+    case 'gate.decided':
+      return only(join([text(p.gate), text(p.transition), text(p.status)]));
+    case 'gate.failed': {
+      const gates = Array.isArray(p.gates) ? p.gates : [];
+      const held = gates
+        .filter(isObject)
+        .filter((g) => !PASSING.includes(text(g.status) ?? ''))
+        .map((g) => text(g.gate_key) ?? text(g.gate))
+        .filter((s): s is string => s !== undefined);
+      return only(join([text(p.transition), held.length > 0 && `держат: ${held.join(', ')}`]));
+    }
+    case 'review.requested':
+    case 'review.completed':
+      return only(join([text(p.gate), text(p.reviewer_role), text(p.verdict)]));
+    case 'repo_ref.linked':
+      return only(join([
+        text(p.repository),
+        [text(p.ref_type), text(p.ref)].filter(Boolean).join(' ') || undefined,
+        text(p.state),
+      ]));
+    case 'drift.detected':
+    case 'drift.resolved':
+      return only(join([text(p.kind), text(p.severity), text(p.repository), text(p.resolution), text(p.note)]));
+    case 'usage.reported':
+      return only(join([text(p.model), money(p.cost_usd)]));
+    default:
+      return only(undefined);
+  }
+}
+
+// Есть ли что показать по раскрытию: любое событие с непустым payload, в том
+// числе незнакомого типа.
+export function hasPayload(payload: unknown): boolean {
+  return isObject(payload) ? Object.keys(payload).length > 0 : payload !== undefined && payload !== null;
+}

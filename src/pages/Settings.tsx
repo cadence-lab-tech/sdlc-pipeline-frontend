@@ -30,6 +30,7 @@ import type {
 } from '../api/types';
 import {useResource} from '../api/useResource';
 import {Failure, Loaded} from '../components/Feedback';
+import {AuditLog} from '../components/AuditLog';
 
 const LEVELS = [
   {value: 'viewer', label: 'viewer — только чтение'},
@@ -68,6 +69,8 @@ export function Settings() {
             <Tokens projectKey={projectKey} me={who} />
             <Separator />
             <Transfer projectKey={projectKey} />
+            <Separator />
+            <ProjectAudit projectKey={projectKey} />
             <Separator />
             <DangerZone projectKey={projectKey} />
           </div>
@@ -664,6 +667,34 @@ function Repositories({projectKey}: {projectKey: string}) {
           />
         )}
       </Loaded>
+    </Section>
+  );
+}
+
+// ── журнал действий ─────────────────────────────────────────────────────────
+
+// Журнал проекта (CLAB-210): все вызовы по проекту, в том числе без задачи —
+// импорт связки, версии ролей, участники, токены, отказы. Читает его
+// сопровождающий; уровень проверяет бэкенд, раздел не прячется. Своего
+// опроса у раздела нет: действие выше на этой же странице (импорт связки)
+// видно после «Обновить».
+function ProjectAudit({projectKey}: {projectKey: string}) {
+  const [version, setVersion] = useState(0);
+  return (
+    <Section
+      title="Журнал действий"
+      description="Кто, каким токеном, через MCP или REST и каким вызовом действовал в проекте, с каким исходом — включая отказы. Успешные чтения не пишутся."
+      actions={
+        <Button variant="outline" size="sm" onClick={() => setVersion((v) => v + 1)}>
+          Обновить
+        </Button>
+      }>
+      <AuditLog
+        load={(cursor) => api.projectAudit(projectKey, cursor)}
+        deps={['project-audit', projectKey]}
+        version={version}
+        showTask
+      />
     </Section>
   );
 }

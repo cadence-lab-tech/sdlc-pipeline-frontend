@@ -4,6 +4,8 @@
 import type {
   AccessToken,
   ActivationResult,
+  AuditEntry,
+  AuditPage,
   Artifact,
   Bundle,
   Drift,
@@ -195,6 +197,43 @@ function normalizeTask(t: Task): Task {
     labels: t.labels ?? [],
     properties: t.properties ?? {},
   };
+}
+
+// Журнал: пустой список сервер может опустить или отдать null, а поля
+// снимка — без значения; компонент журнала про это не помнит.
+function normalizeAuditPage(page: Partial<AuditPage> | undefined): AuditPage {
+  return {
+    entries: (page?.entries ?? []).map(normalizeAuditEntry),
+    next: page?.next || null,
+  };
+}
+
+function normalizeAuditEntry(e: AuditEntry): AuditEntry {
+  return {
+    ...e,
+    project_key: e.project_key ?? null,
+    task_key: e.task_key ?? null,
+    principal: e.principal ?? null,
+    token: e.token
+      ? {
+          id: e.token.id ?? null,
+          name: e.token.name ?? null,
+          prefix: e.token.prefix ?? null,
+          kind: e.token.kind ?? null,
+        }
+      : null,
+    params: e.params ?? null,
+    outcome: {
+      ok: Boolean(e.outcome?.ok),
+      code: e.outcome?.code ?? null,
+      status: e.outcome?.status ?? null,
+    },
+    request_id: e.request_id ?? null,
+  };
+}
+
+function auditQuery(cursor?: string): string {
+  return cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
 }
 
 function normalizeWorkflow(w: Workflow): Workflow {
@@ -803,6 +842,21 @@ export const api = {
     request<{ events: TaskEvent[] }>(`/tasks/${taskKey}/timeline`).then(
       (r) => r.events,
     ),
+
+  // Журнал действий (CLAB-210): задачи и проекта — maintainer, инстанса —
+  // администратор системы. Страница по курсору next прошлой.
+  taskAudit: (taskKey: string, cursor?: string) =>
+    request<AuditPage>(`/tasks/${taskKey}/audit${auditQuery(cursor)}`).then(
+      normalizeAuditPage,
+    ),
+
+  projectAudit: (projectKey: string, cursor?: string) =>
+    request<AuditPage>(
+      `/projects/${projectKey}/audit${auditQuery(cursor)}`,
+    ).then(normalizeAuditPage),
+
+  instanceAudit: (cursor?: string) =>
+    request<AuditPage>(`/audit${auditQuery(cursor)}`).then(normalizeAuditPage),
 
   updateScope: (taskKey: string, body: Record<string, unknown>) =>
     request<Task>(`/tasks/${taskKey}/scope`, patch(body)).then(normalizeTask),
