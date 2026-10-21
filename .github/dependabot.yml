@@ -1,13 +1,20 @@
-# Базовые образы Dockerfile (CLAB-203, решение 0051). Оба FROM
+# Базовые образы Dockerfile (CLAB-203, решение 0051). Все FROM
 # закреплены по digest; раз в неделю Dependabot открывает PR, если upstream
-# переопубликовал тот же тег (node:24-alpine, caddy:2-alpine с новыми
-# пакетами Alpine или пересобранным Caddy). PR проходит ci.yml со сборкой
-# образа, человек сливает его напрямую после зелёного CI.
+# переопубликовал тот же тег (node:24-alpine, golang:1.26-alpine с новым
+# патчем Go, caddy:2-alpine с новыми пакетами Alpine). PR проходит ci.yml со
+# сборкой образа, человек сливает его напрямую после зелёного CI.
 #
-# Смена линии тега — не автоматом: Node 26, Caddy 3 — решение человека
-# отдельной задачей, поэтому minor и major у node и caddy игнорируются.
+# Caddy образа собирается из исходников (CLAB-234, решение 0056), его версия
+# и модули — caddy/go.mod: их обновляет запись gomod ниже, только для этого
+# каталога. Сам Caddy — патчи и minor линии v2; golang.org/x/* — и косвенные,
+# одним PR: в них приходят исправления net/http2, crypto и TLS, которых
+# релиз Caddy ждать не должен. Остальные модули Caddy едут с его релизом.
 #
-# Только docker: npm и github-actions — не в этой политике.
+# Смена линии — не автоматом: Node 26, Go 1.27, Caddy 3 — решение человека
+# отдельной задачей, поэтому minor и major у node, golang и caddy (образа)
+# и major у модуля Caddy игнорируются.
+#
+# npm и github-actions — не в этой политике.
 version: 2
 updates:
   - package-ecosystem: docker
@@ -25,3 +32,26 @@ updates:
         update-types:
           - version-update:semver-major
           - version-update:semver-minor
+      - dependency-name: golang
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+
+  - package-ecosystem: gomod
+    directory: /caddy
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "Dependabot"
+    allow:
+      - dependency-name: github.com/caddyserver/caddy/v2
+      - dependency-name: golang.org/x/*
+        dependency-type: all
+    groups:
+      golang-x:
+        patterns:
+          - golang.org/x/*
+    ignore:
+      - dependency-name: github.com/caddyserver/caddy/v2
+        update-types:
+          - version-update:semver-major

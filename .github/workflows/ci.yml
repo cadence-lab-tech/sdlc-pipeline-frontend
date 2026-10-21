@@ -30,7 +30,9 @@ jobs:
     # Раннер закреплён, а не ubuntu-latest: смена образа под ногами не
     # должна менять поведение проверки (CLAB-151).
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # Шаг image собирает и Caddy из исходников (CLAB-234): холодная загрузка
+    # модулей и компиляция добавляют несколько минут.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
@@ -59,7 +61,8 @@ jobs:
       # main. Шаг внутри обязательной проверки `frontend`, поэтому красная
       # сборка не даёт слить PR. Одна платформа — linux/amd64 раннера,
       # обе — release.yml. caddy validate в образе ловит базу, с которой
-      # конфиг статики не читается.
+      # конфиг статики не читается. Сборка падает и тогда, когда в граф
+      # пакетов Caddy попал golang.org/x/crypto/openpgp (Dockerfile, VEX).
       - name: image
         run: |
           docker build --platform linux/amd64 -t ci-frontend .
