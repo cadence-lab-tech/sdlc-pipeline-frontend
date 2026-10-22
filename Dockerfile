@@ -71,16 +71,34 @@ RUN go build -trimpath -ldflags "-s -w" -o /out/caddy .
 
 # Как у upstream'ного бинаря: право слушать :80 без root. Ставится здесь, на
 # платформе сборщика (setcap пишет атрибут файла, архитектура бинаря ему не
-# важна), COPY переносит его в образ вместе с файлом.
+# важна), COPY переносит его в образ вместе с файлом. Нужно процессу не root
+# на :80 там, где Docker не открыл привилегированные порты всем; цена — в
+# Kubernetes при drop: [ALL] контейнеру нужен add: [NET_BIND_SERVICE], иначе
+# exec бинаря с file capability падает с EPERM (CLAB-236, чарт пакета).
 RUN apk add --no-cache libcap-utils && setcap cap_net_bind_service=+ep /out/caddy
+
+# Каталоги состояния Caddy (XDG_DATA_HOME=/data, XDG_CONFIG_HOME=/config у
+# базы) с владельцем-пользователем образа: финальный этап без RUN, поэтому
+# владельца задаёт COPY --chown, а каталоги готовятся здесь.
+RUN mkdir -p /out/state/data/caddy /out/state/config/caddy
 
 # Раздача статики. Caddy, а не nginx: тот же образ, что у внешнего прокси,
 # и конфиг в три строки вместо блока location. Этап выполняется под целевой
 # платформой, поэтому в нём только COPY — RUN потребовал бы эмуляции. Бинарь
 # из этапа caddy заменяет upstream'ный /usr/bin/caddy.
+#
+# Образ работает не от root (CLAB-236): числовой uid 65532, как у backend и
+# у podSecurityContext чарта, — runAsNonRoot в Kubernetes проверяется только
+# у числового. Слушает :80 и :8080 (deploy/Caddyfile): :8080 — для Pod
+# Security restricted, :80 — для тех, кто ходит в ui:80 сегодня (внешний
+# Caddy пакета и backend/deploy, их переводит CLAB-247). Внешний caddy
+# пакета на этом же образе запускается от root явным user: "0:0" в compose:
+# его сертификаты в томах существующих установок принадлежат root.
 FROM caddy:2-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
 COPY --from=caddy /out/caddy /usr/bin/caddy
+COPY --from=caddy --chown=65532:65532 /out/state/ /
 COPY deploy/Caddyfile /etc/caddy/Caddyfile
 COPY --from=build /app/dist /srv
 COPY --from=build /out/license/ /
-EXPOSE 80
+USER 65532:65532
+EXPOSE 80 8080

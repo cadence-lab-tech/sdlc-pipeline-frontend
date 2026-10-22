@@ -63,7 +63,31 @@ jobs:
       # обе — release.yml. caddy validate в образе ловит базу, с которой
       # конфиг статики не читается. Сборка падает и тогда, когда в граф
       # пакетов Caddy попал golang.org/x/crypto/openpgp (Dockerfile, VEX).
+      #
+      # Образ не root (CLAB-236): пользователь 65532 числом, финальный этап
+      # без RUN, конфиг читается и с адресом по умолчанию (:80 и :8080), и
+      # суженным до :8080, как его запускает чарт пакета. Дым: запущенный
+      # образ отвечает на :8080 и :80 от uid 65532.
       - name: image
         run: |
           docker build --platform linux/amd64 -t ci-frontend .
           docker run --rm ci-frontend caddy validate --config /etc/caddy/Caddyfile
+          docker run --rm -e CADENCE_UI_ADDRESS=:8080 ci-frontend caddy validate --config /etc/caddy/Caddyfile
+          user="$(docker image inspect ci-frontend -f '{{.Config.User}}')"
+          [ "$user" = 65532:65532 ] || { echo "::error::the image runs as '$user', expected 65532:65532"; exit 1; }
+          if awk '/^FROM /{run=0} /^RUN /{run=1} END{exit !run}' Dockerfile; then
+            echo "::error::the final stage of Dockerfile has a RUN: it would need emulation under the target platform"
+            exit 1
+          fi
+          docker run -d --name ci-ui ci-frontend
+          trap 'docker rm -f ci-ui >/dev/null' EXIT
+          for i in $(seq 1 20); do
+            docker exec ci-ui wget -q -O /dev/null http://127.0.0.1:8080/ && break
+            sleep 1
+          done
+          uid="$(docker exec ci-ui awk '/^Uid:/{print $2}' /proc/1/status)"
+          [ "$uid" = 65532 ] || { echo "::error::caddy runs as uid $uid, expected 65532"; exit 1; }
+          for port in 8080 80; do
+            docker exec ci-ui wget -q -O - "http://127.0.0.1:$port/projects/X/tasks/1" | grep -qi '<html' ||
+              { echo "::error::the image does not serve the UI on :$port"; docker logs ci-ui; exit 1; }
+          done

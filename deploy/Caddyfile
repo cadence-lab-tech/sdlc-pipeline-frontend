@@ -1,6 +1,12 @@
 # Статика интерфейса внутри контейнера ui. TLS и маршрутизация к сервису —
 # у внешнего Caddy (backend/deploy/Caddyfile), сюда приходит уже http.
-:80 {
+#
+# Адреса — из CADENCE_UI_ADDRESS, по умолчанию :80 и :8080 (CLAB-236). Образ
+# работает не от root; :8080 непривилегированный, на нём ui живёт в
+# Kubernetes под Pod Security restricted, где чарт сужает адрес до :8080.
+# :80 остаётся тем, кто ходит в ui:80 (внешний Caddy пакета, backend/deploy);
+# его снимет CLAB-247.
+{$CADENCE_UI_ADDRESS::80, :8080} {
 	root * /srv
 	encode zstd gzip
 
