@@ -40,6 +40,22 @@ const layout = await run(`
 check('колонки стоят рядом, сцена слева', !layout.missing && layout.twoColumns && layout.terminalOnTheLeft, JSON.stringify(layout));
 check('вход идёт первым в разметке', layout.formFirstInDom === true, JSON.stringify(layout));
 
+console.log('знак и иконки');
+const brand = await run(`
+  const links = all('link[rel~=icon], link[rel=apple-touch-icon], link[rel=manifest]').map((l) => l.getAttribute('rel') + ' ' + l.getAttribute('href'));
+  const welcome = all('h1').find((h) => /Cadence Lab/.test(h.innerText));
+  const svg = welcome && welcome.closest('.flex.items-center')?.querySelector('svg');
+  return {links, hasMark: Boolean(svg), viewBox: svg && svg.getAttribute('viewBox')};
+`);
+check('иконки вкладки подключены (svg и ico)', brand.links.some((l) => l.endsWith('/favicon.svg')) && brand.links.some((l) => l.endsWith('/favicon.ico')), JSON.stringify(brand));
+check('apple-touch-icon и манифест подключены', brand.links.includes('apple-touch-icon /apple-touch-icon.png') && brand.links.includes('manifest /manifest.webmanifest'), JSON.stringify(brand));
+check('рядом с заголовком стоит знак', brand.hasMark && brand.viewBox === '0 0 138 80', JSON.stringify(brand));
+for (const path of ['/favicon.svg', '/favicon.ico', '/apple-touch-icon.png', '/icon-192.png', '/icon-512.png', '/manifest.webmanifest']) {
+  const res = await fetch(BASE + path);
+  const type = res.headers.get('content-type') ?? '';
+  check(`${path} отдаётся файлом, а не страницей`, res.ok && !type.includes('text/html'), `${res.status} ${type}`);
+}
+
 console.log('способы входа');
 t = await run(`
   const field = all('label').find((l) => l.innerText.trim().startsWith('Токен'));

@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/logo-mark-dark.svg">
+  <img src="assets/logo-mark-light.svg" alt="Cadence Lab" height="48">
+</picture>
+
 # Cadence Lab — Frontend
 
 Интерфейс системы, ведущей задачи по настраиваемому циклу разработки: доска

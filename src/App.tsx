@@ -23,7 +23,6 @@ import {
   Users,
   UserSquare,
   Workflow,
-  Wrench,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -59,6 +58,7 @@ import {
 } from "./api/client";
 import type { Me, ProjectHealth } from "./api/types";
 import { Failure, Loading } from "./components/Feedback";
+import { LogoMark } from "./components/LogoMark";
 import {
   PROJECT_HEALTH_EVENT,
   healthMarks,
@@ -511,10 +511,14 @@ function Nav({
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton asChild size="lg">
+            <SidebarMenuButton
+              asChild
+              size="lg"
+              className="group-data-[collapsible=icon]:p-0!"
+            >
               <Link to="/projects">
-                <div className="bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg">
-                  <Wrench className="size-4" />
+                <div className="flex aspect-square size-8 shrink-0 items-center justify-center">
+                  <LogoMark className="h-auto! w-7!" aria-hidden />
                 </div>
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-semibold">Cadence Lab</span>
