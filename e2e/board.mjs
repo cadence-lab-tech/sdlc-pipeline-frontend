@@ -16,6 +16,32 @@ let t = await run('return texts();');
 check('проект показан', t.includes('SDLC Pipeline'));
 check('репозитории проекта показаны', t.includes('sdlc-pipeline-backend'));
 
+// Знак вместо временной иконки (CLAB-245): виден в шапке меню целиком, ступени
+// берут цвет из --logo-accent, подпись у ссылки остаётся.
+console.log('знак в шапке меню');
+// На узком окне меню — выезжающая панель, шапки в разметке нет.
+await s.resize(1360, 900);
+await new Promise((r) => setTimeout(r, 800));
+const mark = await run(`
+  const link = document.querySelector('[data-sidebar=header] a');
+  const svg = link && link.querySelector('svg');
+  if (!svg) return {missing: true};
+  const box = svg.getBoundingClientRect();
+  const btn = link.getBoundingClientRect();
+  return {
+    viewBox: svg.getAttribute('viewBox'),
+    width: box.width,
+    inside: box.left >= btn.left && box.right <= btn.right,
+    dark: document.documentElement.classList.contains('dark'),
+    accent: getComputedStyle(document.documentElement).getPropertyValue('--logo-accent').trim(),
+    name: link.innerText,
+  };
+`);
+check('знак стоит в шапке меню', !mark.missing && mark.viewBox === '0 0 138 80' && mark.width > 20, JSON.stringify(mark));
+check('знак внутри кнопки, не обрезан', mark.inside === true, JSON.stringify(mark));
+check('цвет ступеней задан переменной темы', (mark.dark ? /^#2DD4BF$/i : /^#0F9488$/i).test(mark.accent), JSON.stringify(mark));
+check('подпись «Cadence Lab» у ссылки на месте', /Cadence Lab/.test(mark.name || ''), JSON.stringify(mark));
+
 // Проект заводит любой вошедший (решение 0030): в режиме header это
 // действующее лицо из заголовка, и кнопка для него есть.
 console.log('создание проекта');
