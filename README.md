@@ -64,10 +64,22 @@ npm run e2e      # сквозные проверки в headless-Chrome пове
 `index.html` для маршрутов React Router. Caddy образа собирается из
 исходников (`caddy/`: версия Caddy и модулей в `go.mod`/`go.sum`, текущий
 Go 1.26), а не берётся из `caddy:2-alpine` как есть: upstream на новом Go
-его не пересобирает. Образ работает от uid 65532 и слушает `:80` и `:8080`;
-`CADENCE_UI_ADDRESS` сужает адрес (чарт пакета ставит `:8080`). Тот же образ
-в пакете self-hosted работает и точкой входа стека — там от root
-(`user: "0:0"` в compose). Адрес API в бандл не вморожен:
+его не пересобирает. Образ работает от uid 65532, без capabilities, и
+слушает только `:8080` (с CLAB-248; до него — ещё `:80`). В рантайме он
+ничего не пишет и запускается на read-only корне:
+
+```bash
+docker run --read-only --cap-drop ALL --security-opt no-new-privileges \
+  --tmpfs /data:uid=65532,gid=65532 --tmpfs /config:uid=65532,gid=65532 \
+  -p 8080:8080 ghcr.io/cadence-lab-tech/sdlc-pipeline-frontend:<версия>
+```
+
+tmpfs здесь — запас на случай своего конфига, которому есть что писать;
+конфигу образа хватает и голого `--read-only`. Порты `80`, `443` и `2019`
+в метаданных образа (`ExposedPorts`) унаследованы от базы `caddy:2-alpine`
+и не слушаются: Dockerfile унаследованный `EXPOSE` снять не может. Тот же
+образ в пакете self-hosted работает и точкой входа стека — там от root
+(`user: "0:0"` в compose) со своим Caddyfile. Адрес API в бандл не вморожен:
 клиент ходит в `/v1` того же origin, к сервису его ведёт внешний Caddy из
 `backend/deploy`. Пуш в `main` собирает образ в GHCR и выкладывает его
 (`.github/workflows/deploy.yml`); как устроен стек —
