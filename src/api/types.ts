@@ -420,9 +420,44 @@ export interface Task {
   properties: Record<string, unknown>;
   repositories: TaskRepository[];
   blocked_reason?: string;
+  // Рекомендованный уровень модели задачи (решение 0060); null — не задан,
+  // этап тогда берёт уровень роли. Бэкенд старше CLAB-259 поля не отдаёт.
+  model_level?: ModelLevel | null;
+  // Уровни этапов: ключ статуса цикла → настройки этапа. Нормализуется в
+  // {} в api/client.ts. Экран CLAB-262 их не показывает — их берёт панель
+  // этапа CLAB-231.
+  stage_settings: Record<string, StageSettings>;
   created_at: string;
   updated_at: string;
   closed_at?: string;
+}
+
+// Уровень модели — перечень сервера (решение 0060), а не данные проекта;
+// подписи к нему — components/modelLevel.ts.
+export type ModelLevel = "low" | "medium" | "high";
+
+// Откуда у прогона взят рекомендованный уровень при захвате: уровень
+// этапа, задачи, роли или ниоткуда.
+export type ModelLevelSource = "stage" | "task" | "role" | "none";
+
+export interface StageSettings {
+  model_level?: ModelLevel;
+}
+
+// Учёт одного прогона в карточке задачи (форма CLAB-264): сумма отчётов о
+// стоимости. reported: false — «нет учёта», и тогда суммы null, а не ноль.
+// Числа складываются только по отчётам, где они есть.
+export interface RunUsage {
+  reported: boolean;
+  reports: number;
+  // Модели как пришли, без повторов, по времени первого отчёта.
+  models: string[];
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cache_read_tokens: number | null;
+  cache_write_tokens: number | null;
+  cost_usd: number | null;
+  duration_ms: number | null;
 }
 
 export interface StageRun {
@@ -454,6 +489,14 @@ export interface StageRun {
   finished_at?: string;
   outcome?: string;
   summary?: string;
+  // Снимок рекомендованного уровня при захвате (решение 0060). У прогона,
+  // заведённого до снимка или ещё не забранного, обоих полей нет — это
+  // «снимка не было», а не источник none.
+  model_level?: ModelLevel;
+  model_level_source?: ModelLevelSource;
+  // Учёт прогона — только в карточке задачи (GET /v1/tasks/:key); бэкенд
+  // без CLAB-264 его не отдаёт.
+  usage?: RunUsage;
 }
 
 export interface Artifact {
@@ -583,7 +626,11 @@ export interface RoleVersion {
   input_kinds: string[];
   output_contract: OutputContractItem[];
   tool_policy: Record<string, unknown>;
+  // Устарел (решение 0060): строка модели для раннера прежних версий. На
+  // экране её нет, новая версия из формы переносит значение базовой.
   model_hint?: string;
+  // Уровень модели роли по умолчанию; поля нет — уровень не задан.
+  model_level?: ModelLevel;
   repo_scope: string[];
   context_budget: Record<string, unknown>;
   changelog?: string;

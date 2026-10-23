@@ -7,6 +7,7 @@ import {StatusDot, Timestamp, Token, type DotVariant} from '@/components/kit';
 
 import type {Artifact, StageRun, TaskDetail} from '../../api/types';
 import {ArtifactView} from '../ArtifactView';
+import {runModelLine} from '../modelLevel';
 import {isLeaseLive} from './lease';
 
 // Этапы идут попытками: повторный заход после отката — новая попытка, а не
@@ -99,6 +100,7 @@ function StageCard({
         </h3>
         <CollapsibleContent className="space-y-3 pt-3">
           <Lease run={run} />
+          <RunModel run={run} />
           {run.summary ? <p className="text-muted-foreground text-sm">{run.summary}</p> : null}
           {artifacts.length === 0 ? (
             <p className="text-muted-foreground text-sm">Артефактов на этой попытке нет</p>
@@ -149,6 +151,7 @@ function ReviewRun({
         <Timestamp value={run.entered_at} format="relative" />
       </div>
       <Lease run={run} />
+      <RunModel run={run} />
       {run.summary ? <p className="text-muted-foreground text-sm">{run.summary}</p> : null}
       {artifacts.map((a) => (
         <ArtifactView key={a.id} artifact={a} onChanged={onChanged} />
@@ -181,5 +184,19 @@ function Lease({run}: {run: StageRun}) {
         </span>
       ) : null}
     </div>
+  );
+}
+
+// Что рекомендовали прогону и на чём он работал — одной строкой под арендой.
+// Правила строки — runModelLine; источник уровня, стоимость и токены здесь не
+// показываются (стоимость — в панели «Стоимость»).
+function RunModel({run}: {run: StageRun}) {
+  const line = runModelLine(run);
+  if (!line) return null;
+  // data-run-model — опора сквозных сценариев, оформления не несёт.
+  return (
+    <p className="text-muted-foreground text-xs" data-run-model={run.id}>
+      {line}
+    </p>
   );
 }
