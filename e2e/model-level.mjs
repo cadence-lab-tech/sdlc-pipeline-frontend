@@ -75,6 +75,8 @@ const state = `
     labels: items.map((b) => (b.innerText || '').trim()),
     disabled: items.map((b) => b.disabled),
     busy: g.getAttribute('aria-busy') === 'true',
+    title: g.getAttribute('title'),
+    text: (g.closest('[data-task-model-level]')?.innerText || '').trim(),
   };
 `;
 const pick = (level) => `
@@ -172,6 +174,12 @@ const as = async (who) => {
   await run(`sessionStorage.setItem('e2e.who', ${JSON.stringify(who)}); return true;`);
   await s.goto(BASE + `/p/SDLC/tasks/${KEY}`);
   await wait(2000);
+  // Под нагрузкой карточка грузится дольше: ждём ползунок, а не только таймер.
+  for (let i = 0; i < 20; i++) {
+    const st = await run(state);
+    if (!st.missing) return st;
+    await wait(500);
+  }
   return run(state);
 };
 // Положение задаётся на сервере, чтобы видеть, что выключенный ползунок
@@ -180,6 +188,8 @@ await api('PATCH', `/v1/tasks/${KEY}`, {model_level: 'medium'});
 st = await as('viewer');
 check('наблюдатель: ползунок выключен', st.disabled.every(Boolean), JSON.stringify(st));
 check('наблюдатель: показан текущий уровень', st.level === 'medium', JSON.stringify(st));
+check('наблюдатель: причина — во всплывающей подсказке', st.title === 'Уровень задачи меняет сопровождающий проекта', JSON.stringify(st));
+check('наблюдатель: отдельной строки под ползунком нет', !st.text.includes('сопровождающий'), JSON.stringify(st));
 const before = (await patches()).length;
 await run(pick('high'));
 await wait(1800);
@@ -187,6 +197,7 @@ check('наблюдатель: клик запроса не шлёт', (await pa
 for (const who of ['maintainer', 'admin']) {
   st = await as(who);
   check(`${who === 'admin' ? 'администратор системы' : 'сопровождающий'}: ползунок доступен`, st.disabled.every((d) => !d), JSON.stringify(st));
+  check(`${who === 'admin' ? 'администратор системы' : 'сопровождающий'}: подсказки нет`, !st.title, JSON.stringify(st));
 }
 st = await as('fail-card');
 check('кто я — не загрузилось: ползунок доступен', !st.missing && st.disabled.every((d) => !d), JSON.stringify(st));

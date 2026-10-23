@@ -18,6 +18,7 @@ export function ModelLevelToggle({
   busy = false,
   label,
   labelledBy,
+  title,
 }: {
   value: ModelLevel | null | undefined;
   onChange: (level: ModelLevel | null) => void;
@@ -27,6 +28,9 @@ export function ModelLevelToggle({
   // Подпись для программ чтения с экрана, если видимой подписи рядом нет.
   label?: string;
   labelledBy?: string;
+  // Всплывающая подсказка ко всему ползунку — например, почему он выключен.
+  // Отдельной строки на экране у выключенного ползунка нет.
+  title?: string;
 }) {
   const current = value ?? AUTO;
   return (
@@ -42,6 +46,7 @@ export function ModelLevelToggle({
       aria-label={labelledBy ? undefined : label}
       aria-labelledby={labelledBy}
       aria-busy={busy || undefined}
+      title={title}
       data-model-level={current}
       // Повторный клик по выбранному положению Radix превращает в «ничего не
       // выбрано» — это не смена уровня, а холостой клик.

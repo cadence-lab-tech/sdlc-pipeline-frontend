@@ -277,10 +277,8 @@ function TaskModelLevel({
         disabled={!editable}
         busy={busy}
         label="Уровень модели задачи"
+        title={editable ? undefined : 'Уровень задачи меняет сопровождающий проекта'}
       />
-      {!editable ? (
-        <p className="text-muted-foreground text-xs">Уровень задачи меняет сопровождающий проекта</p>
-      ) : null}
       {error ? <Failure error={error} title="Уровень не изменён" /> : null}
     </div>
   );
