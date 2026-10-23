@@ -20,6 +20,14 @@ import {
   runState,
 } from '../src/components/health.ts';
 import {externalLinks} from '../src/components/externalRef.ts';
+import {
+  AUTO_LABEL,
+  MODEL_LEVELS,
+  canEditTaskLevel,
+  modelLevelLabel,
+  needsProjectTeams,
+  runModelLine,
+} from '../src/components/modelLevel.ts';
 
 let ok = 0, fail = 0;
 const check = (name, cond, extra = '') => {
@@ -214,6 +222,75 @@ check('принципала нет — «неизвестный»', principalLab
 check('токен — имя и префикс', tokenLabel({id: null, name: 'clab-runner', prefix: 'clab_abcd1234', kind: 'api'}) === 'clab-runner · clab_abcd1234');
 check('токен без имени — префикс', tokenLabel({id: null, name: null, prefix: 'clab_x', kind: 'task'}) === 'clab_x');
 check('без токена — пусто', tokenLabel(null) === '');
+
+// ── уровень модели (CLAB-262, решение 0060) ────────────────────────────────
+// Строка прогона проверяется на всех строках таблицы AC-9 сразу: на стенде
+// бывают не все сочетания снимка и учёта.
+console.log('подписи уровня модели');
+check('положения ползунка: авто, low, medium, high',
+  [AUTO_LABEL, ...MODEL_LEVELS.map(modelLevelLabel)].join(',') === 'авто,low,medium,high',
+  [AUTO_LABEL, ...MODEL_LEVELS.map(modelLevelLabel)].join(','));
+check('null и пусто — «авто»', modelLevelLabel(null) === 'авто' && modelLevelLabel(undefined) === 'авто' && modelLevelLabel('') === 'авто');
+check('незнакомый уровень показан ключом', modelLevelLabel('xhigh') === 'xhigh');
+
+console.log('строка прогона «рекомендован · фактически»');
+const usage = (models) => ({
+  reported: models.length > 0, reports: models.length, models,
+  input_tokens: null, output_tokens: null, cache_read_tokens: null, cache_write_tokens: null, cost_usd: null, duration_ms: null,
+});
+const line = (run) => runModelLine(run);
+for (const source of ['stage', 'task', 'role']) {
+  check(`high из ${source} и одна модель`,
+    line({model_level: 'high', model_level_source: source, usage: usage(['claude-opus-5-5'])}) === 'рекомендован high · фактически claude-opus-5-5',
+    line({model_level: 'high', model_level_source: source, usage: usage(['claude-opus-5-5'])}));
+}
+check('источник none и нет отчёта',
+  line({model_level_source: 'none', usage: usage([])}) === 'рекомендован: авто · фактически: нет данных',
+  line({model_level_source: 'none', usage: usage([])}));
+check('medium и две модели в порядке models',
+  line({model_level: 'medium', model_level_source: 'task', usage: usage(['a', 'b'])}) === 'рекомендован medium · фактически a, b',
+  line({model_level: 'medium', model_level_source: 'task', usage: usage(['a', 'b'])}));
+check('снимка нет и нет отчёта — строки нет', line({usage: usage([])}) === null, String(line({usage: usage([])})));
+check('снимка нет, отчёт есть — «фактически x»', line({usage: usage(['x'])}) === 'фактически x', line({usage: usage(['x'])}));
+check('low без объекта usage — «рекомендован low»', line({model_level: 'low', model_level_source: 'role'}) === 'рекомендован low', line({model_level: 'low', model_level_source: 'role'}));
+check('ни снимка, ни usage — строки нет', line({}) === null);
+for (const s of ['рекомендован high · фактически claude-opus-5-5', line({model_level: 'low', model_level_source: 'stage'})]) {
+  check(`в строке нет источника и стоимости: ${s}`, !/stage|task|role|\$|токен/.test(s), s);
+}
+
+console.log('право сдвинуть уровень задачи');
+const person = (extra = {}) => ({
+  mode: 'token', authenticated: true,
+  principal: {handle: 'alice', kind: 'user', is_admin: false},
+  memberships: [], teams: [], can_create_projects: false, ...extra,
+});
+const member = (role, project = 'SDLC') => ({project_key: project, role});
+// Третий аргумент — состав команд проекта; null здесь — «не загрузился»
+// (undefined в вызове), без аргумента — пустой состав.
+const edit = (me, teams = [], ownerTeamKey) =>
+  canEditTaskLevel({me, projectKey: 'SDLC', ownerTeamKey, projectTeams: teams === null ? undefined : teams});
+check('viewer без команды — только чтение', edit(person({memberships: [member('viewer')]})) === false);
+check('agent — только чтение', edit(person({memberships: [member('agent')]})) === false);
+check('maintainer — можно', edit(person({memberships: [member('maintainer')]})) === true);
+check('admin проекта — можно', edit(person({memberships: [member('admin')]})) === true);
+check('maintainer другого проекта — только чтение', edit(person({memberships: [member('maintainer', 'OTHER')]})) === false);
+check('администратор системы — можно', edit(person({principal: {handle: 'root', kind: 'user', is_admin: true}})) === true);
+check('режим header — можно', edit(person({mode: 'header', authenticated: false})) === true);
+check('кто я — неизвестно: решает сервер', edit(undefined) === true);
+const inTeam = (team, role = 'member') => ({team_key: team, role});
+const projectTeam = (team, level) => ({team_key: team, level});
+check('maintainer через команду проекта — можно',
+  edit(person({memberships: [member('viewer')], teams: [inTeam('web')]}), [projectTeam('web', 'maintainer')]) === true);
+check('команда проекта с уровнем viewer — только чтение',
+  edit(person({teams: [inTeam('web')]}), [projectTeam('web', 'viewer')]) === false);
+check('чужая команда с уровнем maintainer — только чтение',
+  edit(person({teams: [inTeam('web')]}), [projectTeam('ops', 'maintainer')]) === false);
+check('лид команды-владельца — можно', edit(person({teams: [inTeam('acme', 'lead')]}), [], 'acme') === true);
+check('рядовой команды-владельца — только чтение', edit(person({teams: [inTeam('acme')]}), [], 'acme') === false);
+check('команды проекта не загрузились — решает сервер', edit(person({memberships: [member('viewer')]}), null) === true);
+check('команды не нужны в режиме header и при прямом праве',
+  !needsProjectTeams(person({mode: 'header'}), 'SDLC') && !needsProjectTeams(person({memberships: [member('maintainer')]}), 'SDLC') && !needsProjectTeams(undefined, 'SDLC'));
+check('команды нужны наблюдателю', needsProjectTeams(person({memberships: [member('viewer')]}), 'SDLC'));
 
 console.log(`\n${ok} ok, ${fail} fail`);
 process.exit(fail ? 1 : 0);

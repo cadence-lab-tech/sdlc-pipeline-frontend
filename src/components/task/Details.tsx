@@ -7,10 +7,12 @@ import {MultiSelector, Selector, TextInput} from '@/components/fields';
 import {Section, Token} from '@/components/kit';
 
 import {ApiError, api} from '../../api/client';
-import type {Task, TaskDetail, TaskPropertyDef, TaskRepoRef} from '../../api/types';
+import type {ModelLevel, Project, Task, TaskDetail, TaskPropertyDef, TaskRepoRef} from '../../api/types';
 import {useResource} from '../../api/useResource';
 import {Failure} from '../Feedback';
+import {ModelLevelToggle} from '../ModelLevelToggle';
 import {PropertyField} from '../PropertyFields';
+import {canEditTaskLevel, needsProjectTeams} from '../modelLevel';
 import {priorityClass, priorityLabel} from '../priorities';
 
 // «Детали» — список ключ-значение: всё, что задача про себя знает, одной
@@ -64,6 +66,9 @@ export function Details({
         </DetailRow>
         <DetailRow label="Приоритет">
           <Token label={priorityLabel(task.priority)} className={priorityClass(task.priority)} />
+        </DetailRow>
+        <DetailRow label="Уровень модели">
+          <TaskModelLevel task={task} project={project.data?.project} onChanged={onChanged} />
         </DetailRow>
         <DetailRow label="Исполнитель">
           <Assignee task={task} onChanged={onChanged} />
@@ -213,6 +218,69 @@ function RefLink({refItem}: {refItem: TaskRepoRef}) {
       )}
       {refItem.state ? <span className="text-muted-foreground">{refItem.state}</span> : null}
     </span>
+  );
+}
+
+// Уровень модели задачи (решение 0060): этап без своего уровня берёт его при
+// захвате, идущий прогон не меняется — его снимок уже сделан. Сдвиг
+// сохраняется сразу, без кнопки: правка одного поля обратима тем же кликом.
+// Уровни этапов (stage_settings) здесь не показываются — это панель этапа
+// CLAB-231.
+function TaskModelLevel({
+  task,
+  project,
+  onChanged,
+}: {
+  task: Task;
+  project: Project | undefined;
+  onChanged: () => void;
+}) {
+  const me = useResource(() => api.me(), []);
+  const ownerTeamKey = project?.owner_team_key;
+  // Состав команд проекта нужен, только если прямого права нет: в режиме
+  // header и у администратора системы лишнего запроса карточка не делает.
+  const needTeams = needsProjectTeams(me.data, task.project_key, ownerTeamKey);
+  const teams = useResource(
+    () => (needTeams ? api.listProjectTeams(task.project_key) : Promise.resolve(undefined)),
+    [task.project_key, needTeams],
+  );
+  const [error, setError] = useState<ApiError>();
+  const [busy, setBusy] = useState(false);
+
+  const editable = canEditTaskLevel({
+    me: me.data,
+    projectKey: task.project_key,
+    ownerTeamKey,
+    projectTeams: needTeams ? teams.data : undefined,
+  });
+
+  const change = async (level: ModelLevel | null) => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      await api.updateTask(task.key, {model_level: level ?? ''});
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err : new ApiError('internal', String(err)));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Положение всегда то, что отдал сервер: после отказа ползунок сам
+  // возвращается к нему, своего «выбранного» состояния у него нет.
+  return (
+    <div className="space-y-1.5" data-task-model-level>
+      <ModelLevelToggle
+        value={task.model_level}
+        onChange={change}
+        disabled={!editable}
+        busy={busy}
+        label="Уровень модели задачи"
+        title={editable ? undefined : 'Уровень задачи меняет сопровождающий проекта'}
+      />
+      {error ? <Failure error={error} title="Уровень не изменён" /> : null}
+    </div>
   );
 }
 

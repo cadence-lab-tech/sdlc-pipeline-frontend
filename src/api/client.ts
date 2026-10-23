@@ -197,6 +197,7 @@ function normalizeTask(t: Task): Task {
     repositories: t.repositories ?? [],
     labels: t.labels ?? [],
     properties: t.properties ?? {},
+    stage_settings: t.stage_settings ?? {},
   };
 }
 
