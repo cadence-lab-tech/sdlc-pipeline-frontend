@@ -1,12 +1,29 @@
 # Статика интерфейса внутри контейнера ui. TLS и маршрутизация к сервису —
 # у внешнего Caddy (backend/deploy/Caddyfile), сюда приходит уже http.
 #
-# Адреса — из CADENCE_UI_ADDRESS, по умолчанию :80 и :8080 (CLAB-236). Образ
-# работает не от root; :8080 непривилегированный, на нём ui живёт в
-# Kubernetes под Pod Security restricted, где чарт сужает адрес до :8080.
-# :80 остаётся тем, кто ходит в ui:80 (внешний Caddy пакета, backend/deploy);
-# его снимет CLAB-247.
-{$CADENCE_UI_ADDRESS::80, :8080} {
+# Один адрес — :8080, непривилегированный (CLAB-248): образ работает не от
+# root и без capabilities, поэтому в Kubernetes под Pod Security restricted
+# ему хватает drop: [ALL]. Все, кто ходит в ui, ходят на ui:8080 — внешний
+# Caddy нашего инстанса (backend/deploy) и пакета self-hosted.
+{
+	# В рантайме ui ничего не пишет: образ запускается на read-only корне,
+	# в том числе без tmpfs, и в логе нет ни permission denied, ни ошибок
+	# хранилища. Сертификатов у ui нет (адрес без имени хоста), поэтому:
+	# - persist_config off — не сохранять конфиг в /config/caddy/autosave.json;
+	# - storage_check off и storage_clean_interval off — не трогать хранилище
+	#   TLS в /data (instance.uuid, блокировка чистки).
+	persist_config off
+	storage_check off
+	storage_clean_interval off
+
+	# За ui стоит внешний Caddy, к нему ходят по http/1.1; HTTP/2 и HTTP/3
+	# без TLS всё равно не включаются, а так о них нет предупреждений.
+	servers {
+		protocols h1
+	}
+}
+
+:8080 {
 	root * /srv
 	encode zstd gzip
 

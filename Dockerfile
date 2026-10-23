@@ -69,17 +69,12 @@ RUN if go list -deps . | grep -E '^golang\.org/x/crypto/openpgp(/|$)'; then \
     fi
 RUN go build -trimpath -ldflags "-s -w" -o /out/caddy .
 
-# Как у upstream'ного бинаря: право слушать :80 без root. Ставится здесь, на
-# платформе сборщика (setcap пишет атрибут файла, архитектура бинаря ему не
-# важна), COPY переносит его в образ вместе с файлом. Нужно процессу не root
-# на :80 там, где Docker не открыл привилегированные порты всем; цена — в
-# Kubernetes при drop: [ALL] контейнеру нужен add: [NET_BIND_SERVICE], иначе
-# exec бинаря с file capability падает с EPERM (CLAB-236, чарт пакета).
-RUN apk add --no-cache libcap-utils && setcap cap_net_bind_service=+ep /out/caddy
-
 # Каталоги состояния Caddy (XDG_DATA_HOME=/data, XDG_CONFIG_HOME=/config у
 # базы) с владельцем-пользователем образа: финальный этап без RUN, поэтому
-# владельца задаёт COPY --chown, а каталоги готовятся здесь.
+# владельца задаёт COPY --chown, а каталоги готовятся здесь. Сам ui в них не
+# пишет (persist_config off в deploy/Caddyfile, сертификатов нет), но
+# доступный на запись каталог нужен внешнему caddy на этом образе и тому,
+# кто сменит конфиг образа своим.
 RUN mkdir -p /out/state/data/caddy /out/state/config/caddy
 
 # Раздача статики. Caddy, а не nginx: тот же образ, что у внешнего прокси,
@@ -89,11 +84,13 @@ RUN mkdir -p /out/state/data/caddy /out/state/config/caddy
 #
 # Образ работает не от root (CLAB-236): числовой uid 65532, как у backend и
 # у podSecurityContext чарта, — runAsNonRoot в Kubernetes проверяется только
-# у числового. Слушает :80 и :8080 (deploy/Caddyfile): :8080 — для Pod
-# Security restricted, :80 — для тех, кто ходит в ui:80 сегодня (внешний
-# Caddy пакета и backend/deploy, их переводит CLAB-247). Внешний caddy
-# пакета на этом же образе запускается от root явным user: "0:0" в compose:
-# его сертификаты в томах существующих установок принадлежат root.
+# у числового. Слушает один непривилегированный :8080 (deploy/Caddyfile,
+# CLAB-248), поэтому у бинаря нет file capability: под Pod Security
+# restricted контейнеру хватает drop: [ALL] без add, а запуск с
+# --cap-drop ALL и на read-only корне ничего не ломает. Внешний caddy пакета
+# на этом же образе запускается от root явным user: "0:0" в compose: его
+# сертификаты в томах существующих установок принадлежат root, а :80 и :443
+# root слушает и без file capability.
 FROM caddy:2-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
 COPY --from=caddy /out/caddy /usr/bin/caddy
 COPY --from=caddy --chown=65532:65532 /out/state/ /
@@ -101,4 +98,6 @@ COPY deploy/Caddyfile /etc/caddy/Caddyfile
 COPY --from=build /app/dist /srv
 COPY --from=build /out/license/ /
 USER 65532:65532
-EXPOSE 80 8080
+# 80, 443 и 2019 в ExposedPorts образа остаются от базы caddy:2-alpine:
+# унаследованный EXPOSE не снимается. Слушает образ только :8080.
+EXPOSE 8080
