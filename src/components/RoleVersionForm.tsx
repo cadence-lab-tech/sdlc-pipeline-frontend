@@ -1,4 +1,4 @@
-import {useState} from 'react';
+import {useId, useState} from 'react';
 import {toast} from 'sonner';
 
 import {Button} from '@/components/ui/button';
@@ -6,8 +6,9 @@ import {Card} from '@/components/ui/card';
 import {FormLayout, Switch, TextArea, TextInput} from '@/components/fields';
 
 import {ApiError, api} from '../api/client';
-import type {OutputContractItem, RoleVersion} from '../api/types';
+import type {ModelLevel, OutputContractItem, RoleVersion} from '../api/types';
 import {Failure} from './Feedback';
+import {ModelLevelToggle} from './ModelLevelToggle';
 
 // Новая версия роли заводится копией предыдущей: правка — это почти всегда
 // «то же самое, но точнее», а не текст с нуля.
@@ -28,6 +29,8 @@ export function RoleVersionForm({
   const [changelog, setChangelog] = useState('');
   const [inputKinds, setInputKinds] = useState((base?.input_kinds ?? []).join(', '));
   const [contract, setContract] = useState<OutputContractItem[]>(base?.output_contract ?? []);
+  const [modelLevel, setModelLevel] = useState<ModelLevel | null>(base?.model_level ?? null);
+  const levelLabel = useId();
   const [error, setError] = useState<ApiError>();
   const [busy, setBusy] = useState(false);
 
@@ -43,7 +46,12 @@ export function RoleVersionForm({
         tool_policy: base?.tool_policy ?? {},
         repo_scope: base?.repo_scope ?? [],
         context_budget: base?.context_budget ?? {},
+        // model_hint устарел (решение 0060) и на экране не правится: значение
+        // базовой версии уходит как было, иначе новая версия молча потеряла
+        // бы его для раннеров прежних версий.
         model_hint: base?.model_hint,
+        // «Авто» — версия без уровня: поле не уходит вовсе.
+        model_level: modelLevel ?? undefined,
       });
       toast.success(`Версия ${created.version} роли ${roleKey} создана`);
       onCreated();
@@ -74,6 +82,15 @@ export function RoleVersionForm({
           onChange={setInputKinds}
         />
         <TextInput label="Что изменилось" value={changelog} onChange={setChangelog} />
+        <div className="space-y-1.5">
+          <p id={levelLabel} className="text-sm font-medium">
+            Уровень модели
+          </p>
+          <ModelLevelToggle value={modelLevel} onChange={setModelLevel} labelledBy={levelLabel} />
+          <p className="text-muted-foreground text-xs">
+            Уровень роли по умолчанию: его перекрывают уровень задачи и этапа
+          </p>
+        </div>
       </FormLayout>
 
       <ContractEditor items={contract} onChange={setContract} />

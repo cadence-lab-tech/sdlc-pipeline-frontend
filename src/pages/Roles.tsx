@@ -14,6 +14,7 @@ import type {Role, RoleUsage, RoleVersion} from '../api/types';
 import {useResource} from '../api/useResource';
 import {Failure, Loading} from '../components/Feedback';
 import {RoleVersionForm} from '../components/RoleVersionForm';
+import {modelLevelLabel} from '../components/modelLevel';
 
 // Редактор ролей. Правка инструкции — новая версия, а не изменение прежней:
 // пройденные этапы ссылаются на ту версию, по которой работали (решение 0016).
@@ -227,6 +228,13 @@ function VersionCard({version, isLatest}: {version: RoleVersion; isLatest: boole
         <div className="flex items-center gap-2">
           <h3 className="text-base font-semibold">Версия {version.version}</h3>
           {isLatest ? <Badge>актуальная</Badge> : null}
+          {/* Уровень показывается, только если задан: «авто» у версии — это
+              отсутствие уровня, а не ещё одна метка. */}
+          {version.model_level ? (
+            <span data-version-model-level={version.model_level}>
+              <Token label={`уровень ${modelLevelLabel(version.model_level)}`} />
+            </span>
+          ) : null}
         </div>
         <Timestamp value={version.created_at} format="relative" />
       </div>
