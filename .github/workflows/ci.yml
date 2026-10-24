@@ -72,6 +72,12 @@ jobs:
       # read-only корнем без tmpfs работает, и в логе Caddy нет ни
       # предупреждений, ни ошибок (persist_config off и хранилище TLS
       # выключены в deploy/Caddyfile).
+      #
+      # Правила кэша (CLAB-271): /, /index.html и маршруты SPA отдаются одним
+      # index.html с Cache-Control: no-cache, файлы public/ без хэша — тоже
+      # no-cache, существующий ассет — public, max-age=31536000, immutable,
+      # несуществующий /assets/* — 404 без долгого кэша, а не index.html.
+      # Иначе после апгрейда браузер берёт старый index.html из кэша.
       - name: image
         run: |
           docker build --platform linux/amd64 -t ci-frontend .
@@ -92,7 +98,9 @@ jobs:
           trap 'docker rm -f ci-ui ci-ui-env >/dev/null 2>&1 || true' EXIT
           # Жёсткий запуск: без capabilities, без повышения прав, read-only
           # корень без tmpfs. Чужая CADENCE_UI_ADDRESS не должна ничего менять.
-          docker run -d --name ci-ui --read-only --cap-drop ALL --security-opt no-new-privileges ci-frontend
+          # Порт на хост — для проб кэша curl'ом: busybox wget на ошибке
+          # заголовков ответа не печатает.
+          docker run -d --name ci-ui --read-only --cap-drop ALL --security-opt no-new-privileges -p 127.0.0.1::8080 ci-frontend
           docker run -d --name ci-ui-env -e CADENCE_UI_ADDRESS=:9999 ci-frontend
           for c in ci-ui ci-ui-env; do
             for i in $(seq 1 20); do
@@ -110,3 +118,41 @@ jobs:
           [ "$(docker inspect -f '{{.State.Running}}' ci-ui)" = true ] || { echo "::error::the read-only container stopped"; docker logs ci-ui; exit 1; }
           noise="$(docker logs ci-ui 2>&1 | grep -E '"level":"(warn|error)"|permission denied|read-only file system' || true)"
           [ -z "$noise" ] || { echo "::error::Caddy complains on a read-only root without capabilities:"; echo "$noise"; exit 1; }
+          # Правила кэша (CLAB-271): всё, что отдаётся как index.html, и файлы
+          # public/ без хэша — no-cache; существующий /assets/* — долгий кэш;
+          # несуществующий /assets/* — 404 без долгого кэша и без отката на
+          # index.html. hdr <путь> [флаги curl] печатает статус и заголовки.
+          base="http://$(docker port ci-ui 8080/tcp | awk 'NR == 1')"
+          hdr() { local p="$1"; shift; curl -sS -o /dev/null -D - "$@" "$base$p" || true; }
+          # awk дочитывает вход до конца: ранний exit под pipefail даёт SIGPIPE.
+          field() { printf '%s\n' "$1" | awk -v f="$2" '!n && tolower($1)==f":"{sub(/^ *[^:]*: */,""); sub(/\r$/,""); print; n=1}'; }
+          status() { printf '%s\n' "$1" | awk '!n && /^ *HTTP\//{print $2; n=1}'; }
+          etag="$(field "$(hdr /)" etag)"
+          for p in / /index.html /projects/X/tasks/1 /docs; do
+            h="$(hdr "$p")"
+            ct="$(field "$h" content-type)"
+            [ "$(status "$h")" = 200 ] && [ "$(field "$h" cache-control)" = no-cache ] &&
+              [ "${ct%%;*}" = text/html ] && [ -n "$etag" ] && [ "$(field "$h" etag)" = "$etag" ] ||
+              { echo "::error::$p: expected index.html (200, text/html, ETag $etag) with Cache-Control: no-cache, got $(status "$h"), '$ct', ETag '$(field "$h" etag)', Cache-Control '$(field "$h" cache-control)'"; exit 1; }
+          done
+          h="$(hdr / -I)"
+          [ "$(status "$h")" = 200 ] && [ "$(field "$h" cache-control)" = no-cache ] ||
+            { echo "::error::HEAD /: expected 200 with Cache-Control: no-cache, got $(status "$h"), Cache-Control '$(field "$h" cache-control)'"; exit 1; }
+          h="$(hdr / -H "If-None-Match: $etag")"
+          [ "$(status "$h")" = 304 ] && [ "$(field "$h" cache-control)" = no-cache ] ||
+            { echo "::error::GET / with If-None-Match: expected 304 with Cache-Control: no-cache, got $(status "$h"), Cache-Control '$(field "$h" cache-control)'"; exit 1; }
+          for p in /favicon.svg /manifest.webmanifest; do
+            h="$(hdr "$p")"
+            [ "$(status "$h")" = 200 ] && [ "$(field "$h" cache-control)" = no-cache ] ||
+              { echo "::error::$p: expected 200 with Cache-Control: no-cache, got $(status "$h"), Cache-Control '$(field "$h" cache-control)'"; exit 1; }
+          done
+          asset="$(docker exec ci-ui find /srv/assets -type f -name '*.js' | awk 'NR == 1')"
+          [ -n "$asset" ] || { echo "::error::no /srv/assets/*.js in the image"; exit 1; }
+          h="$(hdr "${asset#/srv}")"
+          [ "$(status "$h")" = 200 ] && [ "$(field "$h" cache-control)" = "public, max-age=31536000, immutable" ] ||
+            { echo "::error::${asset#/srv}: expected 200 with Cache-Control: public, max-age=31536000, immutable, got $(status "$h"), Cache-Control '$(field "$h" cache-control)'"; exit 1; }
+          h="$(hdr /assets/does-not-exist-0000.js)"
+          cc="$(field "$h" cache-control)"
+          case "$cc" in *immutable* | *max-age*) long=yes ;; *) long= ;; esac
+          [ "$(status "$h")" = 404 ] && [ -z "$long" ] ||
+            { echo "::error::/assets/does-not-exist-0000.js: expected 404 without a long cache, got $(status "$h"), Cache-Control '$cc'"; exit 1; }

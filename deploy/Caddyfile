@@ -27,13 +27,31 @@
 	root * /srv
 	encode zstd gzip
 
-	# Маршруты живут в React Router: /projects/SDLC/tasks/42 — это index.html.
-	try_files {path} /index.html
-	file_server
+	# Правила кэша ставятся по ветке обработки, а не по пути исходного
+	# запроса (CLAB-271): матчер `header /index.html` видит путь до того, как
+	# try_files перепишет его на /index.html, поэтому / и маршруты SPA
+	# уходили без Cache-Control, и браузер после апгрейда мог взять старый
+	# index.html из эвристического кэша.
 
-	# Хэшированные ассеты Vite можно кэшировать вечно, index.html — нет:
-	# иначе после выкладки браузер держит старый бандл.
-	@assets path /assets/*
-	header @assets Cache-Control "public, max-age=31536000, immutable"
-	header /index.html Cache-Control "no-cache"
+	# Хэшированные ассеты Vite. Существующий файл кэшируется вечно: имя
+	# меняется вместе с содержимым. Отката на index.html здесь нет: чанк
+	# старой версии, которого в образе уже нет, — 404 без долгого кэша, а не
+	# HTML, закэшированный на год под URL скрипта. Заголовок — только с
+	# матчером file: header без него ставится до file_server и остаётся и на
+	# 404.
+	handle /assets/* {
+		@asset file
+		header @asset Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	# Всё остальное — index.html (/, /index.html и маршруты React Router:
+	# /projects/SDLC/tasks/42) и файлы из public/ без хэша в имени (favicon,
+	# иконки, manifest.webmanifest): no-cache, браузер перепроверяет их по
+	# ETag на каждом запросе — на 200 и на 304 заголовок одинаков.
+	handle {
+		header Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
 }
