@@ -6,7 +6,7 @@ import {session, helpers} from './driver.mjs';
 // а схема показывает то, что записал бэкенд стенда. Раскладка и правила
 // состояния без браузера — в cycle-layout.mjs; здесь — экран: узлы и рёбра
 // по версии задачи, состояния, выбор кликом и клавиатурой, адрес и «Назад»,
-// фильтр списка прогонов, узкий экран и тёмная тема.
+// панель выбранного этапа вместо списка прогонов, узкий экран и тёмная тема.
 const BASE = process.env.SDLC_UI_URL ?? 'http://localhost:5173';
 const API = process.env.SDLC_API_URL ?? 'http://localhost:8088';
 const api = (method, path, body, actor = 'e2e') =>
@@ -175,7 +175,10 @@ const topRuns = detail.stage_runs.filter((r) => !r.parent_run_id);
 
 // ── выбор этапа ─────────────────────────────────────────────────────────────
 console.log('выбор этапа: клик, Enter, Space');
-const taskRequests = `return performance.getEntriesByType('resource').filter((e) => e.name.includes('/v1/tasks/${KEY}') && !e.name.includes('/audit')).length;`;
+// Лента выбранного этапа (CLAB-285, `timeline?status=`) запрашивается на
+// каждый выбор — это её работа; карточка при этом не перезапрашивается.
+const taskRequests = `return performance.getEntriesByType('resource').filter((e) => e.name.includes('/v1/tasks/${KEY}') && !e.name.includes('/audit') && !e.name.includes('/timeline?status=')).length;`;
+const stageTimelineRequests = (key) => run(`return performance.getEntriesByType('resource').filter((e) => e.name.endsWith('/v1/tasks/${KEY}/timeline?status=' + encodeURIComponent(${JSON.stringify(key)}))).length;`);
 const before = await run(taskRequests);
 await run(NODES + `node(${JSON.stringify(third.key)}).dispatchEvent(new MouseEvent('click', {bubbles: true})); await sleep(500); return true;`);
 check('клик ставит ?stage=', (await search()) === `?stage=${third.key}`, await search());
@@ -184,8 +187,10 @@ check('выбранный узел помечен aria-current', picked.join() =
 let listed = await runsShown();
 check('список показывает только прогоны статуса',
   listed.length === topRuns.filter((r) => r.status_key === third.key).length && listed.every((k) => k === third.key), JSON.stringify(listed));
-check('над списком назван выбранный статус', (await run('return texts();')).includes(`Прогоны статуса ${third.name}`));
+check('панель этапа названа выбранным статусом',
+  (await run(`return document.querySelector('[data-stage-panel] h2')?.innerText.trim() ?? '';`)) === third.name);
 check('выбор не перезапрашивает карточку', (await run(taskRequests)) === before, `${before} → ${await run(taskRequests)}`);
+check('выбор запрашивает ленту этого статуса', (await stageTimelineRequests(third.key)) === 1, String(await stageTimelineRequests(third.key)));
 
 await run(NODES + `const n = node(${JSON.stringify(second.key)}); n.focus(); n.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true})); await sleep(500); return true;`);
 check('Enter выбирает узел', (await search()) === `?stage=${second.key}`, await search());
@@ -194,8 +199,8 @@ check('у статуса с двумя попытками — обе', listed.le
 
 await run(NODES + `const n = node(${JSON.stringify(untouched.key)}); n.focus(); n.dispatchEvent(new KeyboardEvent('keydown', {key: ' ', bubbles: true})); await sleep(500); return true;`);
 check('Space выбирает узел', (await search()) === `?stage=${untouched.key}`, await search());
-check('у статуса без прогонов — строка вместо списка',
-  (await runsShown()).length === 0 && (await run('return texts();')).includes('Прогонов на этом статусе нет'));
+check('у статуса без прогонов — «этап ещё не начинался» вместо списка',
+  (await runsShown()).length === 0 && (await run('return texts();')).includes('Этап ещё не начинался'));
 
 await run(NODES + `node(${JSON.stringify(untouched.key)}).dispatchEvent(new MouseEvent('click', {bubbles: true})); await sleep(500); return true;`);
 check('повторный выбор снимает параметр', (await search()) === '', await search());

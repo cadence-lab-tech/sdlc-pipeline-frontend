@@ -10,7 +10,7 @@ import {Tabs, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {Markdown, Row, RowList, Token} from '@/components/kit';
 
 import {api} from '../api/client';
-import type {Task, TaskDetail as TaskDetailData, TaskLink, UsageSummary, Workflow} from '../api/types';
+import type {ProjectDetail, Task, TaskDetail as TaskDetailData, TaskEvent, TaskLink, UsageSummary, Workflow} from '../api/types';
 import {useResource} from '../api/useResource';
 import {AuditLog} from '../components/AuditLog';
 import {Failure, Loading} from '../components/Feedback';
@@ -28,6 +28,7 @@ import {Details} from '../components/task/Details';
 import {Stages} from '../components/task/Stages';
 import {isLeaseLive} from '../components/task/lease';
 import {Timeline} from '../components/task/Timeline';
+import {useTaskLevelEditable} from '../hooks/useTaskLevelEditable';
 
 // Пока аренда жива, за карточкой стоит агент на другой машине: он сдаёт
 // артефакты и продлевает аренду, а страница об этом узнаёт только перезапросом.
@@ -49,6 +50,14 @@ export function TaskDetail() {
     () => (workflowId ? api.getWorkflowVersion(workflowId) : Promise.resolve(undefined)),
     [workflowId],
   );
+  // Проект задачи — один на «Детали» (свойства, область) и право на уровень
+  // модели, которое делят ползунки задачи и этапа.
+  const projectKey = task.data?.task.project_key ?? '';
+  const project = useResource<ProjectDetail | undefined>(
+    () => (projectKey ? api.getProject(projectKey) : Promise.resolve(undefined)),
+    [projectKey],
+  );
+  const levelEditable = useTaskLevelEditable(projectKey, project.data?.project.owner_team_key);
   const [tab, setTab] = useState('stages');
   // Выбранный этап живёт в адресе: ссылкой с ?stage= делятся, а «Назад»
   // возвращает прежний выбор — каждый выбор кладёт запись в историю.
@@ -56,6 +65,13 @@ export function TaskDetail() {
   const [search, setSearch] = useSearchParams();
   const stageParam = search.get('stage');
   const stage = resolveStage(stageParam, workflow.data?.statuses);
+  // Лента выбранного этапа (CLAB-283, `timeline?status=`): своя, а не
+  // фильтр ленты задачи — у той предел на всю задачу, и ранние этапы из
+  // неё вытесняются. Без выбора запроса нет.
+  const stageEvents = useResource<TaskEvent[]>(
+    () => (stage ? api.timeline(taskKey, stage) : Promise.resolve([])),
+    [taskKey, stage],
+  );
   const setStage = (key: string | undefined) => {
     const next = new URLSearchParams(search);
     if (key) next.set('stage', key);
@@ -78,6 +94,9 @@ export function TaskDetail() {
     const timer = setInterval(() => {
       task.reload();
       refs.reload();
+      // Панель выбранного этапа живёт той же жизнью, что и карточка: агент
+      // сдаёт артефакты и проходит гейты, и это должно быть видно без F5.
+      stageEvents.reload();
       setAuditVersion((v) => v + 1);
     }, LIVE_POLL_MS);
     return () => clearInterval(timer);
@@ -92,6 +111,7 @@ export function TaskDetail() {
   const reload = () => {
     task.reload();
     events.reload();
+    stageEvents.reload();
     refs.reload();
     setAuditVersion((v) => v + 1);
   };
@@ -123,7 +143,10 @@ export function TaskDetail() {
           {tab === 'stages' ? (
             <Stages
               detail={detail}
-              stage={stage ? {key: stage, name: stageName(workflow.data, stage)} : undefined}
+              stage={stage}
+              workflow={workflow.data}
+              stageEvents={stageEvents}
+              levelEditable={levelEditable}
               onClearStage={() => setStage(undefined)}
               onChanged={reload}
             />
@@ -147,7 +170,13 @@ export function TaskDetail() {
         <aside className="w-full shrink-0 border-t p-4 xl:w-100 xl:border-t-0 xl:border-l">
           <div className="space-y-6 xl:sticky xl:top-18 xl:max-h-[calc(100svh-5.5rem)] xl:overflow-y-auto">
             <Actions detail={detail} workflow={workflow.data} onChanged={reload} />
-            <Details detail={detail} refs={refs.data ?? []} onChanged={reload} />
+            <Details
+              detail={detail}
+              refs={refs.data ?? []}
+              project={project.data}
+              levelEditable={levelEditable}
+              onChanged={reload}
+            />
             {detail.links.length > 0 ? (
               <CollapsibleSection name="links" title="Связи" count={detail.links.length}>
                 <LinksPanel task={detail.task} links={detail.links} />
@@ -272,10 +301,6 @@ function Description({text}: {text: string}) {
       ) : null}
     </div>
   );
-}
-
-function stageName(workflow: Workflow | undefined, key: string): string {
-  return workflow?.statuses.find((s) => s.key === key)?.name ?? key;
 }
 
 // Тип задачи — системное свойство: по нему выбран цикл (решение 0024).

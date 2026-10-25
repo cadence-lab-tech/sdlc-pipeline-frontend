@@ -47,6 +47,12 @@ export async function session(url) {
       await send('Page.navigate', {url: u});
       await new Promise((r) => setTimeout(r, 1200));
     },
+    // Снимок страницы целиком в PNG (base64) — для отчёта о тестах: тему и
+    // различимость сценарий проверяет стилями, а человеку нужна картинка.
+    screenshot: async () => {
+      const r = await send('Page.captureScreenshot', {format: 'png', captureBeyondViewport: true});
+      return r.result?.data;
+    },
     // Ширина окна — не украшение: раскладку «две колонки на широком экране, одна
     // на узком» иначе не проверить, а из страницы окно не изменить.
     resize: async (width, height) => {
