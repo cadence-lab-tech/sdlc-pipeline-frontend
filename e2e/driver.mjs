@@ -58,6 +58,14 @@ export async function session(url) {
       });
       await new Promise((r) => setTimeout(r, 500));
     },
+    // Настоящее нажатие клавиши, а не синтетическое событие из страницы:
+    // только оно включает :focus-visible, по которому видно кольцо фокуса.
+    key: async (key, code = key, keyCode = 0) => {
+      for (const type of ['keyDown', 'keyUp']) {
+        await send('Input.dispatchKeyEvent', {type, key, code, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode});
+      }
+      await new Promise((r) => setTimeout(r, 150));
+    },
     // Буфер обмена в headless закрыт разрешением: без него writeText
     // отклоняется молча, и проверить копирование нечем.
     grant: async (permissions, origin) => {

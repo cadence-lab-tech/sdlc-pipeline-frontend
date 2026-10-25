@@ -268,7 +268,16 @@ t = await run('return texts();');
 // должна остаться в аналитике, дальше на её прогоне берёт аренду knowledge.mjs.
 check('переход открылся, когда гейты пройдены', t.includes('Перевести') && t.includes('гейты пройдены: 5'), t.slice(0, 600));
 check('отмена доступна', t.includes('cancelled'), t.slice(0, 600));
-check('задача всё ещё в аналитике', t.includes('analysis') && !t.includes('Cancelled'), t.slice(0, 300));
+// Схема цикла (CLAB-284) называет все статусы версии, в том числе Cancelled:
+// «где задача» читается по шапке и панели, без схемы.
+const placed = await run(`
+  const d = document.querySelector('[data-cycle-diagram]');
+  if (d) d.style.display = 'none';
+  const text = texts();
+  if (d) d.style.display = '';
+  return text;
+`);
+check('задача всё ещё в аналитике', placed.includes('analysis') && !placed.includes('Cancelled'), placed.slice(0, 300));
 
 console.log('лента событий');
 await run('await press("Лента"); return true;');

@@ -1,5 +1,5 @@
 import {useEffect, useRef, useState} from 'react';
-import {Link, useParams} from 'react-router-dom';
+import {Link, useParams, useSearchParams} from 'react-router-dom';
 import {Check, Copy, ExternalLink} from 'lucide-react';
 
 import {cn} from '@/lib/utils';
@@ -10,7 +10,7 @@ import {Tabs, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {Markdown, Row, RowList, Token} from '@/components/kit';
 
 import {api} from '../api/client';
-import type {Task, TaskDetail as TaskDetailData, TaskLink, UsageSummary} from '../api/types';
+import type {Task, TaskDetail as TaskDetailData, TaskLink, UsageSummary, Workflow} from '../api/types';
 import {useResource} from '../api/useResource';
 import {AuditLog} from '../components/AuditLog';
 import {Failure, Loading} from '../components/Feedback';
@@ -18,6 +18,8 @@ import {DriftPanel} from '../components/DriftPanel';
 import {EditTaskDialog} from '../components/EditTaskDialog';
 import {SubmitArtifactDialog} from '../components/SubmitArtifactDialog';
 import {TaskLabels} from '../components/TaskLabels';
+import {CycleDiagram} from '../components/cycle/CycleDiagram';
+import {resolveStage, toggleStage} from '../components/cycle/state';
 import {externalLinks} from '../components/externalRef';
 import {priorityClass, priorityLabel} from '../components/priorities';
 import {Actions} from '../components/task/Actions';
@@ -38,7 +40,34 @@ export function TaskDetail() {
   // Привязки PR лежат за отдельной ручкой, но живут той же жизнью, что и
   // карточка: их кладёт агент по ходу прогона, и узнаётся это перезапросом.
   const refs = useResource(() => api.repoRefs(taskKey), [taskKey]);
+  // Версия цикла задачи — одна на схему и «Действия». Она иммутабельна
+  // (решение 0016), поэтому опрос живой аренды её не перезапрашивает; новая
+  // приходит, только если у задачи сменилась версия (бэклог после активации,
+  // решение 0036).
+  const workflowId = task.data?.task.workflow_id;
+  const workflow = useResource<Workflow | undefined>(
+    () => (workflowId ? api.getWorkflowVersion(workflowId) : Promise.resolve(undefined)),
+    [workflowId],
+  );
   const [tab, setTab] = useState('stages');
+  // Выбранный этап живёт в адресе: ссылкой с ?stage= делятся, а «Назад»
+  // возвращает прежний выбор — каждый выбор кладёт запись в историю.
+  // Незнакомый ключ — как без выбора.
+  const [search, setSearch] = useSearchParams();
+  const stageParam = search.get('stage');
+  const stage = resolveStage(stageParam, workflow.data?.statuses);
+  const setStage = (key: string | undefined) => {
+    const next = new URLSearchParams(search);
+    if (key) next.set('stage', key);
+    else next.delete('stage');
+    setSearch(next);
+  };
+  const selectStage = (key: string) => {
+    const next = toggleStage(stage, key);
+    setStage(next);
+    // Выбор сужает список этапов — его и показать.
+    if (next) setTab('stages');
+  };
   // Знак перезапроса журнала: сам журнал живёт во вкладке и грузится только
   // при её открытии, а перезапрашивается вместе с карточкой.
   const [auditVersion, setAuditVersion] = useState(0);
@@ -73,6 +102,7 @@ export function TaskDetail() {
 
       <div className="flex flex-1 flex-col xl:flex-row">
         <div className="min-w-0 flex-1 space-y-4 p-4">
+          <CycleDiagram workflow={workflow} detail={detail} selected={stage} onSelect={selectStage} />
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Tabs value={tab} onValueChange={setTab}>
               <TabsList>
@@ -91,7 +121,12 @@ export function TaskDetail() {
             />
           </div>
           {tab === 'stages' ? (
-            <Stages detail={detail} onChanged={reload} />
+            <Stages
+              detail={detail}
+              stage={stage ? {key: stage, name: stageName(workflow.data, stage)} : undefined}
+              onClearStage={() => setStage(undefined)}
+              onChanged={reload}
+            />
           ) : tab === 'children' ? (
             <Children detail={detail} />
           ) : tab === 'audit' ? (
@@ -111,7 +146,7 @@ export function TaskDetail() {
             порядок блоков сохраняет — «Действия» первыми. */}
         <aside className="w-full shrink-0 border-t p-4 xl:w-100 xl:border-t-0 xl:border-l">
           <div className="space-y-6 xl:sticky xl:top-18 xl:max-h-[calc(100svh-5.5rem)] xl:overflow-y-auto">
-            <Actions detail={detail} onChanged={reload} />
+            <Actions detail={detail} workflow={workflow.data} onChanged={reload} />
             <Details detail={detail} refs={refs.data ?? []} onChanged={reload} />
             {detail.links.length > 0 ? (
               <CollapsibleSection name="links" title="Связи" count={detail.links.length}>
@@ -237,6 +272,10 @@ function Description({text}: {text: string}) {
       ) : null}
     </div>
   );
+}
+
+function stageName(workflow: Workflow | undefined, key: string): string {
+  return workflow?.statuses.find((s) => s.key === key)?.name ?? key;
 }
 
 // Тип задачи — системное свойство: по нему выбран цикл (решение 0024).

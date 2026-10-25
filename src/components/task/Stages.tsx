@@ -1,6 +1,7 @@
 import {ChevronDown} from 'lucide-react';
 
 import {Badge} from '@/components/ui/badge';
+import {Button} from '@/components/ui/button';
 import {Card} from '@/components/ui/card';
 import {Collapsible, CollapsibleContent, CollapsibleTrigger} from '@/components/ui/collapsible';
 import {StatusDot, Timestamp, Token, type DotVariant} from '@/components/kit';
@@ -18,7 +19,21 @@ import {isLeaseLive} from './lease';
 // Перепроверка ролью-ревьюером — не отдельный этап, а вложенный прогон того же
 // (решение 0017), поэтому она показана внутри своего родителя: пока она идёт,
 // родительский прогон стоит в gating и работать в нём некому.
-export function Stages({detail, onChanged}: {detail: TaskDetail; onChanged: () => void}) {
+//
+// Выбранный на схеме цикла статус (`?stage=`) сужает список до прогонов
+// верхнего уровня этого статуса; их перепроверки и артефакты идут с ними.
+export function Stages({
+  detail,
+  stage,
+  onClearStage,
+  onChanged,
+}: {
+  detail: TaskDetail;
+  // Выбранный статус: ключ и имя. Без него список полный, как раньше.
+  stage?: {key: string; name: string};
+  onClearStage?: () => void;
+  onChanged: () => void;
+}) {
   const nested = new Map<string, StageRun[]>();
   for (const run of detail.stage_runs) {
     if (!run.parent_run_id) continue;
@@ -27,18 +42,34 @@ export function Stages({detail, onChanged}: {detail: TaskDetail; onChanged: () =
     else nested.set(run.parent_run_id, [run]);
   }
 
-  const runs = detail.stage_runs
+  const all = detail.stage_runs
     .filter((r) => !r.parent_run_id)
     .sort((a, b) => b.entered_at.localeCompare(a.entered_at));
+  const runs = stage ? all.filter((r) => r.status_key === stage.key) : all;
 
   // Номер попытки показывается там, где статус проходился не один раз: иначе
   // в свёрнутом списке стоят две одинаковые строки, и какая из них первая —
   // непонятно. У статуса, пройденного единожды, номер только шумит.
   const attempts = new Map<string, number>();
-  for (const run of runs) attempts.set(run.status_key, (attempts.get(run.status_key) ?? 0) + 1);
+  for (const run of all) attempts.set(run.status_key, (attempts.get(run.status_key) ?? 0) + 1);
 
   return (
     <div className="space-y-4">
+      {stage ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm" data-stage-filter={stage.key}>
+          <p className="text-muted-foreground">
+            Прогоны статуса <span className="text-foreground font-medium">{stage.name}</span>
+          </p>
+          {onClearStage ? (
+            <Button variant="ghost" size="sm" onClick={onClearStage}>
+              Показать все этапы
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+      {stage && runs.length === 0 ? (
+        <p className="text-muted-foreground text-sm">Прогонов на этом статусе нет</p>
+      ) : null}
       {runs.map((run, index) => (
         <StageCard
           key={run.id}
