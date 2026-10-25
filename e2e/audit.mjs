@@ -66,14 +66,14 @@ const run = (body) => s.evaluate(helpers + body);
 await wait(2500);
 
 // ── лента ───────────────────────────────────────────────────────────────────
-console.log('журнал не запрашивается до открытия вкладки');
+console.log('журнал не запрашивается до раскрытия секции');
 // Модули интерфейса в dev-сборке тоже ходят запросами (src/components/audit.ts),
 // поэтому считаются только запросы к API.
 const auditRequests = `return performance.getEntriesByType('resource').filter((e) => /\\/v1\\/.*\\/audit/.test(e.name)).length;`;
 check('карточка открыта без запроса журнала', (await run(auditRequests)) === 0);
 
 console.log('подробности ленты');
-await run('await press("Лента"); return true;');
+await run('await openSection("timeline"); return true;');
 await wait(800);
 let t = await run('return texts();');
 for (const want of [
@@ -105,7 +105,7 @@ check('по раскрытию — описание было и стало',
 check('по раскрытию — сырой payload', expanded.code.includes('"changed"'), expanded.code.slice(0, 300));
 
 // ── журнал карточки ─────────────────────────────────────────────────────────
-console.log('вкладка «Журнал»');
+console.log('секция «Журнал»');
 const rows = `
   return all('[data-audit-entry]').map((el) => ({
     id: el.getAttribute('data-audit-entry'),
@@ -113,9 +113,9 @@ const rows = `
     text: el.innerText.replace(/\\s+/g, ' '),
   }));
 `;
-await run('await press("Журнал"); return true;');
+await run('await openSection("audit"); return true;');
 await wait(1200);
-check('журнал запрошен при открытии вкладки', (await run(auditRequests)) > 0);
+check('журнал запрошен при раскрытии секции', (await run(auditRequests)) > 0);
 let list = await run(rows);
 const fromApi = await (await api('GET', `/v1/tasks/${KEY}/audit`)).json();
 check('строки в порядке сервера, новые сверху',
@@ -173,7 +173,7 @@ await s.resize(375, 800);
 await wait(600);
 const scrollOf = 'return document.documentElement.scrollWidth - document.documentElement.clientWidth;';
 check('журнал без горизонтальной прокрутки на 375 px', (await run(scrollOf)) <= 0, String(await run(scrollOf)));
-await run('await press("Лента"); return true;');
+await run('await openSection("timeline"); return true;');
 await wait(600);
 await run(`document.querySelector('[data-event="task.updated"] button').click(); await sleep(400); return true;`);
 check('лента с раскрытой правкой без горизонтальной прокрутки', (await run(scrollOf)) <= 0, String(await run(scrollOf)));
@@ -188,7 +188,7 @@ for (let i = 0; i < 50; i++) {
 const total = 7 + 50;
 await s.goto(BASE + `/p/SDLC/tasks/${KEY}`);
 await wait(2000);
-await run('await press("Журнал"); return true;');
+await run('await openSection("audit"); return true;');
 await wait(1200);
 list = await run(rows);
 t = await run('return texts();');
@@ -218,7 +218,7 @@ console.log('живая аренда перезапрашивает журнал
 await api('POST', `/v1/tasks/${KEY}/claim`, {role: 'analyst'}, 'agent:analyst-bot');
 await s.goto(BASE + `/p/SDLC/tasks/${KEY}`);
 await wait(2000);
-await run('await press("Журнал"); return true;');
+await run('await openSection("audit"); return true;');
 await wait(1200);
 const before = (await run(rows))[0]?.id;
 await api('POST', `/v1/tasks/${KEY}/usage`, {model: 'e2e-model', input_tokens: 1, output_tokens: 1, cost_usd: 0.01}, 'agent:analyst-bot');
@@ -242,7 +242,7 @@ const denyAudit = await s.addInitScript(`
 `);
 await s.goto(BASE + `/p/SDLC/tasks/${KEY}`);
 await wait(2000);
-await run('await press("Журнал"); return true;');
+await run('await openSection("audit"); return true;');
 await wait(800);
 t = await run('return texts();');
 check('сообщение сервера как есть', t.includes('журнал читает сопровождающий проекта (e2e)'), t.slice(0, 800));

@@ -214,10 +214,12 @@ const steps = [
   await api('POST', `/v1/tasks/${KEY}/claim`, {role: 'analyst'}, 'agent:analyst-bot'),
 ];
 check('этап забран агентом', steps.every((r) => r.ok), steps.map((r) => r.status).join(','));
+// Строка прогона стоит в панели его статуса (?stage=), а не в обзоре: список
+// всех прогонов на карточке убран вместе с вкладкой (CLAB-286).
+const claimedStatus = (await getJSON(`/v1/tasks/${KEY}`)).task.status_key;
 const runLines = async () => {
-  await s.goto(BASE + `/p/SDLC/tasks/${KEY}`);
+  await s.goto(BASE + `/p/SDLC/tasks/${KEY}?stage=${encodeURIComponent(claimedStatus)}`);
   await wait(2200);
-  await run('await press("Этапы и артефакты"); return true;').catch(() => true);
   return run(`return all('[data-run-model]').map((el) => el.innerText.trim());`);
 };
 let detail = await getJSON(`/v1/tasks/${KEY}`);
@@ -240,13 +242,17 @@ t = await run('return texts();');
 check('в строке нет источника, стоимости и токенов', !/0\.25|0\.50|источник|токен/.test(lines[0]), lines[0]);
 // Прогон статуса new заведён без снимка и без отчёта — строки у него нет,
 // даже раскрытого.
-const newRun = await run(`
-  const card = all('[data-stage-run]').find((el) => !el.querySelector('[data-run-model]'));
-  if (!card) return 'нет';
-  const trigger = card.querySelector('button[data-slot=collapsible-trigger], [data-slot=collapsible-trigger]');
-  if (trigger) { trigger.click(); await sleep(500); }
-  return card.querySelectorAll('[data-run-model]').length;
-`);
+const newRun = await (async () => {
+  await s.goto(BASE + `/p/SDLC/tasks/${KEY}?stage=new`);
+  await wait(2200);
+  return run(`
+    const card = document.querySelector('[data-stage-panel] [data-stage-run]');
+    if (!card) return 'нет';
+    const trigger = card.querySelector('[data-slot=collapsible-trigger]');
+    if (card.getAttribute('data-state') !== 'open' && trigger) { trigger.click(); await sleep(500); }
+    return card.querySelectorAll('[data-run-model]').length;
+  `);
+})();
 check('прогон без снимка и без отчёта — без строки', newRun === 0, String(newRun));
 await api('POST', `/v1/tasks/${KEY}/release`, {note: 'сценарий уровня модели'}, 'agent:analyst-bot');
 

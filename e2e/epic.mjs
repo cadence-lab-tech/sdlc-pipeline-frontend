@@ -30,13 +30,33 @@ await s.goto(BASE + '/p/SDLC/tasks/SDLC-4');
 await new Promise((r) => setTimeout(r, 2000));
 t = await run('return texts();');
 check('тип задачи назван', t.includes('epic'), t.slice(0, 300));
-check('нарезка видна вкладкой', t.includes('Нарезка'), t.slice(0, 400));
 check('стоимость показана', t.includes('Стоимость') && t.includes('Токенов'), t.slice(0, 600));
 
-await run('await press("Нарезка · 3"); await sleep(1200); return true;');
-t = await run('return texts();');
-check('дочерние задачи перечислены', t.includes('SDLC-1') && t.includes('SDLC-3'), t.slice(0, 700));
-check('видно, сколько закрыто', t.includes('закрыто 0 из 3'), t.slice(0, 700));
+// Нарезка — блок обзора под схемой (CLAB-286), а не вкладка: открывать её
+// отдельно не нужно.
+const overview = await run(`
+  const block = document.querySelector('[data-overview-block=children]');
+  const usage = document.querySelector('[data-overview-block=usage]');
+  return {
+    tabs: all('[role=tab]').length,
+    block: Boolean(block),
+    rows: block ? all('[data-overview-block=children] [data-child]').map((a) => a.getAttribute('data-child')) : [],
+    rowText: block ? block.innerText.replace(/\\s+/g, ' ') : '',
+    progress: block ? Boolean(block.querySelector('[role=progressbar]')) : false,
+    usage: usage ? usage.innerText.replace(/\\s+/g, ' ') : '',
+  };
+`);
+check('вкладок на карточке эпика нет', overview.tabs === 0, JSON.stringify(overview));
+check('нарезка в обзоре', overview.block, JSON.stringify(overview));
+check('дочерние задачи перечислены', overview.rows.length === 3 && overview.rows.includes('SDLC-1') && overview.rows.includes('SDLC-3'), JSON.stringify(overview));
+check('видно, сколько закрыто', overview.rowText.includes('закрыто 0 из 3') && overview.progress, JSON.stringify(overview));
+check('у строки ключ, название и статус', /SDLC-1 · .+/.test(overview.rowText) && overview.rowText.includes('New'), overview.rowText.slice(0, 300));
+check('у эпика стоимость и вместе с дочерними', overview.usage.includes('Своя') && overview.usage.includes('Вместе с дочерними') && overview.usage.includes('Токенов'), overview.usage);
+
+await run(`document.querySelector('[data-child=SDLC-3]').click(); await sleep(1500); return true;`);
+check('клик по строке открывает карточку дочерней', (await run('return location.pathname;')) === '/p/SDLC/tasks/SDLC-3', await run('return location.pathname;'));
+await s.goto(BASE + '/p/SDLC/tasks/SDLC-4');
+await new Promise((r) => setTimeout(r, 2000));
 
 console.log('дочерняя задача знает родителя');
 await s.goto(BASE + '/p/SDLC/tasks/SDLC-1');

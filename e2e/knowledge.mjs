@@ -22,9 +22,12 @@ console.log('аренда в карточке задачи');
 await s.goto(BASE + '/p/SDLC/tasks/SDLC-1');
 await new Promise((r) => setTimeout(r, 2000));
 t = await run('return texts();');
-check('прогон забран', t.includes('claimed'), t.slice(0, 400));
+// Обзор (CLAB-286) показывает аренду блоком «Что держит»; список прогонов с
+// состоянием `claimed` живёт в панели выбранного этапа.
+const lease = await run(`return document.querySelector('[data-holding-executor]')?.getAttribute('data-lease') ?? 'нет';`);
+check('прогон забран, аренда жива', lease === 'live', lease);
 check('исполнитель прогона назван', t.includes('в работе у analyst-bot'), t.slice(0, 600));
-check('срок аренды показан', t.includes('аренда истекает'), t.slice(0, 600));
+check('срок аренды показан', t.includes('аренда до'), t.slice(0, 600));
 check('роль прогона показана', t.includes('analyst'), t.slice(0, 400));
 
 console.log('поиск по знанию проекта');
