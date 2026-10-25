@@ -85,16 +85,17 @@ const root = await run(`
   const d = document.querySelector('[data-cycle-diagram]');
   return d ? {view: d.getAttribute('data-cycle-diagram'), version: d.getAttribute('data-cycle-version')} : null;
 `);
-check('схема над вкладками, кругом на широком экране', root?.view === 'ring', JSON.stringify(root));
+check('схема кругом на широком экране', root?.view === 'ring', JSON.stringify(root));
 check('версия схемы — версия задачи', root?.version === String(version.version), JSON.stringify(root));
 check('все статусы версии в порядке position',
   shown.map((n) => n.key).join() === ordered.map((x) => x.key).join(), JSON.stringify(shown.map((n) => n.key)));
 const above = await run(`
   const d = document.querySelector('[data-cycle-diagram]');
-  const tabs = document.querySelector('[role=tablist]');
-  return Boolean(d && tabs && d.getBoundingClientRect().bottom <= tabs.getBoundingClientRect().top);
+  const overview = document.querySelector('[data-overview]');
+  return Boolean(d && overview && d.getBoundingClientRect().bottom <= overview.getBoundingClientRect().top)
+    && document.querySelector('[role=tablist]') === null;
 `);
-check('схема стоит над вкладками', above);
+check('схема стоит над обзором, вкладок нет', above);
 const edges = await run(`return {
   edges: all('[data-cycle-transition]').map((e) => ({key: e.getAttribute('data-cycle-transition'), kind: e.getAttribute('data-cycle-kind'), dash: e.querySelector('path').getAttribute('stroke-dasharray'), arrow: Boolean(e.querySelector('polygon'))})),
   entries: all('[data-cycle-entry]').map((e) => e.getAttribute('data-cycle-entry')),
@@ -204,7 +205,9 @@ check('у статуса без прогонов — «этап ещё не на
 
 await run(NODES + `node(${JSON.stringify(untouched.key)}).dispatchEvent(new MouseEvent('click', {bubbles: true})); await sleep(500); return true;`);
 check('повторный выбор снимает параметр', (await search()) === '', await search());
-check('без выбора список полный', (await runsShown()).length === topRuns.length, JSON.stringify(await runsShown()));
+check('без выбора — обзор, а не список прогонов',
+  (await runsShown()).length === 0 && (await run(`return Boolean(document.querySelector('[data-overview]')) && !document.querySelector('[data-stage-panel]');`)),
+  JSON.stringify(await runsShown()));
 check('без выбора aria-current нет', (await nodes()).every((n) => !n.current));
 
 console.log('«Назад» браузера');
@@ -220,20 +223,26 @@ picked = (await nodes()).filter((n) => n.current === 'true').map((n) => n.key);
 check('по ссылке узел выбран сразу', picked.join() === third.key, JSON.stringify(picked));
 check('и список отфильтрован', (await runsShown()).every((k) => k === third.key) && (await runsShown()).length > 0);
 await open('?stage=нет-такого-статуса');
-check('незнакомый ключ — список полный, без ошибки',
-  (await runsShown()).length === topRuns.length && (await nodes()).every((n) => !n.current) &&
+check('незнакомый ключ — обзор, без ошибки',
+  (await runsShown()).length === 0 && (await run(`return Boolean(document.querySelector('[data-overview]'));`)) &&
+  (await nodes()).every((n) => !n.current) &&
   !(await run('return texts();')).includes('Не получилось'), JSON.stringify(await runsShown()));
 
-console.log('вкладки при выбранном статусе');
+console.log('обзор и панель этапа сменяют друг друга');
 await open(`?stage=${second.key}`);
-await run('await press("Лента"); return true;');
+check('при выбранном статусе — панель этапа, обзора нет',
+  await run(`return Boolean(document.querySelector('[data-stage-panel]')) && !document.querySelector('[data-overview]');`));
+await run(NODES + `node(${JSON.stringify(second.key)}).dispatchEvent(new MouseEvent('click', {bubbles: true})); await sleep(600); return true;`);
+check('повторный выбор возвращает обзор',
+  await run(`return Boolean(document.querySelector('[data-overview]')) && !document.querySelector('[data-stage-panel]');`));
+await run('await openSection("timeline"); return true;');
 let t = await run('return texts();');
-check('лента работает при выбранном статусе', t.includes('этап начат'), t.slice(0, 300));
-await run('await press("Журнал"); await sleep(800); return true;');
+check('лента работает в обзоре', t.includes('этап начат'), t.slice(0, 300));
+await run('await openSection("audit"); await sleep(800); return true;');
 t = await run('return texts();');
-check('журнал работает при выбранном статусе', !t.includes('Не получилось'), t.slice(0, 300));
+check('журнал работает в обзоре', !t.includes('Не получилось'), t.slice(0, 300));
 await run(NODES + `node(${JSON.stringify(third.key)}).dispatchEvent(new MouseEvent('click', {bubbles: true})); await sleep(600); return true;`);
-check('выбор на другой вкладке открывает «Этапы и артефакты»',
+check('выбор узла заменяет обзор панелью этапа',
   (await runsShown()).length > 0 && (await runsShown()).every((k) => k === third.key), JSON.stringify(await runsShown()));
 const aside = await run(`
   const a = all('aside')[0];

@@ -66,9 +66,13 @@ export async function session(url) {
     },
     // Настоящее нажатие клавиши, а не синтетическое событие из страницы:
     // только оно включает :focus-visible, по которому видно кольцо фокуса.
-    key: async (key, code = key, keyCode = 0) => {
+    // text — символ, который клавиша печатает: без него Enter и Space не
+    // активируют нативную кнопку, а нажатие остаётся голым keydown.
+    key: async (key, code = key, keyCode = 0, text = undefined) => {
       for (const type of ['keyDown', 'keyUp']) {
-        await send('Input.dispatchKeyEvent', {type, key, code, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode});
+        const params = {type, key, code, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode};
+        if (text !== undefined && type === 'keyDown') params.text = text;
+        await send('Input.dispatchKeyEvent', params);
       }
       await new Promise((r) => setTimeout(r, 150));
     },
@@ -141,6 +145,15 @@ export const helpers = `
     el.dispatchEvent(new MouseEvent('mouseup', opts));
     el.click();
     await sleep(700);
+    return true;
+  };
+  // Секция обзора карточки (CLAB-286): 'timeline' — «Лента», 'audit' —
+  // «Журнал». Раскрытие идемпотентно: раскрытую секцию повторный вызов не
+  // закрывает. Содержимое секции монтируется только при раскрытии.
+  const openSection = async (name) => {
+    const b = document.querySelector('[data-overview-section="' + name + '"] button[data-slot=collapsible-trigger]');
+    if (!b) throw new Error('секции обзора нет: ' + name);
+    if (b.getAttribute('data-state') !== 'open') { b.click(); await sleep(700); }
     return true;
   };
   const clickExact = async (t, sel = 'button, [role=button]') => {

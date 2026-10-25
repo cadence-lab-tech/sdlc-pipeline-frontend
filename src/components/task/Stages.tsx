@@ -45,9 +45,10 @@ import {Timeline} from './Timeline';
 // (решение 0017), поэтому она показана внутри своего родителя: пока она идёт,
 // родительский прогон стоит в gating и работать в нём некому.
 //
-// Без выбранного статуса — список всех прогонов, как раньше. Выбранный на
-// схеме цикла статус (`?stage=`) показывает панель этапа (CLAB-285): попытки
-// статуса с гейтами, возвратами и стоимостью, события этапа и его уровень.
+// Выбранный на схеме цикла статус (`?stage=`) показывает панель этапа
+// (CLAB-285): попытки статуса с гейтами, возвратами и стоимостью, события
+// этапа и его уровень. Без выбора карточка рисует обзор (CLAB-286), а не
+// этот компонент.
 export function Stages({
   detail,
   stage,
@@ -58,8 +59,8 @@ export function Stages({
   onChanged,
 }: {
   detail: TaskDetail;
-  // Выбранный статус — ключ из версии цикла задачи. Без него список полный.
-  stage?: string;
+  // Выбранный статус — ключ из версии цикла задачи.
+  stage: string;
   workflow?: Workflow;
   // Лента выбранного статуса (`timeline?status=`): её держит страница, чтобы
   // перезапрашивать вместе с карточкой и опросом живой аренды.
@@ -68,53 +69,16 @@ export function Stages({
   onClearStage?: () => void;
   onChanged: () => void;
 }) {
-  if (stage) {
-    return (
-      <StagePanel
-        detail={detail}
-        stage={stage}
-        workflow={workflow}
-        events={stageEvents}
-        levelEditable={levelEditable ?? true}
-        onClear={onClearStage}
-        onChanged={onChanged}
-      />
-    );
-  }
-
-  const nested = new Map<string, StageRun[]>();
-  for (const run of detail.stage_runs) {
-    if (!run.parent_run_id) continue;
-    const list = nested.get(run.parent_run_id);
-    if (list) list.push(run);
-    else nested.set(run.parent_run_id, [run]);
-  }
-
-  const runs = detail.stage_runs
-    .filter((r) => !r.parent_run_id)
-    .sort((a, b) => b.entered_at.localeCompare(a.entered_at));
-
-  // Номер попытки показывается там, где статус проходился не один раз: иначе
-  // в свёрнутом списке стоят две одинаковые строки, и какая из них первая —
-  // непонятно. У статуса, пройденного единожды, номер только шумит.
-  const attempts = new Map<string, number>();
-  for (const run of runs) attempts.set(run.status_key, (attempts.get(run.status_key) ?? 0) + 1);
-
   return (
-    <div className="space-y-4">
-      {runs.map((run, index) => (
-        <StageCard
-          key={run.id}
-          run={run}
-          isLatest={index === 0}
-          showAttempt={run.attempt > 1 || (attempts.get(run.status_key) ?? 1) > 1}
-          reviews={(nested.get(run.id) ?? []).sort((a, b) => a.entered_at.localeCompare(b.entered_at))}
-          artifacts={detail.artifacts.filter((a) => a.stage_run_id === run.id)}
-          allArtifacts={detail.artifacts}
-          onChanged={onChanged}
-        />
-      ))}
-    </div>
+    <StagePanel
+      detail={detail}
+      stage={stage}
+      workflow={workflow}
+      events={stageEvents}
+      levelEditable={levelEditable ?? true}
+      onClear={onClearStage}
+      onChanged={onChanged}
+    />
   );
 }
 
@@ -166,7 +130,7 @@ function StagePanel({
           {onClear ? (
             <Button variant="ghost" size="sm" className="ml-auto" onClick={onClear}>
               <X />
-              Показать все этапы
+              К обзору
             </Button>
           ) : null}
         </div>
@@ -374,7 +338,7 @@ function StageCard({
   artifacts: Artifact[];
   allArtifacts: Artifact[];
   onChanged: () => void;
-  panel?: PanelContext;
+  panel: PanelContext;
 }) {
   const role = roleWithVersion(run);
   return (
@@ -388,23 +352,23 @@ function StageCard({
             <span>{run.status_key}</span>
             {role ? <Token label={role} /> : null}
             {showAttempt ? <Badge variant="secondary">попытка {run.attempt}</Badge> : null}
-            {panel && run.outcome ? <Badge variant="outline">{run.outcome}</Badge> : null}
+            {run.outcome ? <Badge variant="outline">{run.outcome}</Badge> : null}
             <Timestamp value={run.entered_at} format="relative" className="ml-auto text-xs" />
             <ChevronDown className="text-muted-foreground size-4 -rotate-90 transition-transform group-data-[state=open]:rotate-0" />
           </CollapsibleTrigger>
         </h3>
         <CollapsibleContent className="space-y-3 pt-3">
-          {panel ? <AttemptHead run={run} panel={panel} /> : null}
+          <AttemptHead run={run} panel={panel} />
           <Lease run={run} />
           <RunModel run={run} />
-          {panel ? <RunCost run={run} /> : null}
+          <RunCost run={run} />
           {run.summary ? <p className="text-muted-foreground text-sm">{run.summary}</p> : null}
           {artifacts.length === 0 ? (
             <p className="text-muted-foreground text-sm">Артефактов на этой попытке нет</p>
           ) : (
             <div className="space-y-2">
               {artifacts.map((a) => (
-                <div key={a.id} id={panel ? artifactAnchor(a.id) : undefined} className="scroll-mt-20">
+                <div key={a.id} id={artifactAnchor(a.id)} className="scroll-mt-20">
                   <ArtifactView artifact={a} onChanged={onChanged} />
                 </div>
               ))}
@@ -417,18 +381,13 @@ function StageCard({
                 <ReviewRun
                   key={review.id}
                   run={review}
-                  artifacts={
-                    panel
-                      ? runArtifacts(allArtifacts, review.id)
-                      : allArtifacts.filter((a) => a.stage_run_id === review.id)
-                  }
-                  inPanel={Boolean(panel)}
+                  artifacts={runArtifacts(allArtifacts, review.id)}
                   onChanged={onChanged}
                 />
               ))}
             </div>
           ) : null}
-          {panel ? <RunGates run={run} /> : null}
+          <RunGates run={run} />
         </CollapsibleContent>
       </Collapsible>
     </Card>
@@ -531,12 +490,10 @@ function RunCost({run}: {run: StageRun}) {
 function ReviewRun({
   run,
   artifacts,
-  inPanel = false,
   onChanged,
 }: {
   run: StageRun;
   artifacts: Artifact[];
-  inPanel?: boolean;
   onChanged: () => void;
 }) {
   const role = roleWithVersion(run);
@@ -552,7 +509,7 @@ function ReviewRun({
       </div>
       <Lease run={run} />
       <RunModel run={run} />
-      {inPanel ? <RunCost run={run} /> : null}
+      <RunCost run={run} />
       {run.summary ? <p className="text-muted-foreground text-sm">{run.summary}</p> : null}
       {artifacts.map((a) => (
         <ArtifactView key={a.id} artifact={a} onChanged={onChanged} />

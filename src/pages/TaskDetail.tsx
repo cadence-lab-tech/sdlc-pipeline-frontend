@@ -1,18 +1,14 @@
-import {useEffect, useRef, useState} from 'react';
+import {useEffect, useState} from 'react';
 import {Link, useParams, useSearchParams} from 'react-router-dom';
 import {Check, Copy, ExternalLink} from 'lucide-react';
 
-import {cn} from '@/lib/utils';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
-import {Progress} from '@/components/ui/progress';
-import {Tabs, TabsList, TabsTrigger} from '@/components/ui/tabs';
-import {Markdown, Row, RowList, Token} from '@/components/kit';
+import {Row, RowList, Token} from '@/components/kit';
 
 import {api} from '../api/client';
-import type {ProjectDetail, Task, TaskDetail as TaskDetailData, TaskEvent, TaskLink, UsageSummary, Workflow} from '../api/types';
+import type {ProjectDetail, Task, TaskDetail as TaskDetailData, TaskEvent, TaskLink, Workflow} from '../api/types';
 import {useResource} from '../api/useResource';
-import {AuditLog} from '../components/AuditLog';
 import {Failure, Loading} from '../components/Feedback';
 import {DriftPanel} from '../components/DriftPanel';
 import {EditTaskDialog} from '../components/EditTaskDialog';
@@ -25,9 +21,10 @@ import {priorityClass, priorityLabel} from '../components/priorities';
 import {Actions} from '../components/task/Actions';
 import {CollapsibleSection} from '../components/task/CollapsibleSection';
 import {Details} from '../components/task/Details';
+import {Overview} from '../components/task/TaskOverview';
 import {Stages} from '../components/task/Stages';
+import {UsageLines} from '../components/task/Usage';
 import {isLeaseLive} from '../components/task/lease';
-import {Timeline} from '../components/task/Timeline';
 import {useTaskLevelEditable} from '../hooks/useTaskLevelEditable';
 
 // Пока аренда жива, за карточкой стоит агент на другой машине: он сдаёт
@@ -58,7 +55,6 @@ export function TaskDetail() {
     [projectKey],
   );
   const levelEditable = useTaskLevelEditable(projectKey, project.data?.project.owner_team_key);
-  const [tab, setTab] = useState('stages');
   // Выбранный этап живёт в адресе: ссылкой с ?stage= делятся, а «Назад»
   // возвращает прежний выбор — каждый выбор кладёт запись в историю.
   // Незнакомый ключ — как без выбора.
@@ -78,14 +74,9 @@ export function TaskDetail() {
     else next.delete('stage');
     setSearch(next);
   };
-  const selectStage = (key: string) => {
-    const next = toggleStage(stage, key);
-    setStage(next);
-    // Выбор сужает список этапов — его и показать.
-    if (next) setTab('stages');
-  };
-  // Знак перезапроса журнала: сам журнал живёт во вкладке и грузится только
-  // при её открытии, а перезапрашивается вместе с карточкой.
+  const selectStage = (key: string) => setStage(toggleStage(stage, key));
+  // Знак перезапроса журнала: сам журнал живёт в раскрытой секции обзора и
+  // грузится только при её открытии, а перезапрашивается вместе с карточкой.
   const [auditVersion, setAuditVersion] = useState(0);
 
   const live = (task.data?.stage_runs ?? []).some(isLeaseLive);
@@ -93,6 +84,7 @@ export function TaskDetail() {
     if (!live) return;
     const timer = setInterval(() => {
       task.reload();
+      events.reload();
       refs.reload();
       // Панель выбранного этапа живёт той же жизнью, что и карточка: агент
       // сдаёт артефакты и проходит гейты, и это должно быть видно без F5.
@@ -123,24 +115,14 @@ export function TaskDetail() {
       <div className="flex flex-1 flex-col xl:flex-row">
         <div className="min-w-0 flex-1 space-y-4 p-4">
           <CycleDiagram workflow={workflow} detail={detail} selected={stage} onSelect={selectStage} />
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <Tabs value={tab} onValueChange={setTab}>
-              <TabsList>
-                <TabsTrigger value="stages">Этапы и артефакты</TabsTrigger>
-                {detail.children.length > 0 ? (
-                  <TabsTrigger value="children">Нарезка · {detail.children.length}</TabsTrigger>
-                ) : null}
-                <TabsTrigger value="timeline">Лента</TabsTrigger>
-                <TabsTrigger value="audit">Журнал</TabsTrigger>
-              </TabsList>
-            </Tabs>
+          <div className="flex justify-end">
             <SubmitArtifactDialog
               taskKey={detail.task.key}
               transitions={detail.transitions}
               onSubmitted={reload}
             />
           </div>
-          {tab === 'stages' ? (
+          {stage ? (
             <Stages
               detail={detail}
               stage={stage}
@@ -150,16 +132,8 @@ export function TaskDetail() {
               onClearStage={() => setStage(undefined)}
               onChanged={reload}
             />
-          ) : tab === 'children' ? (
-            <Children detail={detail} />
-          ) : tab === 'audit' ? (
-            <AuditLog
-              load={(cursor) => api.taskAudit(detail.task.key, cursor)}
-              deps={['task-audit', detail.task.key]}
-              version={auditVersion}
-            />
           ) : (
-            <Timeline events={events} />
+            <Overview detail={detail} workflow={workflow.data} events={events} auditVersion={auditVersion} />
           )}
         </div>
 
@@ -184,7 +158,7 @@ export function TaskDetail() {
             ) : null}
             <DriftPanel taskKey={detail.task.key} />
             <CollapsibleSection name="usage" title="Стоимость">
-              <UsagePanel usage={detail.usage} hasChildren={detail.children.length > 0} />
+              <UsageLines usage={detail.usage} hasChildren={detail.children.length > 0} />
             </CollapsibleSection>
           </div>
         </aside>
@@ -221,7 +195,6 @@ function Header({detail, onChanged}: {detail: TaskDetailData; onChanged: () => v
         <ExternalRefs externalRef={task.external_ref} />
         <TaskLabels labels={task.labels} />
       </div>
-      {task.description ? <Description text={task.description} /> : null}
     </div>
   );
 }
@@ -266,113 +239,10 @@ function CopyKey({taskKey}: {taskKey: string}) {
   );
 }
 
-// Постановка задачи — разметка, а не подпись под заголовком: её пишет человек
-// или аналитик списками и кодом. Длинная сворачивается, чтобы вкладки и правая
-// панель не уезжали за экран; раскрытие — разовое действие, а не настройка,
-// поэтому нигде не запоминается.
-const DESCRIPTION_COLLAPSED_PX = 260;
-
-function Description({text}: {text: string}) {
-  const [expanded, setExpanded] = useState(false);
-  const [overflows, setOverflows] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
-
-  // Сворачивать нужно только то, что не поместилось: у короткой постановки
-  // кнопки «Показать целиком» быть не должно, а длина в символах этого не
-  // показывает — решает высота отрисованной разметки. Меряется на каждой новой
-  // постановке: её правят прямо в карточке, и мерка от прежнего текста соврала бы.
-  useEffect(() => {
-    const node = box.current;
-    if (node) setOverflows(node.scrollHeight > DESCRIPTION_COLLAPSED_PX + 8);
-  }, [text]);
-
-  return (
-    <div className="space-y-1">
-      <div
-        ref={box}
-        className={cn('overflow-hidden', !expanded && overflows && 'mask-b-from-80%')}
-        style={expanded || !overflows ? undefined : {maxHeight: DESCRIPTION_COLLAPSED_PX}}>
-        <Markdown>{text}</Markdown>
-      </div>
-      {overflows ? (
-        <Button variant="ghost" size="sm" className="-ml-2" onClick={() => setExpanded(!expanded)}>
-          {expanded ? 'Свернуть' : 'Показать целиком'}
-        </Button>
-      ) : null}
-    </div>
-  );
-}
-
 // Тип задачи — системное свойство: по нему выбран цикл (решение 0024).
 function taskType(task: Task): string {
   const value = task.properties.type;
   return typeof value === 'string' && value ? value : 'task';
-}
-
-// Нарезка эпика: дочерние задачи со своими статусами. Порядок между ними
-// держат связи blocks и гейт dependencies_closed, а не эта таблица.
-function Children({detail}: {detail: TaskDetailData}) {
-  const closed = detail.children.filter((c) => c.closed_at).length;
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2">
-        <h3 className="text-base font-semibold">Дочерние задачи</h3>
-        <Badge variant="secondary">
-          закрыто {closed} из {detail.children.length}
-        </Badge>
-      </div>
-      <Progress value={detail.children.length === 0 ? 0 : (closed / detail.children.length) * 100} />
-      <RowList>
-        {detail.children.map((child) => (
-          <Link key={child.id} to={`/p/${child.project_key}/tasks/${child.key}`} className="block">
-            <Row end={<Badge variant="secondary">{child.status_name}</Badge>}>
-              <p className="truncate font-medium">
-                {child.key} · {child.title}
-              </p>
-              {child.assignee_handle ? (
-                <p className="text-muted-foreground truncate text-xs">
-                  исполнитель: {child.assignee_handle}
-                </p>
-              ) : null}
-            </Row>
-          </Link>
-        ))}
-      </RowList>
-    </div>
-  );
-}
-
-// Стоимость задачи (решение 0026). Прогоны без отчёта показаны отдельно:
-// «неизвестно» — это не ноль, и подменять одно другим значит врать о счёте.
-function UsagePanel({usage, hasChildren}: {usage: UsageSummary; hasChildren: boolean}) {
-  const money = (v: number) => `${v.toFixed(2)} $`;
-
-  return (
-    <>
-      <dl className="space-y-1 text-sm">
-        <Line label="Своя" value={money(usage.cost_usd)} />
-        {hasChildren ? (
-          <Line label="Вместе с дочерними" value={money(usage.subtree_cost_usd)} />
-        ) : null}
-        <Line label="Токенов" value={usage.tokens.toLocaleString('ru')} />
-      </dl>
-      {usage.silent_runs > 0 ? (
-        <p className="text-muted-foreground text-xs">
-          Прогонов без отчёта: {usage.silent_runs} — их стоимость неизвестна
-        </p>
-      ) : null}
-    </>
-  );
-}
-
-function Line({label, value}: {label: string; value: string}) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="tabular-nums">{value}</dd>
-    </div>
-  );
 }
 
 // Связи задачи. blocks читает гейт зависимостей, поэтому направление важно:

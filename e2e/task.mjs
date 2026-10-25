@@ -34,6 +34,10 @@ const OPEN_GATES = `
   await sleep(400);
 `;
 
+// Текст правой панели: «Стоимость» есть и в обзоре (CLAB-286), поэтому
+// проверки панели читают только её.
+const ASIDE_TEXT = `return all('aside')[0].innerText.replace(/\\s+/g, ' ');`;
+
 // Секция панели сворачивается кликом по своему заголовку.
 const toggleSection = (title) => `
   const b = all('button[data-slot=collapsible-trigger]')
@@ -60,6 +64,45 @@ await run(OPEN_GATES + 'return true;');
 t = await run('return texts();');
 check('вердикт гейтов показан после раскрытия', t.includes('не сданы артефакты'), t.slice(0, 400));
 check('перепроверка объяснена', t.includes('перепроверка не запускалась'), t.slice(0, 400));
+
+console.log('обзор задачи без выбранного этапа');
+// Вкладок под схемой нет; описание — в обзоре и только в нём; «что держит»
+// совпадает с тем, что отдаёт бэкенд для переходов вперёд.
+const expectedHolding = (await apiGet('/v1/tasks/SDLC-1/transitions')).transitions
+  .filter((x) => x.kind === 'advance')
+  .flatMap((x) => x.gates.filter((g) => g.blocking && !['passed', 'waived', 'skipped'].includes(g.status))
+    .map((g) => x.key + '/' + g.gate_key))
+  .sort();
+const expectedStatus = (await apiGet('/v1/tasks/SDLC-1')).task.status_name;
+const ov = await run(`return {
+  tablists: all('[role=tablist]').length,
+  descBlock: (document.querySelector('[data-overview-block=description] h2') || {}).innerText || '',
+  descText: (document.querySelector('[data-overview-block=description]') || {}).innerText || '',
+  descCount: (document.body.innerText.match(/Поднять Gin/g) || []).length,
+  headerHasDesc: (document.querySelector('h1').closest('div.border-b') || document.body).innerText.includes('Поднять Gin'),
+  status: (document.querySelector('[data-holding-status]') || {}).innerText,
+  gates: all('[data-holding-gate]').map((e) => e.getAttribute('data-holding-transition') + '/' + e.getAttribute('data-holding-gate')).sort(),
+  executor: Boolean(document.querySelector('[data-holding-executor]')),
+  children: Boolean(document.querySelector('[data-overview-block=children]')),
+  childCounter: /закрыто 0/.test(document.body.innerText),
+  sections: all('[data-overview-section]').map((e) => e.getAttribute('data-overview-section') + ':' + e.querySelector('[data-slot=collapsible-trigger]').getAttribute('data-state')),
+  sectionHeadings: all('[data-overview-section] h2').length,
+};`);
+check('вкладок под схемой нет', ov.tablists === 0, JSON.stringify(ov));
+check('описание в обзоре, в шапке его нет', ov.descText.includes('Поднять Gin') && ov.descCount === 1 && !ov.headerHasDesc, JSON.stringify(ov));
+check('статус — имя из версии цикла', ov.status === expectedStatus, `${ov.status} / ${expectedStatus}`);
+check('держащие гейты совпадают с бэкендом', expectedHolding.length > 1 && ov.gates.join() === expectedHolding.join(), JSON.stringify({ov: ov.gates, api: expectedHolding}));
+check('исполнителя без аренды нет', !ov.executor);
+check('у задачи без детей нет нарезки и счётчика «0»', !ov.children && !ov.childCounter, JSON.stringify(ov));
+check('«Лента» и «Журнал» свёрнуты, заголовки — h2', ov.sections.join() === 'timeline:closed,audit:closed' && ov.sectionHeadings === 2, JSON.stringify(ov));
+const ovSub = await run(`return [...new Set(performance.getEntriesByType('resource').map((e) => e.name.replace(location.origin, '')).filter((n) => n.startsWith('/v1/') && n.includes('/audit')))];`);
+check('журнал при открытии карточки не запрашивается', ovSub.length === 0, JSON.stringify(ovSub));
+// Стоимость в обзоре и в правой панели — одни и те же числа.
+const costs = await run(`
+  const read = (root) => Array.from(root.querySelectorAll('dd')).map((d) => d.innerText.trim()).join('|');
+  return {overview: read(document.querySelector('[data-overview-block=usage]')), aside: read(all('aside')[0])};
+`);
+check('стоимость в обзоре совпадает с правой панелью', costs.overview !== '' && costs.aside.includes(costs.overview), JSON.stringify(costs));
 
 console.log('шапка и детали');
 check('блок «Детали» перечисляет свойства задачи',
@@ -108,6 +151,25 @@ const own = calls.filter((n) => n !== SHELL_HEALTH && n !== SHELL_INSTANCE);
 check('карточка ходит только за своим',
   own.length === 8 && own.includes('/v1/tasks/SDLC-1/repo-refs'), JSON.stringify(calls));
 check('сводку проекта на странице карточки спрашивает оболочка', calls.includes(SHELL_HEALTH), JSON.stringify(calls));
+
+// Секции обзора раскрываются с клавиатуры: Enter и Space на заголовке.
+console.log('секции обзора с клавиатуры');
+await run(`document.querySelector('[data-overview-section=audit] button[data-slot=collapsible-trigger]').focus(); return true;`);
+await s.key('Enter', 'Enter', 13, '\r');
+await wait(1000);
+const kbOpen = await run(`return document.querySelector('[data-overview-section=audit] button[data-slot=collapsible-trigger]').getAttribute('data-state');`);
+check('Enter раскрывает «Журнал»', kbOpen === 'open', kbOpen);
+const auditCalls = await run(`return [...new Set(performance.getEntriesByType('resource').map((e) => e.name.replace(location.origin, '')).filter((n) => n.startsWith('/v1/') && n.includes('/audit')))];`);
+check('раскрытие даёт один запрос журнала', auditCalls.length === 1, JSON.stringify(auditCalls));
+const ring = await run(`
+  const b = document.querySelector('[data-overview-section=audit] button[data-slot=collapsible-trigger]');
+  return {focused: document.activeElement === b, shadow: getComputedStyle(b).boxShadow};
+`);
+check('фокус на заголовке виден', ring.focused && ring.shadow !== 'none', JSON.stringify(ring));
+await s.key(' ', 'Space', 32, ' ');
+await wait(800);
+const kbClosed = await run(`return document.querySelector('[data-overview-section=audit] button[data-slot=collapsible-trigger]').getAttribute('data-state');`);
+check('Space сворачивает «Журнал»', kbClosed === 'closed', kbClosed);
 
 console.log('ссылки на PR в области задачи');
 check('без привязок ссылок на PR нет и ошибки нет', !t.includes('PR #'), t.slice(0, 600));
@@ -176,10 +238,13 @@ for (const kind of ['analysis.brief', 'analysis.acceptance_criteria']) {
     return true;
   `);
 }
-t = await run(`
-  const stage = all('div').filter(d => (d.innerText||'').includes('попытк') || (d.innerText||'').includes('analysis'));
-  return texts();
-`);
+// Обзор узнаёт о сдаче без F5: гейт артефактов ушёл из держащих (CLAB-286).
+t = await run(`return all('[data-holding-gate]').map((e) => e.getAttribute('data-holding-gate')).join();`);
+check('в обзоре гейт артефактов больше не держит', !t.includes('artifacts') && t.includes('peer_review'), t);
+// Артефакты лежат на попытке этапа — в панели выбранного статуса.
+await s.goto(BASE + '/p/SDLC/tasks/SDLC-1?stage=analysis');
+await wait(2500);
+t = await run(`return texts();`);
 check('артефакты появились на этапе', t.includes('analysis.acceptance_criteria submitted') || t.includes('analysis.acceptance_criteria'), t.slice(0, 500));
 await run(OPEN_GATES + 'return true;');
 t = await run('return texts();');
@@ -277,10 +342,10 @@ const placed = await run(`
   if (d) d.style.display = '';
   return text;
 `);
-check('задача всё ещё в аналитике', placed.includes('analysis') && !placed.includes('Cancelled'), placed.slice(0, 300));
+check('задача всё ещё в аналитике', placed.includes('Analysis') && !placed.includes('Cancelled'), placed.slice(0, 300));
 
 console.log('лента событий');
-await run('await press("Лента"); return true;');
+await run('await openSection("timeline"); return true;');
 await wait(800);
 t = await run('return texts();');
 check('типы событий подписаны по-русски',
@@ -408,29 +473,24 @@ const collapsed = await run(`
 `);
 check('свёрнутая постановка ниже раскрытой', collapsed.after > collapsed.before, JSON.stringify(collapsed));
 
-await run('await press("Лента"); return true;');
+// Секция «Лента» после перезапроса карточки остаётся раскрытой.
 await wait(900);
 t = await run('return texts();');
 check('правка попала в ленту', t.includes('постановка поправлена'), t.slice(0, 400));
 
-console.log('этапы: раскрыта последняя попытка');
-await run('await press("Этапы и артефакты"); return true;');
-await wait(800);
-const stages = await run(`
-  return all('[data-stage-run]')
-    .map((el) => el.getAttribute('data-stage-run') + ':' + el.getAttribute('data-state'))
-    .join(' ');
-`);
-check('раскрыт последний прогон, прежний свёрнут', stages === 'analysis:open new:closed', stages);
-await run(`
-  const b = all('[data-stage-run="new"] button[data-slot=collapsible-trigger]')[0];
-  if (!b) throw new Error('заголовка свёрнутого прогона нет');
-  b.click();
-  await sleep(500);
-  return true;
-`);
+console.log('обзор не рисует прогоны списком');
+await s.goto(BASE + '/p/SDLC/tasks/SDLC-1');
+await wait(2500);
+const overviewRuns = await run(`return all('[data-stage-run]').length;`);
+check('без выбранного этапа прогонов на экране нет', overviewRuns === 0, String(overviewRuns));
+// Попытки статуса — в панели: прежний прогон `new` раскрыт, потому что он там
+// последний и единственный.
+await s.goto(BASE + '/p/SDLC/tasks/SDLC-1?stage=new');
+await wait(2500);
 t = await run('return texts();');
-check('свёрнутый прогон раскрывается по клику', t.includes('Артефактов на этой попытке нет'), t.slice(0, 400));
+check('панель статуса показывает его попытку', t.includes('Артефактов на этой попытке нет'), t.slice(0, 400));
+await s.goto(BASE + '/p/SDLC/tasks/SDLC-1');
+await wait(2500);
 
 // Дрейфа у задачи нет и базы тоже: пустой секции на экране быть не должно.
 // Счётчик открытых сигналов сценарием не проверяется — сигналы кладёт
@@ -441,17 +501,19 @@ check('секции дрейфа без дрейфа нет', !t.includes('Др�
 
 console.log('сворачиваемые секции панели');
 await run(toggleSection('Стоимость'));
-t = await run('return texts();');
+t = await run(ASIDE_TEXT);
 check('секция «Стоимость» сворачивается', t.includes('Стоимость') && !t.includes('Токенов'), t.slice(0, 400));
 await s.goto(BASE + '/p/SDLC/tasks/SDLC-1');
 await wait(2500);
-t = await run('return texts();');
+t = await run(ASIDE_TEXT);
 check('свёрнутость пережила перезагрузку', t.includes('Стоимость') && !t.includes('Токенов'), t.slice(0, 400));
 check('«Действия» раскрыты всегда', t.includes('Держат гейты') || t.includes('Перевести'), t.slice(0, 400));
+// Обзор стоимость в правой панели не прячет: его блок свой.
+check('блок «Стоимость задачи» в обзоре не свёрнут', (await run(`return document.querySelector('[data-overview-block=usage]').innerText;`)).includes('Токенов'));
 // Развернуть обратно: свёрнутость лежит в localStorage и осталась бы у
 // следующих сценариев, которые про «Стоимость» ничего не знают.
 await run(toggleSection('Стоимость'));
-t = await run('return texts();');
+t = await run(ASIDE_TEXT);
 check('секция разворачивается обратно', t.includes('Токенов'), t.slice(0, 400));
 
 console.log('раскладка панели');
@@ -481,11 +543,14 @@ const narrow = await run(`
     below: Boolean(main) && aside.getBoundingClientRect().top >= main.getBoundingClientRect().bottom - 1,
     first: h ? h.innerText.trim() : 'панели нет',
     scroll: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    overviewWidth: Math.round(document.querySelector('[data-overview]').getBoundingClientRect().width),
+    viewport: document.documentElement.clientWidth,
   };
 `);
 check('на узком экране панель уходит под основной столбец', narrow.below, JSON.stringify(narrow));
 check('«Действия» остаются первыми в панели', narrow.first === 'Действия', JSON.stringify(narrow));
 check('горизонтальной прокрутки нет', narrow.scroll <= 0, JSON.stringify(narrow));
+check('обзор на узком экране — одна колонка во всю ширину', narrow.overviewWidth <= narrow.viewport && narrow.overviewWidth > narrow.viewport - 60, JSON.stringify(narrow));
 await s.resize(1280, 900);
 
 // ── отказ движка и повторная попытка ───────────────────────────────────────
@@ -579,7 +644,8 @@ check('карточка без ссылок цела', t.includes('SDLC-2') && !
 console.log('повторная попытка этапа');
 await apiPost('/v1/tasks/SDLC-2/transitions/reject_to_analysis/gates/problem_report/decision', {status: 'waived'});
 await apiPost('/v1/tasks/SDLC-2/transitions/reject_to_analysis', {comment: 'возврат ради второй попытки'});
-await s.goto(BASE + '/p/SDLC/tasks/SDLC-2');
+// Попытки статуса — в панели этапа (CLAB-285); обзор прогонов не перечисляет.
+await s.goto(BASE + '/p/SDLC/tasks/SDLC-2?stage=analysis');
 await wait(2500);
 const attempts = await run(`
   return all('[data-stage-run="analysis"]').map((el) => ({
@@ -778,10 +844,22 @@ check('ползунок уровня у статуса с ролью', p.slider)
 check('событий нет — без ошибки', p.events.includes('Событий нет'), p.events);
 
 console.log('панель этапа: снять выбор');
-await run(`await clickExact("Показать все этапы"); await sleep(900); return true;`);
-p = await run(`return {search: location.search, panel: Boolean(document.querySelector('[data-stage-panel]')), runs: all('[data-stage-run]').length};`);
-check('«Показать все этапы» — снова список без панели',
-  p.search === '' && !p.panel && p.runs === pdetail.stage_runs.filter((r) => !r.parent_run_id).length, JSON.stringify(p));
+await run(`await clickExact("К обзору"); await sleep(900); return true;`);
+p = await run(`return {search: location.search, panel: Boolean(document.querySelector('[data-stage-panel]')), runs: all('[data-stage-run]').length, overview: Boolean(document.querySelector('[data-overview]'))};`);
+check('«К обзору» — снова обзор без панели и без списка прогонов',
+  p.search === '' && !p.panel && p.runs === 0 && p.overview, JSON.stringify(p));
+
+console.log('обзор задачи с возвратом');
+await openPanel(null);
+p = await run(`return {
+  runsOnNodes: all('[data-cycle-status]').reduce((n, el) => n + Number(el.getAttribute('data-cycle-attempts')), 0),
+  status: (document.querySelector('[data-holding-status]') || {}).innerText,
+  nested: all('[data-stage-run]').length,
+};`);
+const topRuns = pdetail.stage_runs.filter((r) => !r.parent_run_id).length;
+check('прогонов на узлах схемы столько же, сколько в карточке', p.runsOnNodes === topRuns && topRuns >= 3, JSON.stringify({p, topRuns}));
+check('вложенная перепроверка не посчитана попыткой', pdetail.stage_runs.some((r) => r.parent_run_id) && p.runsOnNodes === topRuns, JSON.stringify(p));
+check('обзор возвращённой задачи называет текущий статус', p.status === statusOf(pdetail.task.status_key).name, JSON.stringify(p));
 
 console.log('панель этапа: живой этап');
 await apiPost(`/v1/tasks/${PK}/claim`, {role: a2.role_key}, ag('analyst'));
@@ -796,6 +874,42 @@ p = await run(PANEL + `const el = attempt(${JSON.stringify(a2.id)}); return {
 check('новый артефакт виден без перезагрузки', p.marker === 'та же страница' && p.text.includes('Разбор второй попытки'), p.text.slice(0, 300));
 stageTimeline = (await apiGet(`/v1/tasks/${PK}/timeline?status=${encodeURIComponent(ANALYSIS)}`)).events;
 check('лента этапа перезапрошена опросом', p.events > eventsBefore && p.events === stageTimeline.length, JSON.stringify({before: eventsBefore, now: p.events, api: stageTimeline.length}));
+
+console.log('обзор: живая и истёкшая аренда');
+await openPanel(null);
+await run(`window.__marker = 'тот же обзор'; return true;`);
+await run('await openSection("timeline"); return true;');
+const eventsOverview = () => run(`return all('[data-overview-section=timeline] [data-event]').length;`);
+const evBefore = await eventsOverview();
+p = await run(`const e = document.querySelector('[data-holding-executor]');
+  return e ? {handle: e.getAttribute('data-holding-executor'), lease: e.getAttribute('data-lease'), text: e.innerText.replace(/\\s+/g, ' ')} : null;`);
+check('живая аренда: исполнитель и срок', p?.handle === 'analyst-bot' && p.lease === 'live' && p.text.includes('в работе у') && p.text.includes('аренда до'), JSON.stringify(p));
+await submit('analyst', 'analysis.brief', 'Сдано при открытом обзоре', 'Обзор должен узнать об этом сам.');
+await wait(12000);
+p = await run(`return {marker: window.__marker, events: all('[data-overview-section=timeline] [data-event]').length};`);
+check('обзор узнал о сдаче без перезагрузки за два цикла опроса', p.marker === 'тот же обзор' && p.events > evBefore, JSON.stringify({p, evBefore}));
+// Истёкшую аренду стенд сам не отдаёт, пока воркер её не подметёт, — срок
+// подменяется в ответе карточки, как отказы и версии в других сценариях.
+const stubLease = await s.addInitScript(`(() => {
+  const orig = window.fetch;
+  window.fetch = async (input, init) => {
+    const res = await orig(input, init);
+    const url = String(typeof input === 'string' ? input : input.url).split('?')[0];
+    if (!url.endsWith('/v1/tasks/${PK}')) return res;
+    const body = await res.clone().json();
+    for (const r of body.stage_runs ?? []) if (r.lease_expires_at) r.lease_expires_at = '2020-01-01T00:00:00Z';
+    return new Response(JSON.stringify(body), {status: res.status, headers: res.headers});
+  };
+})();`);
+await openPanel(null);
+p = await run(`const e = document.querySelector('[data-holding-executor]');
+  return e ? {lease: e.getAttribute('data-lease'), text: e.innerText.replace(/\\s+/g, ' ')} : null;`);
+check('истёкшая аренда — «аренда истекла», не пустое поле', p?.lease === 'expired' && p.text.includes('аренда истекла у') && p.text.includes('analyst-bot'), JSON.stringify(p));
+const taskCalls = () => run(`return performance.getEntriesByType('resource').filter((e) => e.name.endsWith('/v1/tasks/${PK}')).length;`);
+const callsBefore = await taskCalls();
+await wait(12000);
+check('опрос прекратился с арендой', (await taskCalls()) === callsBefore, `${callsBefore} → ${await taskCalls()}`);
+await s.removeInitScript(stubLease);
 await apiPost(`/v1/tasks/${PK}/release`, {note: 'сценарий панели этапа'}, ag('analyst'));
 
 console.log('панель этапа: тема');
@@ -824,6 +938,28 @@ check('тёмная тема включается', themes.dark.dark && !themes.
 check('фон и текст панели меняются с темой',
   themes.light.bg !== themes.dark.bg && themes.light.text !== themes.dark.text, JSON.stringify(themes));
 check('строка возврата видна в обеих темах', Boolean(themes.light.border && themes.dark.border), JSON.stringify(themes));
+
+console.log('обзор: тема');
+const paintOverview = `
+  const card = document.querySelector('[data-overview-block=holding] [data-slot=card]');
+  const head = document.querySelector('[data-overview-block=holding] h2');
+  return {dark: document.documentElement.classList.contains('dark'), bg: getComputedStyle(card).backgroundColor,
+    text: getComputedStyle(card).color, heading: getComputedStyle(head).color};
+`;
+const ovThemes = {};
+for (const theme of ['light', 'dark']) {
+  await run(`localStorage.setItem('sdlc.theme', '${theme}'); return true;`);
+  await s.goto(BASE + '/p/SDLC/tasks/SDLC-1');
+  await wait(2500);
+  ovThemes[theme] = await run(paintOverview);
+  if (SHOTS) {
+    const {writeFileSync} = await import('node:fs');
+    writeFileSync(`${SHOTS}/overview-${theme}.png`, Buffer.from(await s.screenshot(), 'base64'));
+  }
+}
+await run(`localStorage.removeItem('sdlc.theme'); return true;`);
+check('обзор меняет цвета с темой', ovThemes.dark.dark && !ovThemes.light.dark
+  && ovThemes.light.bg !== ovThemes.dark.bg && ovThemes.light.heading !== ovThemes.dark.heading, JSON.stringify(ovThemes));
 
 s.close();
 console.log(`\n${ok} ok, ${fail} fail`);
