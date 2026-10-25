@@ -9,7 +9,6 @@ import {EmptyState, Section} from '@/components/kit';
 
 import {ApiError, api} from '../../api/client';
 import type {GateCheck, TaskDetail, TransitionOption, Workflow} from '../../api/types';
-import {useResource} from '../../api/useResource';
 import {Failure} from '../Feedback';
 import {GateRow} from '../Gates';
 
@@ -17,14 +16,20 @@ import {GateRow} from '../Gates';
 // задачей сейчас». Вердикт по каждому гейту считает бэкенд, здесь он только
 // показан; счётчик держащих — подсчёт уже полученных статусов, а не своя
 // проверка перехода.
-export function Actions({detail, onChanged}: {detail: TaskDetail; onChanged: () => void}) {
-  // Определения гейтов берутся из версии цикла самой задачи, а не из активной:
-  // задача доходит по той, на которой начата (решение 0016).
-  const workflow = useResource(
-    () => api.getWorkflowVersion(detail.task.workflow_id),
-    [detail.task.workflow_id],
-  );
-
+//
+// Определения гейтов берутся из версии цикла самой задачи, а не из активной:
+// задача доходит по той, на которой начата (решение 0016). Версию грузит
+// карточка — одну на «Действия» и схему цикла; пока её нет, гейты показаны
+// без определений.
+export function Actions({
+  detail,
+  workflow,
+  onChanged,
+}: {
+  detail: TaskDetail;
+  workflow?: Workflow;
+  onChanged: () => void;
+}) {
   return (
     <Section title="Действия">
       {detail.transitions.length === 0 ? (
@@ -36,7 +41,7 @@ export function Actions({detail, onChanged}: {detail: TaskDetail; onChanged: () 
               key={t.key}
               taskKey={detail.task.key}
               transition={t}
-              workflow={workflow.data}
+              workflow={workflow}
               onChanged={onChanged}
             />
           ))}
