@@ -603,6 +603,228 @@ t = await run(`
 `);
 check('свёрнутая попытка раскрывается по клику', t === 'open', t);
 
+// ── панель выбранного этапа (CLAB-285) ─────────────────────────────────────
+//
+// Своя задача, проведённая ручками API: аналитика с отчётом о стоимости,
+// перепроверкой и апрувом, архитектура с описанием проблемы и возвратом.
+// Демонстрационные задачи остаются нетронутыми. Что показать, панель берёт
+// из карточки и ленты стенда — с ними сценарий и сверяет экран.
+console.log('панель этапа: данные');
+const ag = (role) => `agent:${role}-bot`;
+const PANEL_TITLE = 'Панель этапа: задача сценария';
+const ptask = await (await apiPost('/v1/projects/SDLC/tasks', {title: PANEL_TITLE, repositories: ['cadence-lab-tech/sdlc-pipeline-frontend']})).json();
+const PK = ptask.key;
+if (!PK) throw new Error('задача не заведена: ' + JSON.stringify(ptask));
+const submit = (role, kind, title, content, format = 'markdown') =>
+  apiPost(`/v1/tasks/${PK}/artifacts`, {kind, title, format, content}, ag(role));
+const steps = [
+  await apiPost(`/v1/tasks/${PK}/transitions/start`, {}),
+  await apiPost(`/v1/tasks/${PK}/claim`, {role: 'analyst'}, ag('analyst')),
+  await apiPost(`/v1/tasks/${PK}/usage`, {model: 'claude-opus-5-5', input_tokens: 100, output_tokens: 50, cost_usd: 0.4}, ag('analyst')),
+  await submit('analyst', 'analysis.brief', 'Разбор', 'Разбор требований.'),
+  await submit('analyst', 'analysis.acceptance_criteria', 'Критерии', 'Критерии приёмки.'),
+];
+// Первый запрос перехода держит перепроверка — он её и запускает (409).
+await apiPost(`/v1/tasks/${PK}/transitions/analysis_done`, {summary: 'сдано'}, ag('analyst'));
+steps.push(
+  await apiPost(`/v1/tasks/${PK}/claim`, {role: 'reviewer'}, ag('reviewer')),
+  await submit('reviewer', 'review.verdict', 'Вердикт', '{"verdict":"pass","findings":[]}', 'json'),
+  await apiPost(`/v1/tasks/${PK}/transitions/analysis_done/gates/human_approval/decision`, {status: 'passed'}, 'e2e-human'),
+  await apiPost(`/v1/tasks/${PK}/transitions/analysis_done`, {summary: 'дальше'}, ag('analyst')),
+  await apiPost(`/v1/tasks/${PK}/claim`, {role: 'architect'}, ag('arch')),
+  await submit('arch', 'problem.report', 'Описание проблемы', 'Нет схемы данных.'),
+  await apiPost(`/v1/tasks/${PK}/transitions/reject_to_analysis`, {comment: 'нет схемы данных'}, ag('arch')),
+);
+check('задача проведена: аналитика, перепроверка, архитектура, возврат', steps.every((r) => r.ok), steps.map((r) => r.status).join(','));
+const pdetail = await apiGet(`/v1/tasks/${PK}`);
+const pversion = await apiGet(`/v1/workflows/${pdetail.task.workflow_id}`);
+const statusOf = (key) => pversion.statuses.find((x) => x.key === key);
+const ANALYSIS = pdetail.stage_runs.find((r) => r.kind === 'review').status_key;
+const RETURNED = pdetail.stage_runs.find((r) => r.exit?.kind === 'rejected');
+const ARCH = RETURNED.status_key;
+const topOf = (key) => pdetail.stage_runs.filter((r) => r.status_key === key && !r.parent_run_id)
+  .sort((a, b) => b.entered_at.localeCompare(a.entered_at));
+const [a2, a1] = topOf(ANALYSIS);
+const review = pdetail.stage_runs.find((r) => r.parent_run_id === a1.id);
+const problem = pdetail.artifacts.find((a) => a.stage_run_id === RETURNED.id && a.kind === 'problem.report');
+// Будущий статус: ни одного прогона, у статуса есть роль.
+const FUTURE = [...pversion.statuses].sort((a, b) => a.position - b.position)
+  .find((x) => (x.roles ?? []).length && !pdetail.stage_runs.some((r) => r.status_key === x.key));
+
+const openPanel = async (key) => {
+  await s.goto(BASE + `/p/SDLC/tasks/${PK}${key ? `?stage=${encodeURIComponent(key)}` : ''}`);
+  await wait(2200);
+  for (let i = 0; i < 20 && key; i++) {
+    if (await run(`return Boolean(document.querySelector('[data-stage-panel] [data-stage-events] h3'));`)) break;
+    await wait(500);
+  }
+};
+const PANEL = `
+  const panel = document.querySelector('[data-stage-panel]');
+  const attempts = () => all('[data-stage-panel] [data-stage-run]');
+  const attempt = (id) => document.querySelector('[data-stage-panel] [data-run-id="' + id + '"]');
+  const text = (el) => el ? el.innerText.replace(/\\s+/g, ' ').trim() : '';
+`;
+
+console.log('панель этапа: попытки статуса');
+await openPanel(ANALYSIS);
+let p = await run(PANEL + `return {
+  panel: panel && panel.getAttribute('data-stage-panel'),
+  ids: attempts().map((el) => el.getAttribute('data-run-id')),
+  states: attempts().map((el) => el.getAttribute('data-state')),
+  keys: attempts().map((el) => el.getAttribute('data-stage-run')),
+  heads: attempts().map((el) => text(el.querySelector('button'))),
+  outside: all('[data-stage-run]').filter((el) => !el.closest('[data-stage-panel]')).length,
+  count: text(document.querySelector('[data-stage-attempts]')),
+};`);
+check('панель выбранного статуса вместо списка', p.panel === ANALYSIS && p.outside === 0, JSON.stringify(p));
+check('попытки верхнего уровня, новые сверху', p.ids.join() === [a2.id, a1.id].join(), JSON.stringify(p.ids));
+check('последняя раскрыта, прежняя свёрнута', p.states.join() === 'open,closed', JSON.stringify(p.states));
+check('перепроверка — не отдельная попытка', !p.ids.includes(review.id) && p.count === 'попыток: 2', JSON.stringify(p));
+check('роль с версией из карточки',
+  p.heads.every((h, i) => h.includes(`${[a2, a1][i].role_key} v${[a2, a1][i].role_version}`)), JSON.stringify(p.heads));
+p = await run(PANEL + `const el = attempt(${JSON.stringify(a2.id)}); return {
+  meta: text(el.querySelector('[data-attempt-meta]')),
+  from: text(el.querySelector('[data-return="from"]')),
+  comment: text(el.querySelector('[data-return="from"] [data-return-comment]')),
+  stageLink: el.querySelector('[data-return="from"] [data-return-stage]')?.getAttribute('data-return-stage'),
+  gates: text(el.querySelector('[data-gate-results]')),
+  cost: el.querySelector('[data-run-cost]')?.getAttribute('data-run-cost'),
+  costText: text(el.querySelector('[data-run-cost]')),
+};`);
+check('у попытки исполнитель, роль, вход, захват, завершение',
+  ['Исполнитель', 'Роль', 'Вход', 'Захват', 'Завершение'].every((x) => p.meta.includes(x)), p.meta);
+check('«вернулась с» имя статуса из версии', p.from.startsWith(`вернулась с «${statusOf(ARCH).name}»`), p.from);
+check('тот же комментарий возврата', p.comment === 'нет схемы данных', p.comment);
+check('ссылка на этап, который вернул', p.stageLink === ARCH, String(p.stageLink));
+check('без записей — «гейты не проверялись»', p.gates.includes('гейты не проверялись'), p.gates);
+check('прогон без отчёта — «нет данных», не ноль', p.cost === 'silent' && p.costText.includes('нет данных') && !/0[.,]00/.test(p.costText), p.costText);
+
+console.log('панель этапа: прежняя попытка, гейты и перепроверка');
+p = await run(PANEL + `const el = attempt(${JSON.stringify(a1.id)});
+  el.querySelector('button').click(); await sleep(600);
+  return {
+    state: el.getAttribute('data-state'),
+    verdicts: all('[data-gate-verdict]').filter((v) => el.contains(v) && !v.closest('[data-review-run]')).map((v) => ({
+      key: v.getAttribute('data-gate-verdict'), status: v.getAttribute('data-gate-status'), text: text(v)})),
+    reviews: all('[data-review-run]').filter((r) => el.contains(r)).map((r) => ({id: r.getAttribute('data-review-run'), text: text(r), cost: r.querySelector('[data-run-cost]')?.getAttribute('data-run-cost')})),
+    cost: text(el.querySelector('[data-run-cost]')),
+    exit: el.querySelector('[data-attempt-exit]')?.getAttribute('data-attempt-exit'),
+    model: text(el.querySelector('[data-run-model]')),
+  };`);
+check('прежняя попытка раскрывается', p.state === 'open', p.state);
+check('вердикты гейтов — все записи gate_results',
+  p.verdicts.map((v) => v.key).sort().join() === a1.gate_results.map((g) => g.gate_key).sort().join(), JSON.stringify(p.verdicts.map((v) => v.key)));
+const approval = a1.gate_results.find((g) => g.gate_type === 'human_approval');
+const shownApproval = p.verdicts.find((v) => v.key === approval.gate_key);
+check('апрув: статус как записан и кто решил',
+  shownApproval?.status === approval.status && shownApproval.text.includes(approval.decided_by_handle) && shownApproval.text.includes(approval.transition_key),
+  JSON.stringify(shownApproval));
+check('выход попытки — переход вперёд', p.exit === 'advanced', String(p.exit));
+check('перепроверка внутри своей попытки', p.reviews.length === 1 && p.reviews[0].id === review.id, JSON.stringify(p.reviews));
+check('у перепроверки роль с версией, исход и свой артефакт',
+  p.reviews[0]?.text.includes(`${review.role_key} v${review.role_version}`) && p.reviews[0].text.includes('review.verdict'), p.reviews[0]?.text);
+check('у перепроверки без отчёта — «нет данных»', p.reviews[0]?.cost === 'silent', JSON.stringify(p.reviews[0]));
+check('стоимость прогона с отчётом — деньги и токены', p.cost.includes('0.40 $') && p.cost.includes('150'), p.cost);
+check('строка модели прогона', p.model.includes('claude-opus-5-5'), p.model);
+
+console.log('панель этапа: итог по этапу');
+const runsOfStage = pdetail.stage_runs.filter((r) => r.status_key === ANALYSIS);
+const reported = runsOfStage.filter((r) => r.usage?.reported);
+const sum = reported.reduce((acc, r) => acc + (r.usage.cost_usd ?? 0), 0);
+p = await run(PANEL + `const el = document.querySelector('[data-stage-total]'); return {
+  reported: el?.getAttribute('data-stage-total'), silent: el?.getAttribute('data-stage-silent'), text: text(el)};`);
+check('итог — сумма отчитавшихся прогонов карточки', p.reported === String(reported.length) && p.text.includes(`${sum.toFixed(2)} $`), JSON.stringify(p));
+check('прогоны без отчёта — отдельным числом', p.silent === String(runsOfStage.length - reported.length) && p.text.includes(`без отчёта: ${runsOfStage.length - reported.length}`), JSON.stringify(p));
+
+console.log('панель этапа: события статуса');
+let stageTimeline = (await apiGet(`/v1/tasks/${PK}/timeline?status=${encodeURIComponent(ANALYSIS)}`)).events;
+p = await run(PANEL + `return all('[data-stage-events] [data-event]').map((e) => e.getAttribute('data-event'));`);
+check('события — те же, что timeline?status=', p.join() === stageTimeline.map((e) => e.type).join(), JSON.stringify({ui: p, api: stageTimeline.map((e) => e.type)}));
+check('в событиях этапа — и перепроверка', p.includes('review.completed'), JSON.stringify(p));
+check('чужих событий нет', !p.includes('task.rejected'), JSON.stringify(p));
+
+console.log('панель этапа: возврат со стороны вернувшего');
+await openPanel(ARCH);
+p = await run(PANEL + `const el = attempt(${JSON.stringify(RETURNED.id)}); return {
+  to: text(el.querySelector('[data-return="to"]')),
+  comment: text(el.querySelector('[data-return="to"] [data-return-comment]')),
+  href: el.querySelector('[data-return="to"] [data-return-problem]')?.getAttribute('href'),
+  target: Boolean(document.querySelector('#artifact-${problem.id}')),
+  gates: all('[data-gate-verdict]').filter((v) => el.contains(v)).map((v) => v.getAttribute('data-gate-verdict') + ':' + v.getAttribute('data-gate-status')),
+};`);
+check('«вернула в» имя статуса из версии', p.to.startsWith(`вернула в «${statusOf(ANALYSIS).name}»`), p.to);
+check('комментарий перехода', p.comment === 'нет схемы данных', p.comment);
+check('ссылка на problem.report этой попытки', p.href === `#artifact-${problem.id}` && p.target, JSON.stringify(p));
+check('гейты возврата — как записаны', p.gates.join() === RETURNED.gate_results.map((g) => `${g.gate_key}:${g.status}`).join(), JSON.stringify(p.gates));
+await run(PANEL + `attempt(${JSON.stringify(RETURNED.id)}).querySelector('[data-return-stage]').click(); await sleep(1500); return true;`);
+check('ссылка возврата открывает этап, куда вернули', (await run('return location.search;')) === `?stage=${encodeURIComponent(ANALYSIS)}`, await run('return location.search;'));
+
+console.log('панель этапа: этап ещё не начинался');
+await openPanel(FUTURE.key);
+const futureExits = pversion.transitions.filter((x) => x.from_status_id === FUTURE.id);
+p = await run(PANEL + `const el = document.querySelector('[data-stage-unstarted]'); return {
+  shown: Boolean(el), text: text(el), roles: text(document.querySelector('[data-stage-roles]')),
+  exits: all('[data-stage-exit]').map((e) => e.getAttribute('data-stage-exit')).sort(),
+  gates: all('[data-stage-exit-gate]').length,
+  slider: Boolean(document.querySelector('[data-stage-model-level]')),
+  events: text(document.querySelector('[data-stage-events]')),
+};`);
+check('«этап ещё не начинался»', p.shown && p.text.includes('Этап ещё не начинался'), p.text);
+check('роль статуса из версии', FUTURE.roles.every((r) => p.roles.includes(r.role_name)), p.roles);
+check('выходы — переходы версии из статуса', p.exits.join() === futureExits.map((x) => x.key).sort().join(), JSON.stringify(p.exits));
+check('гейты выхода — из версии', p.gates === futureExits.reduce((n, x) => n + (x.gates ?? []).length, 0), String(p.gates));
+check('ползунок уровня у статуса с ролью', p.slider);
+check('событий нет — без ошибки', p.events.includes('Событий нет'), p.events);
+
+console.log('панель этапа: снять выбор');
+await run(`await clickExact("Показать все этапы"); await sleep(900); return true;`);
+p = await run(`return {search: location.search, panel: Boolean(document.querySelector('[data-stage-panel]')), runs: all('[data-stage-run]').length};`);
+check('«Показать все этапы» — снова список без панели',
+  p.search === '' && !p.panel && p.runs === pdetail.stage_runs.filter((r) => !r.parent_run_id).length, JSON.stringify(p));
+
+console.log('панель этапа: живой этап');
+await apiPost(`/v1/tasks/${PK}/claim`, {role: a2.role_key}, ag('analyst'));
+await openPanel(ANALYSIS);
+await run(`window.__marker = 'та же страница'; return true;`);
+const eventsBefore = await run(`return all('[data-stage-events] [data-event]').length;`);
+await submit('analyst', 'analysis.brief', 'Разбор второй попытки', 'Схема данных добавлена.');
+await wait(12000);
+p = await run(PANEL + `const el = attempt(${JSON.stringify(a2.id)}); return {
+  marker: window.__marker, text: text(el), events: all('[data-stage-events] [data-event]').length,
+};`);
+check('новый артефакт виден без перезагрузки', p.marker === 'та же страница' && p.text.includes('Разбор второй попытки'), p.text.slice(0, 300));
+stageTimeline = (await apiGet(`/v1/tasks/${PK}/timeline?status=${encodeURIComponent(ANALYSIS)}`)).events;
+check('лента этапа перезапрошена опросом', p.events > eventsBefore && p.events === stageTimeline.length, JSON.stringify({before: eventsBefore, now: p.events, api: stageTimeline.length}));
+await apiPost(`/v1/tasks/${PK}/release`, {note: 'сценарий панели этапа'}, ag('analyst'));
+
+console.log('панель этапа: тема');
+const SHOTS = process.env.SDLC_E2E_SHOTS;
+const paint = `
+  const card = document.querySelector('[data-stage-panel] [data-slot=card]');
+  const ret = document.querySelector('[data-return]');
+  return {dark: document.documentElement.classList.contains('dark'), bg: getComputedStyle(card).backgroundColor,
+    text: getComputedStyle(card).color, border: ret ? getComputedStyle(ret).borderLeftColor : ''};
+`;
+const themes = {};
+for (const theme of ['light', 'dark']) {
+  await run(`localStorage.setItem('sdlc.theme', '${theme}'); return true;`);
+  await openPanel(ANALYSIS);
+  themes[theme] = await run(paint);
+  if (SHOTS) {
+    const {writeFileSync} = await import('node:fs');
+    for (const key of [ANALYSIS, ARCH, FUTURE.key]) {
+      await openPanel(key);
+      writeFileSync(`${SHOTS}/stage-panel-${key}-${theme}.png`, Buffer.from(await s.screenshot(), 'base64'));
+    }
+  }
+}
+await run(`localStorage.removeItem('sdlc.theme'); return true;`);
+check('тёмная тема включается', themes.dark.dark && !themes.light.dark, JSON.stringify(themes));
+check('фон и текст панели меняются с темой',
+  themes.light.bg !== themes.dark.bg && themes.light.text !== themes.dark.text, JSON.stringify(themes));
+check('строка возврата видна в обеих темах', Boolean(themes.light.border && themes.dark.border), JSON.stringify(themes));
+
 s.close();
 console.log(`\n${ok} ok, ${fail} fail`);
 process.exit(fail ? 1 : 0);

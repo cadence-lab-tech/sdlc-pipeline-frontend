@@ -7,12 +7,11 @@ import {MultiSelector, Selector, TextInput} from '@/components/fields';
 import {Section, Token} from '@/components/kit';
 
 import {ApiError, api} from '../../api/client';
-import type {ModelLevel, Project, Task, TaskDetail, TaskPropertyDef, TaskRepoRef} from '../../api/types';
+import type {ModelLevel, ProjectDetail, Task, TaskDetail, TaskPropertyDef, TaskRepoRef} from '../../api/types';
 import {useResource} from '../../api/useResource';
 import {Failure} from '../Feedback';
 import {ModelLevelToggle} from '../ModelLevelToggle';
 import {PropertyField} from '../PropertyFields';
-import {canEditTaskLevel, needsProjectTeams} from '../modelLevel';
 import {priorityClass, priorityLabel} from '../priorities';
 
 // «Детали» — список ключ-значение: всё, что задача про себя знает, одной
@@ -21,6 +20,8 @@ import {priorityClass, priorityLabel} from '../priorities';
 export function Details({
   detail,
   refs,
+  project,
+  levelEditable,
   onChanged,
 }: {
   detail: TaskDetail;
@@ -29,16 +30,19 @@ export function Details({
   // аренды, что и саму карточку, иначе PR, привязанный агентом по ходу
   // прогона, на экране не появится.
   refs: TaskRepoRef[];
+  // Проект задачи грузит страница: его владелец нужен и праву на уровень
+  // модели, которое страница считает одно на «Детали» и панель этапа.
+  project: ProjectDetail | undefined;
+  levelEditable: boolean;
   onChanged: () => void;
 }) {
   const {task} = detail;
-  const project = useResource(() => api.getProject(task.project_key), [task.project_key]);
   const [editing, setEditing] = useState(false);
   const [add, setAdd] = useState<string[]>([]);
   const [scopeError, setScopeError] = useState<ApiError>();
   const [busy, setBusy] = useState(false);
 
-  const defs = project.data?.task_property_defs ?? [];
+  const defs = project?.task_property_defs ?? [];
   const inScope = new Set(task.repositories.map((r) => `${r.owner}/${r.name}`));
 
   const save = async (body: Record<string, unknown>) => {
@@ -68,7 +72,7 @@ export function Details({
           <Token label={priorityLabel(task.priority)} className={priorityClass(task.priority)} />
         </DetailRow>
         <DetailRow label="Уровень модели">
-          <TaskModelLevel task={task} project={project.data?.project} onChanged={onChanged} />
+          <TaskModelLevel task={task} editable={levelEditable} onChanged={onChanged} />
         </DetailRow>
         <DetailRow label="Исполнитель">
           <Assignee task={task} onChanged={onChanged} />
@@ -98,7 +102,7 @@ export function Details({
 
       {scopeError ? <Failure error={scopeError} title="Область не изменена" /> : null}
 
-      {project.data ? (
+      {project ? (
         editing ? (
           <div className="space-y-4 rounded-lg border p-3">
             {defs.map((def) => (
@@ -115,7 +119,7 @@ export function Details({
               label="Добавить репозиторий в область"
               value={add}
               onChange={setAdd}
-              options={project.data.repositories
+              options={project.repositories
                 .filter((r) => !inScope.has(`${r.owner}/${r.name}`))
                 .map((r) => ({value: `${r.owner}/${r.name}`, label: `${r.owner}/${r.name}`}))}
             />
@@ -224,35 +228,19 @@ function RefLink({refItem}: {refItem: TaskRepoRef}) {
 // Уровень модели задачи (решение 0060): этап без своего уровня берёт его при
 // захвате, идущий прогон не меняется — его снимок уже сделан. Сдвиг
 // сохраняется сразу, без кнопки: правка одного поля обратима тем же кликом.
-// Уровни этапов (stage_settings) здесь не показываются — это панель этапа
-// CLAB-231.
+// Уровни этапов (stage_settings) двигает панель этапа (CLAB-285); право у
+// обоих ползунков одно — useTaskLevelEditable на странице.
 function TaskModelLevel({
   task,
-  project,
+  editable,
   onChanged,
 }: {
   task: Task;
-  project: Project | undefined;
+  editable: boolean;
   onChanged: () => void;
 }) {
-  const me = useResource(() => api.me(), []);
-  const ownerTeamKey = project?.owner_team_key;
-  // Состав команд проекта нужен, только если прямого права нет: в режиме
-  // header и у администратора системы лишнего запроса карточка не делает.
-  const needTeams = needsProjectTeams(me.data, task.project_key, ownerTeamKey);
-  const teams = useResource(
-    () => (needTeams ? api.listProjectTeams(task.project_key) : Promise.resolve(undefined)),
-    [task.project_key, needTeams],
-  );
   const [error, setError] = useState<ApiError>();
   const [busy, setBusy] = useState(false);
-
-  const editable = canEditTaskLevel({
-    me: me.data,
-    projectKey: task.project_key,
-    ownerTeamKey,
-    projectTeams: needTeams ? teams.data : undefined,
-  });
 
   const change = async (level: ModelLevel | null) => {
     setBusy(true);

@@ -838,7 +838,13 @@ export const api = {
     request<TaskDetail>(`/tasks/${taskKey}`).then((d) => ({
       ...d,
       task: normalizeTask(d.task),
-      stage_runs: d.stage_runs ?? [],
+      // Поля CLAB-283: бэкенд постарше их не отдаёт, а пустой список сервер
+      // может опустить — панель этапа про это не помнит.
+      stage_runs: (d.stage_runs ?? []).map((r) => ({
+        ...r,
+        gate_results: r.gate_results ?? [],
+        exit: r.exit ?? null,
+      })),
       artifacts: d.artifacts ?? [],
       transitions: (d.transitions ?? []).map((t) => ({
         ...t,
@@ -862,10 +868,13 @@ export const api = {
       normalizeTask,
     ),
 
-  timeline: (taskKey: string) =>
-    request<{ events: TaskEvent[] }>(`/tasks/${taskKey}/timeline`).then(
-      (r) => r.events,
-    ),
+  // Лента задачи; со status — только события прогонов этого статуса вместе
+  // с перепроверками (CLAB-283). Ключ — как в версии цикла: сервер сравнивает
+  // его с учётом регистра, поэтому он не приводится, а только кодируется.
+  timeline: (taskKey: string, status?: string) =>
+    request<{ events: TaskEvent[] }>(
+      `/tasks/${taskKey}/timeline${status ? `?status=${encodeURIComponent(status)}` : ""}`,
+    ).then((r) => r.events ?? []),
 
   // Журнал действий (CLAB-210): задачи и проекта — maintainer, инстанса —
   // администратор системы. Страница по курсору next прошлой.

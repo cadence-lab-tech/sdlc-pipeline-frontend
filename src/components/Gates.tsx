@@ -3,9 +3,9 @@ import {useId, useState} from 'react';
 import {Button} from '@/components/ui/button';
 import {Checkbox} from '@/components/ui/checkbox';
 import {Label} from '@/components/ui/label';
-import {StatusDot, Token, type DotVariant} from '@/components/kit';
+import {StatusDot, Timestamp, Token, type DotVariant} from '@/components/kit';
 
-import type {Gate, GateCheck} from '../api/types';
+import type {Gate, GateCheck, RunGateVerdict} from '../api/types';
 
 // Вердикт по гейту считает бэкенд — фронтенд его показывает, а не пересчитывает.
 const GATE_VARIANT: Record<GateCheck['status'], DotVariant> = {
@@ -45,6 +45,36 @@ export function GateRow({
       </div>
       {check.reason ? <p className="text-muted-foreground text-sm">{check.reason}</p> : null}
       <GateDetails check={check} gate={gate} onDecide={onDecide} />
+    </div>
+  );
+}
+
+// Вердикт гейта, записанный на прогоне (`gate_results`, CLAB-283), — история,
+// а не живой расчёт: решений здесь не принимают, только показывают, чем
+// кончилось, на каком переходе и кто решил. Статус — как записал движок;
+// незнакомый показывается ключом.
+export function GateVerdictRow({verdict}: {verdict: RunGateVerdict}) {
+  const known = Object.hasOwn(GATE_STATUS, verdict.status);
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm" data-gate-verdict={verdict.gate_key} data-gate-status={verdict.status}>
+      <StatusDot
+        variant={known ? GATE_VARIANT[verdict.status] : 'neutral'}
+        label={known ? GATE_STATUS[verdict.status] : verdict.status}
+      />
+      <span className="font-medium">{verdict.gate_name}</span>
+      <Token label={verdict.gate_type} />
+      <span className="text-muted-foreground text-xs">переход {verdict.transition_key}</span>
+      {verdict.decided_by_handle || verdict.decided_at ? (
+        <span className="text-muted-foreground text-xs">
+          {verdict.decided_by_handle ? `решил ${verdict.decided_by_handle}` : 'решил движок'}
+          {verdict.decided_at ? (
+            <>
+              {' '}
+              <Timestamp value={verdict.decided_at} format="relative" className="text-xs" />
+            </>
+          ) : null}
+        </span>
+      ) : null}
     </div>
   );
 }

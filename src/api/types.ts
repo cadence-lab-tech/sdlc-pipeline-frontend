@@ -497,6 +497,42 @@ export interface StageRun {
   // Учёт прогона — только в карточке задачи (GET /v1/tasks/:key); бэкенд
   // без CLAB-264 его не отдаёт.
   usage?: RunUsage;
+  // Поля карточки CLAB-283 — только в GET /v1/tasks/:key. Номер версии роли
+  // (role_versions.version); null у прогона без роли, нет поля — бэкенд
+  // старше CLAB-283.
+  role_version?: number | null;
+  // Вердикты гейтов прогона, как их записал движок; у прогона без записей
+  // — []. Нормализуется в [] в api/client.ts.
+  gate_results: RunGateVerdict[];
+  // Чем прогон закончен: null, пока идёт, и у перепроверки (её итог —
+  // outcome и summary). Нормализуется в null в api/client.ts.
+  exit: RunExit | null;
+}
+
+// Вердикт гейта на выходе прогона — запись gate_results вместе с именем
+// гейта и ключом перехода. Последнее состояние, а не история решений.
+export interface RunGateVerdict {
+  gate_key: string;
+  gate_name: string;
+  gate_type: string;
+  transition_key: string;
+  status: GateCheck["status"];
+  details: Record<string, unknown> | null;
+  // null — вердикт вынес движок, а не человек.
+  decided_by_handle: string | null;
+  decided_at: string | null;
+}
+
+// Выход прогона: переход, которым он закончен (событие task.advanced /
+// task.rejected / task.cancelled прогона).
+export interface RunExit {
+  kind: "advanced" | "rejected" | "cancelled";
+  transition: string;
+  // Ключ статуса, куда ушла задача, — из версии цикла задачи.
+  to_status: string;
+  comment: string | null;
+  by_handle: string | null;
+  at: string;
 }
 
 export interface Artifact {
