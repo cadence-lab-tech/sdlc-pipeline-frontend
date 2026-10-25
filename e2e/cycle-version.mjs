@@ -20,8 +20,9 @@ const heads = await get('/v1/projects/SDLC/workflows');
 const active = (Array.isArray(heads) ? heads : heads.workflows ?? [])
   .find((w) => w.state === 'active' && w.task_types.includes('task'));
 const started = (await get('/v1/tasks/SDLC-1')).task;
-const backlog = tasks.find((t) => t.key !== started.key && t.properties?.type !== 'epic' && t.workflow_id === active.id &&
-  t.status_key === 'new');
+// Задача из бэклога — на начальном статусе новой версии.
+const initialKey = (await get(`/v1/workflows/${active.id}`)).statuses.find((x) => x.is_initial)?.key;
+const backlog = tasks.find((t) => t.key !== started.key && t.workflow_id === active.id && t.status_key === initialKey);
 
 const s = await session(BASE + '/p/SDLC/tasks/SDLC-1');
 const run = (body) => s.evaluate(helpers + body);
