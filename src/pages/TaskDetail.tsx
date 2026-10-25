@@ -121,7 +121,12 @@ export function TaskDetail() {
             />
           </div>
           {tab === 'stages' ? (
-            <Stages detail={detail} onChanged={reload} />
+            <Stages
+              detail={detail}
+              stage={stage ? {key: stage, name: stageName(workflow.data, stage)} : undefined}
+              onClearStage={() => setStage(undefined)}
+              onChanged={reload}
+            />
           ) : tab === 'children' ? (
             <Children detail={detail} />
           ) : tab === 'audit' ? (
@@ -267,6 +272,10 @@ function Description({text}: {text: string}) {
       ) : null}
     </div>
   );
+}
+
+function stageName(workflow: Workflow | undefined, key: string): string {
+  return workflow?.statuses.find((s) => s.key === key)?.name ?? key;
 }
 
 // Тип задачи — системное свойство: по нему выбран цикл (решение 0024).
