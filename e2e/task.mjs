@@ -1,5 +1,7 @@
 import {session, helpers} from './driver.mjs';
 
+const {money} = await import('../src/components/cost.ts');
+
 const BASE = process.env.SDLC_UI_URL ?? 'http://localhost:5173';
 const API = process.env.SDLC_API_URL ?? 'http://localhost:8088';
 // Часть состояний карточки браузером не сделать: привязку PR кладёт агент, а
@@ -764,7 +766,12 @@ check('«вернулась с» имя статуса из версии', p.fro
 check('тот же комментарий возврата', p.comment === 'нет схемы данных', p.comment);
 check('ссылка на этап, который вернул', p.stageLink === ARCH, String(p.stageLink));
 check('без записей — «гейты не проверялись»', p.gates.includes('гейты не проверялись'), p.gates);
-check('прогон без отчёта — «нет данных», не ноль', p.cost === 'silent' && p.costText.includes('нет данных') && !/0[.,]00/.test(p.costText), p.costText);
+// Состояние учёта — от сервера (CLAB-219): прогон, который никто не забирал,
+// — «учёт не ведётся», забранный без отчёта — «без учёта»; ни то ни другое не ноль.
+const a2State = a2.usage?.state ?? 'missing';
+check('прогон без отчёта — «без учёта» или «учёт не ведётся» по состоянию, не ноль',
+  p.cost === a2State && !/0[.,]00/.test(p.costText) && !p.costText.includes('нет данных')
+  && p.costText.includes(a2State === 'missing' ? 'без учёта' : 'учёт не ведётся'), `${a2State}: ${p.costText}`);
 
 console.log('панель этапа: прежняя попытка, гейты и перепроверка');
 p = await run(PANEL + `const el = attempt(${JSON.stringify(a1.id)});
@@ -790,18 +797,21 @@ check('выход попытки — переход вперёд', p.exit === 'a
 check('перепроверка внутри своей попытки', p.reviews.length === 1 && p.reviews[0].id === review.id, JSON.stringify(p.reviews));
 check('у перепроверки роль с версией, исход и свой артефакт',
   p.reviews[0]?.text.includes(`${review.role_key} v${review.role_version}`) && p.reviews[0].text.includes('review.verdict'), p.reviews[0]?.text);
-check('у перепроверки без отчёта — «нет данных»', p.reviews[0]?.cost === 'silent', JSON.stringify(p.reviews[0]));
-check('стоимость прогона с отчётом — деньги и токены', p.cost.includes('0.40 $') && p.cost.includes('150'), p.cost);
+check('у перепроверки без отчёта — состояние учёта от сервера, не «нет данных»',
+  p.reviews[0]?.cost === (review.usage?.state ?? 'missing'), JSON.stringify(p.reviews[0]));
+check('стоимость прогона с отчётом — деньги (отчёт без признака оплаты) и токены',
+  p.cost.includes('Деньги (API) 0.400 $') && p.cost.includes('150') && p.cost.includes('оплата: без признака'), p.cost);
 check('строка модели прогона', p.model.includes('claude-opus-5-5'), p.model);
 
 console.log('панель этапа: итог по этапу');
 const runsOfStage = pdetail.stage_runs.filter((r) => r.status_key === ANALYSIS);
-const reported = runsOfStage.filter((r) => r.usage?.reported);
-const sum = reported.reduce((acc, r) => acc + (r.usage.cost_usd ?? 0), 0);
+const reported = runsOfStage.filter((r) => r.usage?.state === 'reported');
+const silentRuns = runsOfStage.filter((r) => (r.usage?.state ?? 'missing') === 'missing');
+const sum = reported.reduce((acc, r) => acc + (r.usage.api_cost_usd ?? 0), 0);
 p = await run(PANEL + `const el = document.querySelector('[data-stage-total]'); return {
   reported: el?.getAttribute('data-stage-total'), silent: el?.getAttribute('data-stage-silent'), text: text(el)};`);
-check('итог — сумма отчитавшихся прогонов карточки', p.reported === String(reported.length) && p.text.includes(`${sum.toFixed(2)} $`), JSON.stringify(p));
-check('прогоны без отчёта — отдельным числом', p.silent === String(runsOfStage.length - reported.length) && p.text.includes(`без отчёта: ${runsOfStage.length - reported.length}`), JSON.stringify(p));
+check('итог — сумма отчитавшихся прогонов карточки', p.reported === String(reported.length) && p.text.includes(`Деньги (API) ${money(sum)}`), JSON.stringify(p));
+check('прогоны без учёта — отдельным числом, только missing', p.silent === String(silentRuns.length) && p.text.includes(`прогонов без учёта: ${silentRuns.length}`), JSON.stringify(p));
 
 console.log('панель этапа: события статуса');
 let stageTimeline = (await apiGet(`/v1/tasks/${PK}/timeline?status=${encodeURIComponent(ANALYSIS)}`)).events;

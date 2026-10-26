@@ -1,15 +1,28 @@
 import {useState} from 'react';
 import {useParams} from 'react-router-dom';
 
+import {Badge} from '@/components/ui/badge';
 import {Card} from '@/components/ui/card';
 import {ToggleGroup, ToggleGroupItem} from '@/components/ui/toggle-group';
 import {DataTable} from '@/components/DataTable';
 import {EmptyState, Page, PageHeader, Section} from '@/components/kit';
 
 import {api} from '../api/client';
-import type {CostMetric, DriftMetric, GateMetric, StatusMetric} from '../api/types';
+import type {ClosedCostMetric, CostMetric, DriftMetric, GateMetric, StatusMetric} from '../api/types';
 import {useResource} from '../api/useResource';
 import {Loaded} from '../components/Feedback';
+import {MoneyCell} from '../components/MoneyCell';
+import {
+  MONEY_LABEL,
+  SUBSCRIPTION_LABEL,
+  UNKNOWN,
+  closedSilentLine,
+  dimensionLabel,
+  hasReports,
+  incompleteNote,
+  money,
+  silentCell,
+} from '../components/cost';
 
 const PERIODS = [
   {value: '7d', label: '7 дней'},
@@ -118,29 +131,67 @@ export function Metrics() {
 
             <Section
               title="Стоимость"
-              description="Что стоила работа агентов за период — по статусам, ролям и моделям. Считается по самоотчётам: прогон, о котором не отчитались, стоит «неизвестно», а не ноль, и такие прогоны показаны отдельным счётчиком.">
+              description={
+                <>
+                  Что стоила работа агентов за период — по статусам, ролям и моделям. «Деньги (API)» — отчёты с оплатой
+                  по API и без указанного типа; «Условно (подписка)» — цена по тарифу API за работу на подписке, сверх
+                  подписки её не платят. Считается по самоотчётам: прогон без учёта — не ноль, а неизвестная стоимость,
+                  и сумма в строке с такими прогонами — нижняя граница.
+                </>
+              }>
               <DataTable<CostMetric>
                 data={m.cost}
                 idKey={(c) => `${c.dimension}/${c.key}`}
                 empty={<EmptyState title="О стоимости за период никто не отчитался" />}
                 columns={[
-                  {key: 'dimension', header: 'Разрез', width: 90},
+                  {
+                    key: 'dimension',
+                    header: 'Разрез',
+                    width: 90,
+                    renderCell: (row) => dimensionLabel(row.dimension),
+                  },
                   {key: 'key', header: 'Значение', renderCell: (row) => row.name || row.key},
                   {key: 'runs', header: 'Прогонов', width: 100, align: 'end'},
-                  {key: 'silent_runs', header: 'Без отчёта', width: 110, align: 'end'},
                   {
-                    key: 'cost_usd',
-                    header: 'Стоимость',
-                    width: 110,
+                    key: 'silent_runs',
+                    header: 'Без учёта',
+                    width: 130,
                     align: 'end',
-                    renderCell: (row) => money(row.cost_usd),
+                    renderCell: (row) => {
+                      const cell = silentCell(row);
+                      return (
+                        <div className="flex flex-col items-end gap-0.5" data-silent-cell title={cell.hint}>
+                          <span className="tabular-nums">{cell.text}</span>
+                          {cell.incomplete ? <Badge variant="outline">учёт неполный</Badge> : null}
+                        </div>
+                      );
+                    },
+                  },
+                  {
+                    key: 'api_cost_usd',
+                    header: MONEY_LABEL,
+                    width: 200,
+                    align: 'end',
+                    renderCell: (row) =>
+                      hasReports(row) ? (
+                        <MoneyCell value={row.api_cost_usd} unspecified={row.unspecified_cost_usd} />
+                      ) : (
+                        UNKNOWN
+                      ),
+                  },
+                  {
+                    key: 'subscription_cost_usd',
+                    header: SUBSCRIPTION_LABEL,
+                    width: 150,
+                    align: 'end',
+                    renderCell: (row) => (hasReports(row) ? money(row.subscription_cost_usd) : UNKNOWN),
                   },
                   {
                     key: 'avg_cost_usd',
                     header: 'Средняя',
                     width: 110,
                     align: 'end',
-                    renderCell: (row) => money(row.avg_cost_usd),
+                    renderCell: (row) => (hasReports(row) ? money(row.avg_cost_usd) : UNKNOWN),
                   },
                   {
                     key: 'tokens',
@@ -151,6 +202,94 @@ export function Metrics() {
                   },
                 ]}
               />
+              <p className="text-muted-foreground text-xs">
+                Средняя — по всей сообщённой стоимости прогона (деньги и условная вместе): отдельного делителя для
+                денег и подписки сервер не даёт.
+              </p>
+            </Section>
+
+            <Section
+              title="Стоимость закрытой задачи"
+              description="Закрытые за период — задачи в статусе «выполнено», без отменённых. Стоимость считается за всё время жизни задачи, у эпика — по поддереву. Строки «итого» нет: эпик и его задачи считаются каждый в своей строке, и суммы пересекаются.">
+              {m.closed_cost === undefined ? (
+                <EmptyState
+                  title="Раздел недоступен на этой версии сервера"
+                  description="Сервер не отдаёт стоимость закрытых задач: обновите его до версии интерфейса."
+                />
+              ) : (
+                <DataTable<ClosedCostMetric>
+                  data={m.closed_cost}
+                  idKey="task_type"
+                  empty={<EmptyState title="За период ни одна задача не закрыта" />}
+                  columns={[
+                    {
+                      key: 'task_type',
+                      header: 'Тип задачи',
+                      width: 220,
+                      renderCell: (row) => (
+                        <div className="flex flex-col items-start gap-0.5">
+                          <span>{row.task_type}</span>
+                          {incompleteNote(row) ? (
+                            <Badge variant="outline" className="h-auto rounded-md py-0.5 text-left whitespace-normal" data-incomplete={row.incomplete_tasks}>
+                              {incompleteNote(row)}
+                            </Badge>
+                          ) : null}
+                        </div>
+                      ),
+                    },
+                    {key: 'closed_tasks', header: 'Закрыто', width: 90, align: 'end'},
+                    {
+                      key: 'api_cost_usd',
+                      header: `${MONEY_LABEL}, Σ`,
+                      width: 200,
+                      align: 'end',
+                      renderCell: (row) => <MoneyCell value={row.api_cost_usd} unspecified={row.unspecified_cost_usd} />,
+                    },
+                    {
+                      key: 'avg_api_cost_usd',
+                      header: `${MONEY_LABEL}, среднее`,
+                      width: 130,
+                      align: 'end',
+                      renderCell: (row) => money(row.avg_api_cost_usd),
+                    },
+                    {
+                      key: 'median_api_cost_usd',
+                      header: `${MONEY_LABEL}, медиана`,
+                      width: 130,
+                      align: 'end',
+                      renderCell: (row) => money(row.median_api_cost_usd),
+                    },
+                    {
+                      key: 'subscription_cost_usd',
+                      header: `${SUBSCRIPTION_LABEL}, Σ`,
+                      width: 150,
+                      align: 'end',
+                      renderCell: (row) => money(row.subscription_cost_usd),
+                    },
+                    {
+                      key: 'avg_subscription_cost_usd',
+                      header: `${SUBSCRIPTION_LABEL}, среднее`,
+                      width: 140,
+                      align: 'end',
+                      renderCell: (row) => money(row.avg_subscription_cost_usd),
+                    },
+                    {
+                      key: 'median_subscription_cost_usd',
+                      header: `${SUBSCRIPTION_LABEL}, медиана`,
+                      width: 140,
+                      align: 'end',
+                      renderCell: (row) => money(row.median_subscription_cost_usd),
+                    },
+                    {
+                      key: 'silent_runs',
+                      header: 'Без учёта',
+                      width: 150,
+                      align: 'end',
+                      renderCell: (row) => closedSilentLine(row),
+                    },
+                  ]}
+                />
+              )}
             </Section>
 
             <Section title="Дрейф">
@@ -181,13 +320,6 @@ function Stat({label, value}: {label: string; value: number | string}) {
       <p className="text-xl font-semibold tabular-nums">{String(value)}</p>
     </Card>
   );
-}
-
-// Доллары с двумя знаками: суммы тут маленькие, и округление до целого
-// превратило бы разницу между моделями в ноль.
-function money(v: number): string {
-  if (!v) return '—';
-  return `${v.toFixed(v < 1 ? 3 : 2)} $`;
 }
 
 // Часы читаются, пока их меньше двух суток; дальше понятнее дни.

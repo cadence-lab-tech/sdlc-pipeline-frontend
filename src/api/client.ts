@@ -629,6 +629,9 @@ export const api = {
         gates: m.gates ?? [],
         drift: m.drift ?? [],
         cost: m.cost ?? [],
+        // Поля нет — бэкенд старше CLAB-220, это не то же, что «закрытых нет».
+        // null — пустой срез Go, то есть «закрытых нет».
+        closed_cost: m.closed_cost === null ? [] : m.closed_cost,
       }),
     ),
 
