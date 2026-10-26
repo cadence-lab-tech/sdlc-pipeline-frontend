@@ -53,12 +53,19 @@ const workflow = {
     {id: 't4', key: 'drop', name: 'Отмена', from_status_id: null, to_status_id: 's-d', kind: 'cancel', position: 9},
   ],
 };
-const usage = (cost, input, output, models = ['m-1']) => ({
-  reported: true, reports: 1, models, input_tokens: input, output_tokens: output,
-  cache_read_tokens: null, cache_write_tokens: null, cost_usd: cost, duration_ms: null,
+// Учёт прогона (CLAB-219, решение 0062): деньги и условная стоимость
+// раздельно, состояние учёта — от сервера. cost — деньги по API, sub —
+// условная стоимость; null — строк такого вида нет.
+const usage = (cost, input, output, {sub = null, unspecified = null, models = ['m-1'], state = 'reported'} = {}) => ({
+  reported: true, state, reports: 1, models, input_tokens: input, output_tokens: output,
+  cache_read_tokens: null, cache_write_tokens: null,
+  cost_usd: cost === null && sub === null ? null : (cost ?? 0) + (sub ?? 0), duration_ms: null,
+  api_cost_usd: cost, unspecified_cost_usd: unspecified, subscription_cost_usd: sub,
 });
-const silent = {reported: false, reports: 0, models: [], input_tokens: null, output_tokens: null,
-  cache_read_tokens: null, cache_write_tokens: null, cost_usd: null, duration_ms: null};
+const noUsage = (state) => ({reported: false, state, reports: 0, models: [], input_tokens: null, output_tokens: null,
+  cache_read_tokens: null, cache_write_tokens: null, cost_usd: null, duration_ms: null,
+  api_cost_usd: null, unspecified_cost_usd: null, subscription_cost_usd: null});
+const silent = noUsage('missing');
 const run = (id, status_key, entered_at, extra = {}) => ({
   id, status_key, entered_at, attempt: 1, state: 'passed', gate_results: [], exit: null, ...extra,
 });
@@ -68,7 +75,7 @@ const runs = [
   run('b1', 'beta-2', '2026-10-01T11:00:00Z', {role_key: 'smith', role_version: 7, usage: usage(1.25, 1000, 200),
     exit: {kind: 'rejected', transition: 'back', to_status: 'Alpha', comment: 'нет схемы', by_handle: 'bob', at: '2026-10-01T12:00:00Z'}}),
   run('b1-r', 'beta-2', '2026-10-01T11:30:00Z', {parent_run_id: 'b1', kind: 'review', role_key: 'judge', role_version: 1, usage: silent}),
-  run('b1-r0', 'beta-2', '2026-10-01T11:10:00Z', {parent_run_id: 'b1', kind: 'review', role_key: 'judge', role_version: null}),
+  run('b1-r0', 'beta-2', '2026-10-01T11:10:00Z', {parent_run_id: 'b1', kind: 'review', role_key: 'judge', role_version: null, usage: noUsage('not_applicable')}),
   run('a2', 'Alpha', '2026-10-01T12:00:00Z', {role_key: 'scribe', role_version: 4, rejected_from_run_id: 'b1', state: 'in_progress', usage: silent}),
   run('b0', 'beta-2', '2026-09-30T09:00:00Z', {role_key: 'smith', exit: {kind: 'rejected', transition: 'back', to_status: 'Alpha', comment: null, by_handle: null, at: '2026-09-30T10:00:00Z'}}),
   run('a0', 'Alpha', '2026-09-30T10:00:00Z', {rejected_from_run_id: 'нет-такого'}),
@@ -100,23 +107,52 @@ check('роли нет — пусто', P.roleWithVersion({}) === '');
 
 // ── стоимость ───────────────────────────────────────────────────────────────
 console.log('стоимость прогона');
-check('с отчётом — деньги и токены', P.runCostLine(runs[1]) === `1.25 $ · токенов ${(1200).toLocaleString('ru')}`, P.runCostLine(runs[1]));
-check('без отчёта — «нет данных», не ноль', P.runCostLine({usage: silent}) === 'нет данных');
-check('без объекта usage — «нет данных»', P.runCostLine({}) === 'нет данных');
-check('отчёт без суммы — «стоимость: нет данных»',
-  P.runCostLine({usage: {...usage(null, 1, 1)}}).startsWith('стоимость: нет данных'), P.runCostLine({usage: usage(null, 1, 1)}));
+check('с отчётом — деньги и токены', P.runCostLine(runs[1]) === `Деньги (API) 1.25 $ · токенов ${(1200).toLocaleString('ru')} · оплата: API`, P.runCostLine(runs[1]));
+check('без учёта — «без учёта», не ноль и не «нет данных»', P.runCostLine({usage: silent}) === 'без учёта', P.runCostLine({usage: silent}));
+check('агент не работал — «учёт не ведётся»', P.runCostLine({usage: noUsage('not_applicable')}).startsWith('учёт не ведётся'), P.runCostLine({usage: noUsage('not_applicable')}));
+check('без объекта usage — как без отчёта', P.runCostLine({}) === 'без учёта', P.runCostLine({}));
+check('сервер без state: отчёт есть — учтён, нет — без учёта',
+  P.runCostLine({usage: {...usage(0.1, 1, 1), state: undefined}}).startsWith('Деньги (API) 0.100 $')
+  && P.runCostLine({usage: {...silent, state: undefined}}) === 'без учёта');
+check('отчёт без суммы — «стоимость: нет данных», типа оплаты нет',
+  P.runCostLine({usage: usage(null, 1, 1)}) === `стоимость: нет данных · токенов 2`, P.runCostLine({usage: usage(null, 1, 1)}));
 check('отчёт без токенов — «токенов: нет данных»',
-  P.runCostLine({usage: usage(0.1, null, null)}).endsWith('токенов: нет данных'), P.runCostLine({usage: usage(0.1, null, null)}));
+  P.runCostLine({usage: usage(0.1, null, null)}).includes('токенов: нет данных'), P.runCostLine({usage: usage(0.1, null, null)}));
+check('подписка — условная стоимость, денег нет',
+  P.runCostLine({usage: usage(null, 1, 1, {sub: 2})}) === 'Условно (подписка) 2.00 $ · токенов 2 · оплата: подписка', P.runCostLine({usage: usage(null, 1, 1, {sub: 2})}));
+check('API и подписка — обе суммы раздельно',
+  P.runCostLine({usage: usage(0.5, 1, 1, {sub: 2})}) === 'Деньги (API) 0.500 $ · Условно (подписка) 2.00 $ · токенов 2 · оплата: API и подписка',
+  P.runCostLine({usage: usage(0.5, 1, 1, {sub: 2})}));
+check('часть без признака — «API и без признака»',
+  P.runCostLine({usage: usage(1, 1, 1, {unspecified: 0.4})}).endsWith('оплата: API и без признака'), P.runCostLine({usage: usage(1, 1, 1, {unspecified: 0.4})}));
+check('деньги целиком без признака — только «без признака»',
+  P.runCostLine({usage: usage(1, 1, 1, {unspecified: 1})}).endsWith('оплата: без признака'), P.runCostLine({usage: usage(1, 1, 1, {unspecified: 1})}));
+check('сообщённый ноль — «0.00 $», не «нет данных»',
+  P.runCostLine({usage: usage(0, 1, 1)}).startsWith('Деньги (API) 0.00 $'), P.runCostLine({usage: usage(0, 1, 1)}));
 
 console.log('итог этапа');
 let total = P.stageTotal(beta);
-check('сумма отчитавшихся: попытки и перепроверки', Math.abs(total.cost_usd - 1.25) < 1e-9 && total.tokens === 1200, JSON.stringify(total));
-check('прогоны без отчёта посчитаны отдельно', total.reported === 1 && total.silent === 3, JSON.stringify(total));
-check('строка итога', P.stageTotalLine(total) === `стоимость этапа 1.25 $ · токенов ${(1200).toLocaleString('ru')}`, P.stageTotalLine(total));
+check('сумма отчитавшихся: попытки и перепроверки', Math.abs(total.api_usd - 1.25) < 1e-9 && total.subscription_usd === null && total.tokens === 1200, JSON.stringify(total));
+check('прогоны без учёта посчитаны отдельно', total.reported === 1 && total.silent === 2 && total.not_applicable === 1, JSON.stringify(total));
+check('строка итога', P.stageTotalLine(total) === `стоимость этапа Деньги (API) 1.25 $ · токенов ${(1200).toLocaleString('ru')}`, P.stageTotalLine(total));
 total = P.stageTotal(P.stageAttempts(runs, 'Alpha'));
-check('Alpha: 0.50 $, без отчёта два', Math.abs(total.cost_usd - 0.5) < 1e-9 && total.silent === 2, JSON.stringify(total));
+check('Alpha: 0.500 $, без учёта два (прогон без usage — как без отчёта)', Math.abs(total.api_usd - 0.5) < 1e-9 && total.silent === 2, JSON.stringify(total));
 const none = P.stageTotal([{run: {usage: silent}, reviews: []}]);
-check('никто не отчитался — «нет данных», а не 0.00 $', P.stageTotalLine(none) === 'стоимость этапа: нет данных', P.stageTotalLine(none));
+check('никто не отчитался — «без учёта», а не 0.00 $', P.stageTotalLine(none) === 'стоимость этапа: без учёта', P.stageTotalLine(none));
+const idle = P.stageTotal([{run: {usage: noUsage('not_applicable')}, reviews: []}]);
+check('этап из одного not_applicable: без учёта нет, «учёт не ведётся»',
+  idle.silent === 0 && idle.not_applicable === 1 && P.stageTotalLine(idle).startsWith('стоимость этапа: учёт не ведётся'), JSON.stringify(idle));
+const unknown = P.stageTotal([{run: {usage: usage(null, null, null)}, reviews: []}]);
+check('отчёт без суммы — «нет данных», счётчик без учёта не растёт',
+  unknown.silent === 0 && unknown.reported === 1 && P.stageTotalLine(unknown).startsWith('стоимость этапа нет данных'), P.stageTotalLine(unknown));
+const mixed = P.stageTotal([
+  {run: {usage: usage(1, 10, 5, {unspecified: 0.25})}, reviews: [{usage: usage(0.5, 1, 1, {sub: 3})}, {usage: usage(null, 1, 1, {sub: 4})}]},
+  {run: {usage: silent}, reviews: []},
+]);
+check('деньги и условная — раздельно, без признака отдельно',
+  Math.abs(mixed.api_usd - 1.5) < 1e-9 && Math.abs(mixed.subscription_usd - 7) < 1e-9 && mixed.unspecified_usd === 0.25 && mixed.silent === 1 && mixed.reported === 3, JSON.stringify(mixed));
+check('строка итога с обеими суммами',
+  P.stageTotalLine(mixed).startsWith('стоимость этапа Деньги (API) 1.50 $ · Условно (подписка) 7.00 $ · токенов'), P.stageTotalLine(mixed));
 
 // ── возвраты ────────────────────────────────────────────────────────────────
 console.log('возвраты с обеих сторон');

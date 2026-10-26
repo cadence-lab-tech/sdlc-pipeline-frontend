@@ -159,7 +159,7 @@ await run(`
   await sleep(1500);
 `);
 t = await run('return texts();');
-check('предел показан вместе с расходом', t.includes('$25.00') && t.includes('Потрачено'), t.slice(0, 1200));
+check('предел показан вместе с расходом', t.includes('25.00 $') && t.includes('Потрачено (деньги)') && t.includes('Условно (подписка)'), t.slice(0, 1200));
 check('состояние бюджета названо', t.includes('в пределах') || t.includes('исчерпан'), t.slice(0, 1200));
 
 console.log('принципалы');

@@ -93,7 +93,11 @@ export interface BudgetState {
   team_key?: string;
   period?: "day" | "week" | "month";
   limit_usd?: number;
+  // Деньги: строки API и без признака оплаты. Только они идут против предела.
   spent_usd: number;
+  // Условная стоимость работы на подписке за то же окно (решение 0062):
+  // для сведения, в предел не входит никогда.
+  subscription_usd: number;
 }
 
 export interface TeamBudgets {
@@ -447,8 +451,15 @@ export interface StageSettings {
 // Учёт одного прогона в карточке задачи (форма CLAB-264): сумма отчётов о
 // стоимости. reported: false — «нет учёта», и тогда суммы null, а не ноль.
 // Числа складываются только по отчётам, где они есть.
+// Состояние учёта прогона (CLAB-219): reported — отчёт есть, missing — агент
+// работал, а отчёта нет («без учёта»), not_applicable — агент не работал.
+// Перечень движка; незнакомое значение показывается как есть.
+export type UsageState = "reported" | "missing" | "not_applicable";
+
 export interface RunUsage {
   reported: boolean;
+  // Нет поля — бэкенд старше CLAB-219: прогон без отчёта считается missing.
+  state?: UsageState;
   reports: number;
   // Модели как пришли, без повторов, по времени первого отчёта.
   models: string[];
@@ -458,6 +469,13 @@ export interface RunUsage {
   cache_write_tokens: number | null;
   cost_usd: number | null;
   duration_ms: number | null;
+  // Раздельно по признаку оплаты (решение 0062); null — строк с такой
+  // стоимостью нет, а не ноль. Деньги — api и без признака,
+  // unspecified — часть денег без признака, subscription — условная
+  // стоимость.
+  api_cost_usd: number | null;
+  unspecified_cost_usd: number | null;
+  subscription_cost_usd: number | null;
 }
 
 export interface StageRun {
@@ -595,6 +613,14 @@ export interface UsageSummary {
   tokens: number;
   reported_runs: number;
   silent_runs: number;
+  // Раздельно по признаку оплаты (решение 0062): cost_usd = api + subscription,
+  // unspecified — часть денег без признака.
+  api_cost_usd: number;
+  unspecified_cost_usd: number;
+  subscription_cost_usd: number;
+  subtree_api_cost_usd: number;
+  subtree_unspecified_cost_usd: number;
+  subtree_subscription_cost_usd: number;
 }
 
 export interface TaskDetail {
@@ -1033,6 +1059,32 @@ export interface CostMetric {
   cost_usd: number;
   avg_cost_usd: number;
   tokens: number;
+  // Раздельно по признаку оплаты (решение 0062): cost_usd = api + subscription,
+  // unspecified — часть денег без признака.
+  api_cost_usd: number;
+  unspecified_cost_usd: number;
+  subscription_cost_usd: number;
+}
+
+// Стоимость на закрытую задачу по типу задач (CLAB-220). Закрытые — done за
+// период, стоимость — за всю жизнь задачи, у эпика по поддереву. Строки
+// «итого» нет: эпик и его задачи считаются каждый в своей строке.
+// silent_share — доля 0..1. Среднее и медиана — по всем закрытым задачам типа.
+export interface ClosedCostMetric {
+  task_type: string;
+  closed_tasks: number;
+  incomplete_tasks: number;
+  runs: number;
+  reported_runs: number;
+  silent_runs: number;
+  silent_share: number;
+  api_cost_usd: number;
+  avg_api_cost_usd: number;
+  median_api_cost_usd: number;
+  unspecified_cost_usd: number;
+  subscription_cost_usd: number;
+  avg_subscription_cost_usd: number;
+  median_subscription_cost_usd: number;
 }
 
 export interface Metrics {
@@ -1050,6 +1102,9 @@ export interface Metrics {
   gates: GateMetric[];
   drift: DriftMetric[];
   cost: CostMetric[];
+  // Нет поля — бэкенд старше CLAB-220 («раздел недоступен»); [] — закрытых
+  // задач за период нет.
+  closed_cost?: ClosedCostMetric[];
 }
 
 // ── дрейф кодовой базы ──────────────────────────────────────────────────────

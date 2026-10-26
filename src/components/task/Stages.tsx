@@ -34,6 +34,7 @@ import {
   type ReturnNote,
   type StageAttempt,
 } from './stagePanel';
+import {UNSPECIFIED_HINT, unspecifiedNote, usageState} from '../cost';
 import {Timeline} from './Timeline';
 
 // Этапы идут попытками: повторный заход после отката — новая попытка, а не
@@ -157,9 +158,14 @@ function StagePanel({
               <dt className="text-muted-foreground">Стоимость</dt>
               <dd data-stage-total={total.reported} data-stage-silent={total.silent}>
                 <span className="tabular-nums">{stageTotalLine(total)}</span>
+                {unspecifiedNote(total.unspecified_usd) ? (
+                  <span className="text-muted-foreground block text-xs" title={UNSPECIFIED_HINT} data-unspecified>
+                    {unspecifiedNote(total.unspecified_usd)}
+                  </span>
+                ) : null}
                 {total.silent > 0 ? (
                   <span className="text-muted-foreground block text-xs">
-                    прогонов без отчёта: {total.silent} — их стоимость неизвестна
+                    прогонов без учёта: {total.silent} — суммы не меньше показанных
                   </span>
                 ) : null}
               </dd>
@@ -477,10 +483,12 @@ function RunGates({run}: {run: StageRun}) {
   );
 }
 
-// Стоимость прогона: деньги и токены; без отчёта — «нет данных», не ноль.
+// Стоимость прогона: деньги, условная стоимость, токены и тип оплаты по
+// состоянию учёта (CLAB-219): «без учёта» и «учёт не ведётся» — не ноль.
+// data-run-cost — состояние учёта прогона: reported, missing, not_applicable.
 function RunCost({run}: {run: StageRun}) {
   return (
-    <p className="text-muted-foreground text-xs tabular-nums" data-run-cost={run.usage?.reported ? 'reported' : 'silent'}>
+    <p className="text-muted-foreground text-xs tabular-nums" data-run-cost={usageState(run.usage)}>
       стоимость: {runCostLine(run)}
     </p>
   );

@@ -17,6 +17,7 @@ import type {
   Transition,
   Workflow,
 } from '../../api/types';
+import {NO_DATA, billingLabel, costPair, usageState, usageStateLabel} from '../cost';
 
 // Попытка этапа: прогон верхнего уровня и его вложенные перепроверки
 // (решение 0017) — они живут внутри попытки и попытками не считаются.
@@ -50,14 +51,10 @@ export function roleWithVersion(run: Pick<StageRun, 'role_key' | 'role_version'>
   return typeof run.role_version === 'number' ? `${run.role_key} v${run.role_version}` : run.role_key;
 }
 
-// Стоимость прогона одной строкой. «Неизвестно — не ноль»: прогон без
-// отчёта — «нет данных», а не «0.00 $».
-export const NO_DATA = 'нет данных';
-
-export function money(v: number): string {
-  return `${v.toFixed(2)} $`;
-}
-
+// Стоимость прогона одной строкой (R7, CLAB-223). Состояние учёта — от
+// сервера: «без учёта» (`missing`) и «учёт не ведётся» (`not_applicable`)
+// разные вещи, и ни то ни другое не «0.00 $». Деньги и условная стоимость
+// раздельно, показывается только та сторона, о которой сообщили.
 export function usageTokens(usage: RunUsage): number | null {
   const parts = [usage.input_tokens, usage.output_tokens, usage.cache_read_tokens, usage.cache_write_tokens];
   if (parts.every((p) => p === null || p === undefined)) return null;
@@ -66,44 +63,73 @@ export function usageTokens(usage: RunUsage): number | null {
 
 export function runCostLine(run: Pick<StageRun, 'usage'>): string {
   const usage = run.usage;
-  if (!usage || !usage.reported) return NO_DATA;
+  const state = usageState(usage);
+  if (state !== 'reported' || !usage) return usageStateLabel(state);
   const parts: string[] = [];
-  parts.push(usage.cost_usd === null ? `стоимость: ${NO_DATA}` : money(usage.cost_usd));
+  parts.push(costPair(usage.api_cost_usd, usage.subscription_cost_usd) ?? `стоимость: ${NO_DATA}`);
   const tokens = usageTokens(usage);
   parts.push(tokens === null ? `токенов: ${NO_DATA}` : `токенов ${tokens.toLocaleString('ru')}`);
+  const billing = billingLabel(usage);
+  if (billing) parts.push(`оплата: ${billing}`);
   return parts.join(' · ');
 }
 
-// Итог этапа: сумма отчитавшихся прогонов статуса (попытки и их
-// перепроверки) и число прогонов без отчёта — их стоимость неизвестна, и к
-// сумме они не прибавляются нулём.
+// Итог этапа: суммы отчитавшихся прогонов статуса (попытки и их
+// перепроверки) — деньги и условная стоимость раздельно — и число прогонов
+// без учёта. Их стоимость неизвестна, и к сумме они не прибавляются нулём;
+// прогоны `not_applicable` (агент не работал) не считаются ни там, ни там.
+// Сторона суммы null, пока ни один прогон не сообщил такой стоимости.
 export interface StageTotal {
-  cost_usd: number;
+  api_usd: number | null;
+  unspecified_usd: number | null;
+  subscription_usd: number | null;
   tokens: number;
   reported: number;
   silent: number;
+  not_applicable: number;
 }
 
 export function stageTotal(attempts: StageAttempt[]): StageTotal {
-  const total: StageTotal = {cost_usd: 0, tokens: 0, reported: 0, silent: 0};
+  const total: StageTotal = {
+    api_usd: null,
+    unspecified_usd: null,
+    subscription_usd: null,
+    tokens: 0,
+    reported: 0,
+    silent: 0,
+    not_applicable: 0,
+  };
+  const add = (sum: number | null, v: number | null | undefined) => (typeof v === 'number' ? (sum ?? 0) + v : sum);
   for (const a of attempts) {
     for (const run of [a.run, ...a.reviews]) {
-      const usage = run.usage;
-      if (!usage || !usage.reported) {
+      const state = usageState(run.usage);
+      if (state === 'missing') {
         total.silent++;
         continue;
       }
+      if (state !== 'reported' || !run.usage) {
+        total.not_applicable++;
+        continue;
+      }
       total.reported++;
-      total.cost_usd += usage.cost_usd ?? 0;
-      total.tokens += usageTokens(usage) ?? 0;
+      total.api_usd = add(total.api_usd, run.usage.api_cost_usd);
+      total.unspecified_usd = add(total.unspecified_usd, run.usage.unspecified_cost_usd);
+      total.subscription_usd = add(total.subscription_usd, run.usage.subscription_cost_usd);
+      total.tokens += usageTokens(run.usage) ?? 0;
     }
   }
   return total;
 }
 
 export function stageTotalLine(total: StageTotal): string {
-  if (total.reported === 0) return `стоимость этапа: ${NO_DATA}`;
-  return `стоимость этапа ${money(total.cost_usd)} · токенов ${total.tokens.toLocaleString('ru')}`;
+  if (total.reported === 0) {
+    if (total.silent > 0) return `стоимость этапа: ${usageStateLabel('missing')}`;
+    if (total.not_applicable > 0) return `стоимость этапа: ${usageStateLabel('not_applicable')}`;
+    return `стоимость этапа: ${NO_DATA}`;
+  }
+  const tokens = `токенов ${total.tokens.toLocaleString('ru')}`;
+  const pair = costPair(total.api_usd, total.subscription_usd);
+  return `стоимость этапа ${pair ? `${pair} · ${tokens}` : `${NO_DATA} · ${tokens}`}`;
 }
 
 function statusName(statuses: Status[] | undefined, key: string): string {

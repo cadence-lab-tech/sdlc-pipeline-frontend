@@ -14,6 +14,7 @@ import {ApiError, api} from '../api/client';
 import {startInstall} from '../api/github';
 import {AppStateNote, InstallationsList} from '../components/Installations';
 import {InviteDialog, InvitesTable} from '../components/Invites';
+import {BUDGET_INFO_NOTE, SUBSCRIPTION_LABEL, money, moneyOrUnknown} from '../components/cost';
 import {counted} from '../components/removals';
 import type {Me, Plan, Principal, ProjectTeam, Team, TeamDetail as TeamDetailData, TeamMember} from '../api/types';
 import {useResource} from '../api/useResource';
@@ -763,7 +764,7 @@ function Budgets({teamKey}: {teamKey: string}) {
   return (
     <Section
       title="Бюджет"
-      description="Расход — стоимость прогонов в проектах, которыми команда владеет, за календарное окно. Исчерпанный предел закрывает новые захваты задач; начатые прогоны доходят до конца. Ноль снимает предел: «без ограничения» и «ноль долларов» — разные вещи.">
+      description="Расход — только деньги: отчёты с оплатой по API и без указанного типа в проектах, которыми команда владеет, за календарное окно. Работа на подписке в предел не входит никогда, её условная стоимость показана рядом для сведения. Исчерпанный предел закрывает новые захваты задач; начатые прогоны доходят до конца. Ноль снимает предел: «без ограничения» и «ноль долларов» — разные вещи.">
       {error ? <Failure error={error} /> : null}
       <Loaded resource={budgets}>
         {(state) => (
@@ -784,13 +785,24 @@ function Budgets({teamKey}: {teamKey: string}) {
                 key: 'limit_usd',
                 header: 'Предел',
                 width: 120,
-                renderCell: (b) => `$${Number(b.limit_usd ?? 0).toFixed(2)}`,
+                renderCell: (b) => money(Number(b.limit_usd ?? 0)),
               },
               {
                 key: 'spent_usd',
-                header: 'Потрачено',
-                width: 120,
-                renderCell: (b) => `$${Number(b.spent_usd).toFixed(2)}`,
+                header: 'Потрачено (деньги)',
+                width: 150,
+                renderCell: (b) => money(Number(b.spent_usd)),
+              },
+              {
+                key: 'subscription_usd',
+                header: SUBSCRIPTION_LABEL,
+                width: 190,
+                renderCell: (b) => (
+                  <div className="flex flex-col" data-budget-subscription>
+                    <span className="tabular-nums">{moneyOrUnknown(b.subscription_usd)}</span>
+                    <span className="text-muted-foreground text-xs font-normal whitespace-normal">{BUDGET_INFO_NOTE}</span>
+                  </div>
+                ),
               },
               {
                 key: 'state',
