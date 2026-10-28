@@ -228,7 +228,11 @@ function upload<T>(
     xhr.onload = () => {
       const text = xhr.responseText;
       if (xhr.status >= 200 && xhr.status < 300) {
-        resolve((text ? JSON.parse(text) : undefined) as T);
+        try {
+          resolve((text ? JSON.parse(text) : undefined) as T);
+        } catch (err) {
+          reject(new ApiError("internal", `ответ сервиса не разобран: ${String(err)}`));
+        }
         return;
       }
       try {
