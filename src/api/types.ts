@@ -571,6 +571,30 @@ export interface Artifact {
   approved_by?: UUID;
   meta: Record<string, unknown>;
   created_at: string;
+  // Файл (CLAB-296): отметка вложения, имя и тип, как их хранит сервер. У
+  // текстового артефакта этапа полей нет; у файла по контракту имя и тип
+  // есть, а отметки вложения — нет.
+  is_attachment?: boolean;
+  file_name?: string;
+  media_type?: string;
+}
+
+// Вложение задачи в списке `GET /tasks/:key/attachments` — не форма Artifact:
+// сервер отдаёт короткую выжимку (AttachmentRef). Заменённая версия остаётся
+// в истории со status `superseded`.
+export interface Attachment {
+  id: UUID;
+  title: string;
+  file_name: string;
+  media_type: string;
+  size_bytes: number;
+  sha256: string;
+  version: number;
+  status: string;
+  supersedes_id?: UUID;
+  added_by: string;
+  added_at: string;
+  content_path: string;
 }
 
 // Вердикт по одному гейту. Считает бэкенд, фронтенд его только показывает.
@@ -678,6 +702,8 @@ export interface OutputContractItem {
   title?: string;
   format?: string;
   required?: boolean;
+  // JSON-схема вида. Файл под вид со схемой сервер не принимает.
+  schema?: unknown;
 }
 
 export interface RoleVersion {
@@ -857,6 +883,9 @@ export interface Instance {
     github?: GitHubSettings & { available: boolean };
     oidc?: OIDCSettings & { available: boolean; error?: string };
   };
+  // Пределы сервера. Нет поля — сервер старше пределов, и предел файла
+  // интерфейс не знает: отказ придёт от сервера.
+  limits?: { max_file_bytes?: number };
 }
 
 // Набор агента инстанса (GET /v1/agent-kit, CLAB-232): скилы и саб-агент той

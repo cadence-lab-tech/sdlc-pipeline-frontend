@@ -9,6 +9,17 @@ import {CodeBlock, Markdown, Token} from '@/components/kit';
 import {ApiError, api} from '../api/client';
 import type {Artifact} from '../api/types';
 import {Failure} from './Feedback';
+import {DownloadButton, FileBody, type FileRef} from './FileViewer';
+import {fileNameOf, formatBytes} from './task/attachmentRules';
+
+function fileOf(artifact: Artifact): FileRef {
+  return {
+    id: artifact.id,
+    name: fileNameOf(artifact),
+    mediaType: artifact.media_type,
+    sizeBytes: artifact.size_bytes,
+  };
+}
 
 // Артефакт иммутабелен: правка — новая версия через supersedes_id. Поэтому
 // здесь нет редактирования, только чтение и апрув.
@@ -38,19 +49,30 @@ export function ArtifactView({artifact, onChanged}: {artifact: Artifact; onChang
     }
   };
 
+  // Файл (format binary) в текст не читается: до 64 МиБ в строке — это и
+  // зависшая вкладка, и мусор в разметке. Вместо этого — имя, тип, размер,
+  // «Скачать» и просмотр по типу файла.
+  const isFile = artifact.format === 'binary';
+
   return (
-    <div className="space-y-2 rounded-lg border p-3">
+    <div className="space-y-2 rounded-lg border p-3" data-artifact={artifact.id}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-2">
           <Token label={`v${artifact.version}`} />
           <div className="min-w-0">
             <p className="truncate text-sm font-medium">{artifact.title}</p>
             <p className="text-muted-foreground text-xs">{artifact.kind}</p>
+            {isFile ? (
+              <p className="text-muted-foreground text-xs break-all" data-artifact-file>
+                {fileNameOf(artifact)} · {artifact.media_type || 'тип не указан'} · {formatBytes(artifact.size_bytes)}
+              </p>
+            ) : null}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <span className="text-muted-foreground text-xs">{artifact.status}</span>
-          {artifact.approved_by ? null : (
+          {/* Вложение в гейтах не участвует (решение 0064): принимать нечего. */}
+          {artifact.approved_by || artifact.is_attachment ? null : (
             <Button size="sm" variant="secondary" onClick={approve}>
               Принять
             </Button>
@@ -58,31 +80,38 @@ export function ArtifactView({artifact, onChanged}: {artifact: Artifact; onChang
         </div>
       </div>
       {error ? <Failure error={error} title="Артефакт не открылся" /> : null}
-      <Collapsible open={open} onOpenChange={load}>
-        <div className="flex flex-wrap items-center gap-1">
-          <CollapsibleTrigger asChild>
-            <Button variant="ghost" size="sm" className="group -ml-2">
-              <ChevronRight className="transition-transform group-data-[state=open]:rotate-90" />
-              Содержимое
-            </Button>
-          </CollapsibleTrigger>
-          {/* Копирование и чтение во весь экран — только на раскрытом
-              артефакте: пока содержимое не подтянуто, копировать нечего. */}
-          {open && content !== undefined ? (
-            <>
-              <CopyButton text={content} />
-              <FullScreen artifact={artifact} content={content} />
-            </>
-          ) : null}
-        </div>
-        <CollapsibleContent className="pt-2">
-          {content === undefined ? (
-            <p className="text-muted-foreground text-sm">Загрузка…</p>
-          ) : (
-            <ArtifactBody format={artifact.format} content={content} />
-          )}
-        </CollapsibleContent>
-      </Collapsible>
+      {isFile ? (
+        <FileBody file={fileOf(artifact)} />
+      ) : (
+        <Collapsible open={open} onOpenChange={load}>
+          <div className="flex flex-wrap items-center gap-1">
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" size="sm" className="group -ml-2">
+                <ChevronRight className="transition-transform group-data-[state=open]:rotate-90" />
+                Содержимое
+              </Button>
+            </CollapsibleTrigger>
+            {/* Копирование и чтение во весь экран — только на раскрытом
+                артефакте: пока содержимое не подтянуто, копировать нечего. */}
+            {open && content !== undefined ? (
+              <>
+                <CopyButton text={content} />
+                <FullScreen artifact={artifact} content={content} />
+              </>
+            ) : null}
+            {/* «Скачать» у любого артефакта, в том числе у текста, сданного
+                строкой: он и забирается тем же запросом с токеном. */}
+            <DownloadButton file={fileOf(artifact)} />
+          </div>
+          <CollapsibleContent className="pt-2">
+            {content === undefined ? (
+              <p className="text-muted-foreground text-sm">Загрузка…</p>
+            ) : (
+              <ArtifactBody format={artifact.format} content={content} />
+            )}
+          </CollapsibleContent>
+        </Collapsible>
+      )}
     </div>
   );
 }

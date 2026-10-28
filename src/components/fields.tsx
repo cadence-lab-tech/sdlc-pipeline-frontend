@@ -129,6 +129,29 @@ export function TextArea({
   );
 }
 
+// Выбор файла: настоящий input type=file с подписью label[for]. Выбранный
+// файл поле не хранит — им владеет форма.
+export function FileInput({
+  label,
+  description,
+  onChange,
+  isRequired,
+  isDisabled,
+}: {
+  label?: string;
+  description?: string;
+  onChange: (file: File | undefined) => void;
+  isRequired?: boolean;
+  isDisabled?: boolean;
+}) {
+  const id = useId();
+  return (
+    <Field id={id} label={label} description={description} isRequired={isRequired}>
+      <Input id={id} type="file" disabled={isDisabled} onChange={(e) => onChange(e.target.files?.[0])} />
+    </Field>
+  );
+}
+
 // NumberInput отдаёт undefined на пустом поле: «не задано» и «ноль» — разные
 // значения, и свойство задачи это различает.
 export function NumberInput({
