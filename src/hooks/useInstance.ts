@@ -16,6 +16,9 @@ export interface InstanceView {
   tenancy: Tenancy;
   // vX.Y.Z, SHA или dev; нет — сервер не ответил.
   version?: string;
+  // Предел файла вложения в байтах (limits.max_file_bytes); нет — сервер
+  // старше пределов, и интерфейс его не знает: отказ придёт от сервера.
+  maxFileBytes?: number;
 }
 
 const FALLBACK: InstanceView = {tenancy: 'shared'};
@@ -29,7 +32,11 @@ export function loadInstance(): Promise<InstanceView> {
     .then(
       // Профиль — только по tenancy: ни вид команд, ни is_admin его не
       // подменяют. Незнакомое значение — профиль по умолчанию.
-      (i): InstanceView => ({tenancy: i.tenancy === 'single' ? 'single' : 'shared', version: i.version || undefined}),
+      (i): InstanceView => ({
+        tenancy: i.tenancy === 'single' ? 'single' : 'shared',
+        version: i.version || undefined,
+        maxFileBytes: (i.limits?.max_file_bytes ?? 0) > 0 ? i.limits?.max_file_bytes : undefined,
+      }),
       (): InstanceView => FALLBACK,
     )
     .then((view) => (known = view));

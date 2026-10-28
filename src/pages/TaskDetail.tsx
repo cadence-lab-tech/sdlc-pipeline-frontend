@@ -22,6 +22,7 @@ import {Actions} from '../components/task/Actions';
 import {CollapsibleSection} from '../components/task/CollapsibleSection';
 import {Details} from '../components/task/Details';
 import {Overview} from '../components/task/TaskOverview';
+import {Attachments} from '../components/task/AttachmentsSection';
 import {Stages} from '../components/task/Stages';
 import {UsageLines} from '../components/task/Usage';
 import {isLeaseLive} from '../components/task/lease';
@@ -118,10 +119,18 @@ export function TaskDetail() {
           <div className="flex justify-end">
             <SubmitArtifactDialog
               taskKey={detail.task.key}
+              projectKey={detail.task.project_key}
+              statusKey={detail.task.status_key}
+              stageRuns={detail.stage_runs}
               transitions={detail.transitions}
               onSubmitted={reload}
             />
           </div>
+          {/* Вложения не зависят ни от типа задачи, ни от статуса, ни от выбора
+              этапа: раздел один и тот же в обзоре и в панели этапа. Знак
+              перезапроса — тот же, что у журнала: его сбрасывают и действия
+              на карточке, и опрос живой аренды. */}
+          <Attachments taskKey={detail.task.key} refreshToken={auditVersion} />
           {stage ? (
             <Stages
               detail={detail}

@@ -150,8 +150,12 @@ const SHELL_HEALTH = '/v1/projects/SDLC/health';
 // на загрузку страницы (CLAB-89) — это тоже не запрос карточки.
 const SHELL_INSTANCE = '/v1/instance';
 const own = calls.filter((n) => n !== SHELL_HEALTH && n !== SHELL_INSTANCE);
+// Девятый адрес — список вложений (CLAB-299): раздел «Вложения» грузит его
+// один раз при показе карточки; содержимого файлов карточка не запрашивает.
 check('карточка ходит только за своим',
-  own.length === 8 && own.includes('/v1/tasks/SDLC-1/repo-refs'), JSON.stringify(calls));
+  own.length === 9 && own.includes('/v1/tasks/SDLC-1/repo-refs')
+    && own.includes('/v1/tasks/SDLC-1/attachments?include_superseded=true')
+    && !own.some((n) => n.includes('/content')), JSON.stringify(calls));
 check('сводку проекта на странице карточки спрашивает оболочка', calls.includes(SHELL_HEALTH), JSON.stringify(calls));
 
 // Секции обзора раскрываются с клавиатуры: Enter и Space на заголовке.

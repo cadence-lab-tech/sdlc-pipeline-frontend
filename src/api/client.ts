@@ -7,6 +7,7 @@ import type {
   AuditEntry,
   AuditPage,
   Artifact,
+  Attachment,
   Bundle,
   Drift,
   IndexStatusRow,
@@ -62,6 +63,7 @@ import type {
   AgentKit,
   Instance,
 } from "./types";
+import { UPLOAD_ABORTED } from "../components/task/attachmentRules";
 
 const BASE = import.meta.env.VITE_API_URL ?? "/v1";
 
@@ -81,6 +83,7 @@ export type ErrorCode =
   | "out_of_task_scope"
   | "unauthenticated"
   | "forbidden"
+  | "payload_too_large"
   | "internal";
 
 export class ApiError extends Error {
@@ -185,6 +188,88 @@ async function requestText(path: string): Promise<string> {
     raise(res, body);
   }
   return text;
+}
+
+// Тело ошибки сервера, если оно есть: JSON не по контракту (прокси, обрыв)
+// не роняет разбор, а отдаёт вместо тела пустоту.
+function errorBody(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
+// Отправка файла — отдельный путь, а не request(): тело multipart со своей
+// границей (Content-Type ставит браузер, JSON-заголовок её сломал бы), а
+// прогресс отправки fetch не даёт. Токен и актор, 401 → событие входа и
+// разбор ошибки сервера — те же, что у остальных запросов. Обрыв (сеть или
+// срок загрузки на сервере, который кончается обрывом без ответа) — ошибка с
+// понятным текстом и статусом 0.
+function upload<T>(
+  path: string,
+  form: FormData,
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", BASE + path);
+    for (const [name, value] of Object.entries(authHeaders())) {
+      xhr.setRequestHeader(name, value);
+    }
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress?.(e.loaded, e.total);
+    };
+    const aborted = () =>
+      reject(new ApiError("internal", UPLOAD_ABORTED, undefined, 0));
+    xhr.onerror = aborted;
+    xhr.ontimeout = aborted;
+    xhr.onabort = aborted;
+    xhr.onload = () => {
+      const text = xhr.responseText;
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve((text ? JSON.parse(text) : undefined) as T);
+        } catch (err) {
+          reject(new ApiError("internal", `ответ сервиса не разобран: ${String(err)}`));
+        }
+        return;
+      }
+      try {
+        raise(
+          { status: xhr.status } as Response,
+          text ? errorBody(text) : undefined,
+        );
+      } catch (err) {
+        reject(err);
+      }
+    };
+    xhr.send(form);
+  });
+}
+
+// Содержимое файла: запрос с токеном, а не прямая ссылка — токен лежит в
+// заголовке. Заголовок Content-Disposition нужен тому, кто строит превью:
+// `attachment` значит, что сервер не подтвердил тип файла.
+export interface FileContent {
+  blob: Blob;
+  disposition: string | null;
+}
+
+async function requestFile(path: string): Promise<FileContent> {
+  let res: Response;
+  try {
+    res = await fetch(BASE + path, { headers: authHeaders() });
+  } catch (cause) {
+    throw new ApiError("internal", `сервис недоступен: ${String(cause)}`);
+  }
+  if (!res.ok) {
+    raise(res, errorBody(await res.text()));
+  }
+  return {
+    blob: await res.blob(),
+    disposition: res.headers.get("Content-Disposition"),
+  };
 }
 
 // Бэкенд опускает пустые массивы (`omitempty`), поэтому у задачи без
@@ -915,6 +1000,32 @@ export const api = {
   // Содержимое приезжает сырым телом со своим media type, а не в конверте:
   // артефакт может быть чем угодно, от markdown до диаграммы.
   artifactContent: (id: UUID) => requestText(`/artifacts/${id}/content`),
+
+  // Файл артефакта целиком (CLAB-299): вложение, файл по контракту или текст,
+  // сданный строкой, — всё скачивается одним запросом с токеном.
+  artifactFile: (id: UUID) => requestFile(`/artifacts/${id}/content`),
+
+  // Вложения задачи. Заменённые версии — только по запросу: список по умолчанию
+  // показывает текущие. 404 — сервер без вложений (старше интерфейса).
+  listAttachments: (taskKey: string, includeSuperseded = false) =>
+    request<{ attachments: Attachment[] }>(
+      `/tasks/${taskKey}/attachments${includeSuperseded ? "?include_superseded=true" : ""}`,
+    ).then((r) => r.attachments ?? []),
+
+  // Прикрепить файл или выпустить новую версию (supersedes_id). Поля формы идут
+  // до части file — порядок собирает buildForm.
+  attachFile: (
+    taskKey: string,
+    form: FormData,
+    onProgress?: (loaded: number, total: number) => void,
+  ) => upload<Artifact>(`/tasks/${taskKey}/attachments`, form, onProgress),
+
+  // Файл по контракту роли — тот же маршрут сдачи, что и текст, но multipart.
+  submitArtifactFile: (
+    taskKey: string,
+    form: FormData,
+    onProgress?: (loaded: number, total: number) => void,
+  ) => upload<Artifact>(`/tasks/${taskKey}/artifacts`, form, onProgress),
 
   approveArtifact: (id: UUID) =>
     request<Artifact>(`/artifacts/${id}/approve`, post()),
