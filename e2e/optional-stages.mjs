@@ -307,8 +307,8 @@ check('«Создать» работает: задача заведена без
   /^OPT\d+-\d+$/.test(keyNoWf) && !('optional_stages' in JSON.parse((await calls()).filter((c) => c.method === 'POST' && /\/tasks$/.test(c.url)).at(-1).body)), keyNoWf);
 await clearFlags();
 
-// ── блок «Этапы» в карточке ─────────────────────────────────────────────────
-console.log('карточка: блок «Этапы»');
+// ── блок «Выбор этапов» в карточке ──────────────────────────────────────────
+console.log('карточка: блок «Выбор этапов»');
 const keyC = await newTask('Карточка: выбор этапов');
 await open(`/p/${PK}/tasks/${keyC}`);
 cs = await cardStages();
@@ -317,7 +317,7 @@ check('строка на каждый необязательный статус 
 check('положения — из task.optional_stages', cs?.stages.map((x) => x.on).join() === 'false,true,false', JSON.stringify(cs));
 check('у задачи в new ничего не заблокировано', cs?.stages.every((x) => !x.disabled), JSON.stringify(cs));
 let page = await run('return texts();');
-check('подпись строки — «Этапы»', /Этапы/.test(page), page.slice(0, 200));
+check('подпись строки — «Выбор этапов»', /Выбор этапов/.test(page), page.slice(0, 200));
 await shot('2-карточка-блок-этапы');
 
 await run(`window.__marker = 'та же страница'; return true;`);
@@ -363,7 +363,7 @@ await flip('qa');
 await wait(2200);
 cs = await cardStages();
 t = await run(`return document.querySelector('[data-task-stages]').innerText.replace(/\\s+/g, ' ');`);
-check('409 показан в блоке текстом сервера', t.includes('Этапы не изменены') && t.includes('этап идёт сейчас (e2e 409)'), t);
+check('409 показан в блоке текстом сервера', t.includes('Выбор этапов не изменён') && t.includes('этап идёт сейчас (e2e 409)'), t);
 check('положение осталось серверным', cs?.stages.find((x) => x.key === 'qa')?.on === false && !cs.readonly, JSON.stringify(cs));
 check('после 409 блок остаётся доступным', cs?.stages.every((x) => !x.disabled), JSON.stringify(cs));
 await setFlag('e2e.patch', JSON.stringify([403, 'forbidden', 'этапы задачи выбирает сопровождающий (e2e 403)']));
@@ -545,7 +545,7 @@ await s.resize(1280, 1000);
 console.log('ответы сервера без новых полей');
 await setFlag('e2e.strip', '1');
 await open(`/p/${PK}/tasks/${keyE}`);
-check('блока «Этапы» нет', (await cardStages()) === null);
+check('блока «Выбор этапов» нет', (await cardStages()) === null);
 n = await nodes();
 check('схема без состояний «пропущен» и «выключен»', n.length > 0 && n.every((x) => ['current', 'passed', 'future'].includes(x.state)), JSON.stringify(n));
 t = await run(`return all('[data-transition-target]').map((e) => e.innerText.trim()).join(' | ');`);

@@ -357,7 +357,7 @@ function TaskStages({
           Только просмотр: {reason}
         </p>
       ) : null}
-      {error ? <Failure error={error} title="Этапы не изменены" /> : null}
+      {error ? <Failure error={error} title="Выбор этапов не изменён" /> : null}
     </div>
   );
 }

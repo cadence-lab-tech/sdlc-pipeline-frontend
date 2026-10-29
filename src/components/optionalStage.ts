@@ -32,7 +32,7 @@ export function optionalFields(isOptional: boolean, enabledByDefault: boolean): 
 // Что значит «ключа нет» — решает цикл: умолчание статуса, как у движка. Ключей
 // статусов здесь нет: набор этапов приходит из версии цикла.
 
-export const OPTIONAL_STAGES_TITLE = 'Этапы';
+export const OPTIONAL_STAGES_TITLE = 'Выбор этапов';
 export const OPTIONAL_STAGES_FORM_TITLE = 'Необязательные этапы';
 export const STAGE_CURRENT_HINT = 'этап идёт сейчас';
 export const TASK_CLOSED_HINT = 'задача закрыта';
