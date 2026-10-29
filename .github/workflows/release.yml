@@ -14,6 +14,10 @@
 # mode=max) и VEX (openvex.json, CLAB-234); подписан digest индекса, а с ним
 # и манифесты аттестаций в индексе. Команды проверки для клиента —
 # docs/admin.md в self-hosted, «Verifying a release».
+#
+# После подписи и VEX govulncheck в бинарном режиме проверяет /usr/bin/caddy
+# опубликованного образа по тому же openvex.json (CLAB-304): находка вне VEX —
+# предупреждение в сводке прогона, выпуск она не роняет.
 name: release
 
 on:
@@ -109,6 +113,27 @@ jobs:
         env:
           IMAGE: ${{ steps.meta.outputs.registry }}/sdlc-pipeline-frontend@${{ steps.build.outputs.digest }}
         run: cosign attest --yes --type openvex --predicate .github/release/openvex.json "$IMAGE"
+
+      # То, что увидит клиент со сканером по модулям: govulncheck в
+      # бинарном режиме по /usr/bin/caddy из опубликованного образа (Caddy
+      # собран из исходников, CLAB-234, и находки его модулей Go иначе ничем
+      # не ловятся). Находка вне VEX — предупреждение с ID в сводке прогона,
+      # релиз не падает: образ уже опубликован и подписан, а разбор находки —
+      # PR (подъём зависимости в caddy/go.mod или запись в openvex.json).
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: caddy/go.mod
+          cache: false
+      - name: govulncheck по бинарю Caddy образа
+        continue-on-error: true
+        env:
+          IMAGE: ${{ steps.meta.outputs.registry }}/sdlc-pipeline-frontend@${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p image-bin
+          id=$(docker create --platform linux/amd64 "$IMAGE")
+          docker cp "$id:/usr/bin/caddy" image-bin/caddy
+          docker rm "$id" >/dev/null
+          .github/release/govulncheck-binaries.sh .github/release/openvex.json image-bin/caddy
 
       # Событие cadence-release шлёт тот выпуск, который опубликовал и
       # подписал свой образ вторым (см. скрипт): релиз-PR self-hosted пишет
