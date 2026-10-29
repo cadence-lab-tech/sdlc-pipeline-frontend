@@ -31,6 +31,7 @@ import {TransitionDialog} from '../components/TransitionDialog';
 import {WorkflowDraftDialog} from '../components/WorkflowDraftDialog';
 import {categoryVariant, primaryRole, statusColor} from '../components/status';
 import {taskTypes} from '../components/taskTypes';
+import {optionalBadges} from '../components/optionalStage';
 
 // Редактор цикла. Активная версия не правится — ни целиком, ни по мелочи:
 // по ней прямо сейчас идут задачи (решение 0016). Правка — это черновик,
@@ -365,7 +366,9 @@ function ValidationReport({validation}: {validation: Validation}) {
 function ActivationReport({result}: {result: ActivationResult}) {
   const moved = result.tasks_moved ?? [];
   const movedTotal = result.tasks_moved_total ?? moved.length;
-  const stayed = result.tasks_on_previous_version;
+  // Пустой список сервер отдаёт как null: без запасного значения активация,
+  // после которой на прежней версии никого нет, роняла страницу.
+  const stayed = result.tasks_on_previous_version ?? [];
   const stayedTotal = result.tasks_on_previous_version_total ?? stayed.length;
   return (
     <Note tone="success" title={`Версия ${result.workflow.version} активирована`}>
@@ -502,6 +505,9 @@ function Statuses({
                   <>
                     {status.is_initial ? <Token label="начальный" /> : null}
                     {status.is_terminal ? <Token label="терминальный" /> : null}
+                    {optionalBadges(status).map((label) => (
+                      <Token key={label} label={label} />
+                    ))}
                     {role ? <Token color="blue" label={role.role_name} /> : null}
                     {status.color ? (
                       <span

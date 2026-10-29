@@ -327,7 +327,13 @@ function normalizeWorkflow(w: Workflow): Workflow {
   return {
     ...w,
     task_types: w.task_types ?? ["task"],
-    statuses: (w.statuses ?? []).map((s) => ({ ...s, roles: s.roles ?? [] })),
+    statuses: (w.statuses ?? []).map((s) => ({
+      ...s,
+      roles: s.roles ?? [],
+      // Сервер отдаёт оба поля всегда; запасное значение — для ответа без поля.
+      is_optional: s.is_optional ?? false,
+      enabled_by_default: s.enabled_by_default ?? true,
+    })),
     transitions: (w.transitions ?? []).map((t) => ({
       ...t,
       gates: t.gates ?? [],
