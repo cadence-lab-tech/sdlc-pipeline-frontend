@@ -1,4 +1,4 @@
-import {useEffect, useState} from 'react';
+import {useEffect, useMemo, useState} from 'react';
 import {Link, useParams, useSearchParams} from 'react-router-dom';
 import {Check, Copy, ExternalLink} from 'lucide-react';
 
@@ -15,7 +15,7 @@ import {EditTaskDialog} from '../components/EditTaskDialog';
 import {SubmitArtifactDialog} from '../components/SubmitArtifactDialog';
 import {TaskLabels} from '../components/TaskLabels';
 import {CycleDiagram} from '../components/cycle/CycleDiagram';
-import {resolveStage, toggleStage} from '../components/cycle/state';
+import {resolveStage, skippedStages, toggleStage} from '../components/cycle/state';
 import {externalLinks} from '../components/externalRef';
 import {priorityClass, priorityLabel} from '../components/priorities';
 import {Actions} from '../components/task/Actions';
@@ -32,10 +32,18 @@ import {useTaskLevelEditable} from '../hooks/useTaskLevelEditable';
 // артефакты и продлевает аренду, а страница об этом узнаёт только перезапросом.
 const LIVE_POLL_MS = 10_000;
 
+// Предел общей ленты карточки — максимум, который отдаёт сервер.
+const EVENTS_LIMIT = 500;
+
 export function TaskDetail() {
   const {taskKey = ''} = useParams();
   const task = useResource(() => api.getTask(taskKey), [taskKey]);
-  const events = useResource(() => api.timeline(taskKey), [taskKey]);
+  // Лента с пределом 500 (максимум сервера): схема цикла берёт из неё события
+  // пропуска этапов (`stage.skipped` без прогона, ручка по статусу их не
+  // отдаёт). На долгой задаче старое событие может не поместиться — этап тогда
+  // покажется выключенным, а не пропущенным.
+  const events = useResource(() => api.timeline(taskKey, undefined, EVENTS_LIMIT), [taskKey]);
+  const skipped = useMemo(() => skippedStages(events.data), [events.data]);
   // Привязки PR лежат за отдельной ручкой, но живут той же жизнью, что и
   // карточка: их кладёт агент по ходу прогона, и узнаётся это перезапросом.
   const refs = useResource(() => api.repoRefs(taskKey), [taskKey]);
@@ -115,7 +123,13 @@ export function TaskDetail() {
 
       <div className="flex flex-1 flex-col xl:flex-row">
         <div className="min-w-0 flex-1 space-y-4 p-4">
-          <CycleDiagram workflow={workflow} detail={detail} selected={stage} onSelect={selectStage} />
+          <CycleDiagram
+            workflow={workflow}
+            detail={detail}
+            selected={stage}
+            skipped={skipped}
+            onSelect={selectStage}
+          />
           <div className="flex justify-end">
             <SubmitArtifactDialog
               taskKey={detail.task.key}
@@ -136,6 +150,7 @@ export function TaskDetail() {
               detail={detail}
               stage={stage}
               workflow={workflow.data}
+              skipped={skipped}
               stageEvents={stageEvents}
               levelEditable={levelEditable}
               onClearStage={() => setStage(undefined)}
@@ -157,6 +172,7 @@ export function TaskDetail() {
               detail={detail}
               refs={refs.data ?? []}
               project={project.data}
+              workflow={workflow.data}
               levelEditable={levelEditable}
               onChanged={reload}
             />

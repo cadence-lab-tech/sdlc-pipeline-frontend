@@ -1,5 +1,6 @@
 import {useState} from 'react';
 import {ChevronDown} from 'lucide-react';
+import {toast} from 'sonner';
 
 import {cn} from '@/lib/utils';
 import {Button} from '@/components/ui/button';
@@ -11,6 +12,14 @@ import {ApiError, api} from '../../api/client';
 import type {GateCheck, TaskDetail, TransitionOption, Workflow} from '../../api/types';
 import {Failure} from '../Feedback';
 import {GateRow} from '../Gates';
+import {
+  TRANSITION_UNAVAILABLE_LABEL,
+  cycleTargetNote,
+  isUnavailable,
+  skippedNotice,
+  transitionTarget,
+  unavailableReason,
+} from '../optionalStage';
 
 // «Действия» — первый блок панели: он отвечает на вопрос «что можно сделать с
 // задачей сейчас». Вердикт по каждому гейту считает бэкенд, здесь он только
@@ -94,6 +103,21 @@ function TransitionRow({
     }
   };
 
+  // Переход с пропуском необязательных этапов: задача встала не туда, куда
+  // ведёт переход в цикле, и человеку об этом говорят (решение 0066, п. 14).
+  const execute = () =>
+    act(async () => {
+      const result = await api.execute(taskKey, transition.key);
+      const statuses = workflow?.statuses;
+      const landed = statuses?.find((s) => s.key === result.task.status_key)?.name ?? result.task.status_name;
+      const notice = skippedNotice(landed, result.skips, statuses);
+      if (notice) toast.success(notice);
+    });
+
+  const unavailable = isUnavailable(transition);
+  const target = transitionTarget(transition);
+  const cycleNote = cycleTargetNote(transition, workflow?.statuses);
+
   const decide = (gateKey: string) => (status: string, details?: unknown) =>
     act(() => api.decideGate(taskKey, transition.key, gateKey, {status, details}));
 
@@ -102,16 +126,29 @@ function TransitionRow({
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{transition.name}</p>
-          <p className="text-muted-foreground truncate text-xs">→ {transition.to_status}</p>
+          {/* Фактическое назначение: при пропуске оно не равно to_status
+              перехода в цикле, и тогда цикловое назначение — в подсказке. */}
+          <p
+            className="text-muted-foreground truncate text-xs"
+            title={cycleNote}
+            data-transition-target={transition.lands_in ?? undefined}
+            data-transition-skips={transition.skips.length > 0 ? transition.skips.join(',') : undefined}>
+            {target ?? `→ ${transition.to_status}`}
+          </p>
         </div>
         <Button
           size="sm"
           variant={transition.allowed ? 'default' : 'secondary'}
           disabled={!transition.allowed || busy}
-          onClick={() => act(() => api.execute(taskKey, transition.key))}>
-          {transition.allowed ? 'Перевести' : 'Держат гейты'}
+          onClick={execute}>
+          {transition.allowed ? 'Перевести' : unavailable ? TRANSITION_UNAVAILABLE_LABEL : 'Держат гейты'}
         </Button>
       </div>
+      {unavailable ? (
+        <p className="text-muted-foreground text-xs" data-transition-unavailable={transition.key}>
+          {unavailableReason(transition, workflow?.statuses)}
+        </p>
+      ) : null}
 
       {error ? <Failure error={error} title="Переход не выполнен" /> : null}
 

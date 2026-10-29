@@ -42,13 +42,19 @@ export function GraphCanvas({
 
 // Вид узла — смысловой, а не цветовой: «текущий», «пройденный», «будущий»
 // и обычный. Цвет из данных, если есть, подкрашивает рамку и заливку.
-export type NodeTone = 'default' | 'active' | 'filled' | 'muted';
+//
+// `skipped` (прошли мимо) и `disabled` (выключен) отличаются от прочих не
+// цветом: пунктир точками и перечёркнутая подпись у первого, точечная рамка
+// и курсив у второго.
+export type NodeTone = 'default' | 'active' | 'filled' | 'muted' | 'skipped' | 'disabled';
 
 const NODE_BODY: Record<NodeTone, string> = {
   default: 'fill-card stroke-border',
   active: 'fill-accent stroke-primary',
   filled: 'fill-muted stroke-muted-foreground',
   muted: 'fill-background stroke-border',
+  skipped: 'fill-muted stroke-muted-foreground',
+  disabled: 'fill-background stroke-muted-foreground opacity-70',
 };
 
 const NODE_TEXT: Record<NodeTone, string> = {
@@ -56,6 +62,15 @@ const NODE_TEXT: Record<NodeTone, string> = {
   active: 'fill-foreground font-semibold',
   filled: 'fill-foreground',
   muted: 'fill-muted-foreground',
+  skipped: 'fill-muted-foreground line-through',
+  disabled: 'fill-muted-foreground italic',
+};
+
+// Рисунок рамки: пунктир у «впереди», точки у «пропущен» и «выключен».
+const NODE_DASH: Partial<Record<NodeTone, string>> = {
+  muted: '4 3',
+  skipped: '1 3',
+  disabled: '1 3',
 };
 
 // Узел — прямоугольник с подписью. С onActivate он становится кнопкой:
@@ -110,7 +125,7 @@ export function GraphNode({
   const tinted = color
     ? {
         stroke: color,
-        fill: tone === 'muted' || tone === 'default' ? undefined : color,
+        fill: tone === 'active' || tone === 'filled' ? color : undefined,
         fillOpacity: tone === 'active' ? 0.28 : tone === 'filled' ? 0.16 : undefined,
       }
     : undefined;
@@ -156,7 +171,7 @@ export function GraphNode({
         rx={8}
         className={cn(NODE_BODY[tone], 'transition-[fill-opacity] group-hover:brightness-95')}
         strokeWidth={tone === 'active' ? 2.5 : 1.25}
-        strokeDasharray={tone === 'muted' ? '4 3' : undefined}
+        strokeDasharray={NODE_DASH[tone]}
         style={tinted}
       />
       <text

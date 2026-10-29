@@ -7,8 +7,11 @@
 // вердикт гейтов переходов из текущего статуса (`transitions`). Своей
 // проверки гейтов здесь нет — только подсчёт статусов, которые отдал бэкенд.
 import type {GateCheck, Status, StageRun, TransitionOption} from '../../api/types';
+import {stageEnabled} from '../optionalStage';
 
-export type NodeState = 'current' | 'passed' | 'future';
+// «Пропущен» и «выключен» — состояния необязательных этапов (решение 0066):
+// задача прошла мимо этапа / этап выключен у задачи, а она его ещё не прошла.
+export type NodeState = 'current' | 'passed' | 'skipped' | 'disabled' | 'future';
 
 export interface StatusProgress {
   state: NodeState;
@@ -21,6 +24,8 @@ export interface StatusProgress {
 export const STATE_LABEL: Record<NodeState, string> = {
   current: 'текущий статус',
   passed: 'пройден',
+  skipped: 'пропущен',
+  disabled: 'выключен',
   future: 'впереди',
 };
 
@@ -44,11 +49,33 @@ export function awaitsApproval(transitions: TransitionOption[]): boolean {
   });
 }
 
+// Статусы, мимо которых задача прошла: по событиям `stage.skipped` ленты. У
+// события нет прогона, поэтому ручка ленты по статусу его не отдаёт — только
+// общая лента, и вытесненное из неё событие просто не попадёт в набор.
+export function skippedStages(events: {type: string; payload?: unknown}[] | undefined): Set<string> {
+  const out = new Set<string>();
+  for (const e of events ?? []) {
+    if (e.type !== 'stage.skipped') continue;
+    const p = e.payload;
+    const status = typeof p === 'object' && p !== null ? (p as Record<string, unknown>).status : undefined;
+    if (typeof status === 'string' && status) out.add(status);
+  }
+  return out;
+}
+
+// Приоритет, чтобы история не врала: текущий > пройден (завершённый прогон
+// верхнего уровня) > пропущен (есть пропуск и выбор «выкл») > выключен
+// (необязательный, выбор «выкл») > впереди. Включённый этап, когда-то
+// пропущенный, — «впереди». Обязательный статус не бывает ни пропущенным, ни
+// выключенным, даже если его ключ попал в выбор. Выбор и набор пропущенных
+// необязательны: без них результат прежний.
 export function cycleProgress(
   statuses: Status[],
   currentKey: string,
   runs: StageRun[],
   transitions: TransitionOption[],
+  choice?: Record<string, boolean>,
+  skipped?: Set<string>,
 ): Map<string, StatusProgress> {
   const top = runs.filter((r) => !r.parent_run_id);
   const approval = awaitsApproval(transitions);
@@ -56,7 +83,12 @@ export function cycleProgress(
   for (const s of statuses) {
     const own = top.filter((r) => r.status_key === s.key);
     const current = s.key === currentKey;
-    const state: NodeState = current ? 'current' : own.some((r) => r.finished_at) ? 'passed' : 'future';
+    let state: NodeState = 'future';
+    if (current) state = 'current';
+    else if (own.some((r) => r.finished_at)) state = 'passed';
+    else if (s.is_optional === true && !stageEnabled(s, choice, s.key)) {
+      state = skipped?.has(s.key) ? 'skipped' : 'disabled';
+    }
     result.set(s.key, {state, attempts: own.length, awaitingApproval: current && approval});
   }
   return result;
