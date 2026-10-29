@@ -22,8 +22,23 @@ import {
 import {
   DISABLED_BY_DEFAULT_LABEL,
   OPTIONAL_LABEL,
+  changedStages,
+  cycleTargetNote,
+  edgeLandingTitle,
+  isUnavailable,
+  landing,
+  landingLines,
+  notStartedNote,
+  notStartedTitle,
   optionalBadges,
   optionalFields,
+  optionalStatuses,
+  skippedNotice,
+  stageEnabled,
+  stageLockHint,
+  stageToggles,
+  transitionTarget,
+  unavailableReason,
 } from '../src/components/optionalStage.ts';
 import {externalLinks} from '../src/components/externalRef.ts';
 import {
@@ -316,6 +331,88 @@ check('необязательный включённый уходит парой
 f = optionalFields(false, false);
 check('снятая отметка уходит с умолчанием «включён» (иначе сервер ответит 400)',
   f.is_optional === false && f.enabled_by_default === true);
+
+console.log('выбор этапов у задачи (CLAB-318)');
+const cyc = [
+  {key: 'a', name: 'Альфа', position: 10},
+  {key: 'c', name: 'Гамма', position: 30, is_optional: true, enabled_by_default: false},
+  {key: 'b', name: 'Бета', position: 20, is_optional: true, enabled_by_default: true},
+  {key: 'z', name: 'Омега', position: 40, is_terminal: true},
+];
+check('необязательные статусы — по position', optionalStatuses(cyc).map((s) => s.key).join() === 'b,c');
+check('ответ без списка и без отметок — пусто', optionalStatuses(undefined).length === 0 && optionalStatuses([{key: 'a', name: 'A', position: 1}]).length === 0);
+check('положение этапа: явный выбор главнее умолчания', stageEnabled(cyc[1], {c: true}, 'c') === true && stageEnabled(cyc[2], {b: false}, 'b') === false);
+check('положение этапа: нет ключа — умолчание цикла', stageEnabled(cyc[1], {}, 'c') === false && stageEnabled(cyc[2], undefined, 'b') === true);
+check('положение этапа: не bool в выборе читается как «нет выбора»', stageEnabled(cyc[1], {c: 'yes'}, 'c') === false);
+check('обязательный статус всегда включён', stageEnabled(cyc[0], {a: false}, 'a') === true);
+check('строки выбора: имя, порядок, умолчание',
+  stageToggles(cyc).map((t) => `${t.key}:${t.name}:${t.value}`).join() === 'b:Бета:true,c:Гамма:false');
+check('строки выбора: значение из выбора задачи', stageToggles(cyc, {b: false, c: true}).map((t) => t.value).join() === 'false,true');
+check('цикл без необязательных — блока нет', stageToggles([cyc[0], cyc[3]]).length === 0);
+const shown = stageToggles(cyc);
+check('без правок поля в запросе нет', changedStages(shown, {}) === undefined);
+check('правка до прежнего умолчания поля не даёт', changedStages(shown, {b: true, c: false}) === undefined);
+check('уходят только изменённые ключи', JSON.stringify(changedStages(shown, {c: true, b: true})) === '{"c":true}');
+check('ключ вне показанных не уходит', changedStages(shown, {q: true}) === undefined);
+const task = {status_key: 'b'};
+check('подсказка: этап идёт сейчас', stageLockHint('b', task, cyc) === 'этап идёт сейчас');
+check('подсказка: другой этап переключается', stageLockHint('c', task, cyc) === undefined);
+check('подсказка: задача закрыта (closed_at)', stageLockHint('c', {status_key: 'b', closed_at: '2026-10-29T00:00:00Z'}, cyc) === 'задача закрыта');
+check('подсказка: терминальный статус — задача закрыта', stageLockHint('c', {status_key: 'z'}, cyc) === 'задача закрыта');
+check('закрытость главнее «идёт сейчас»', stageLockHint('z', {status_key: 'z'}, cyc) === 'задача закрыта');
+
+console.log('переход: назначение, пропуск, недоступность (CLAB-318)');
+const t0 = {key: 'go', name: 'Дальше', to_status: 'b', allowed: true};
+check('без полей назначение — to_status', landing(t0) === 'b' && transitionTarget(t0) === '→ b');
+check('lands_in = to_status, пропусков нет — строка прежняя', transitionTarget({...t0, lands_in: 'b', skips: []}) === '→ b');
+check('пропуск: фактическое назначение и список', transitionTarget({...t0, lands_in: 'z', skips: ['b', 'c']}) === '→ z (пропуск: b, c)');
+check('пропуск: имена из версии цикла', transitionTarget({...t0, lands_in: 'z', skips: ['b']}, cyc) === '→ Омега (пропуск: Бета)');
+check('недоступный: назначения нет', landing({...t0, lands_in: null}) === null && transitionTarget({...t0, lands_in: null}) === undefined);
+check('цикловое назначение в подсказке, если отличается',
+  cycleTargetNote({...t0, lands_in: 'z'}, cyc) === 'в цикле переход ведёт в Бета' && cycleTargetNote({...t0, lands_in: 'b'}, cyc) === undefined);
+check('недоступен: причина «выключен» словами, кода нет',
+  unavailableReason({to_status: 'c', unavailable: 'stage_disabled'}, cyc) === 'Этап Гамма выключен у задачи; включите его в «Деталях»');
+check('недоступен: незнакомое значение — общий текст без значения',
+  unavailableReason({to_status: 'c', unavailable: 'something_new'}, cyc) === 'Переход недоступен');
+check('недоступен — только при allowed:false и причине',
+  isUnavailable({allowed: false, unavailable: 'stage_disabled'}) && !isUnavailable({allowed: false}) && !isUnavailable({allowed: true, unavailable: 'x'}));
+check('уведомление о пропуске', skippedNotice('Омега', ['b', 'c'], cyc) === 'Задача перешла в Омега, пропущено: Бета, Гамма');
+check('без пропуска уведомления нет', skippedNotice('Омега', [], cyc) === undefined && skippedNotice('Омега', undefined, cyc) === undefined);
+check('подпись ребра', edgeLandingTitle('Дальше', 'Альфа', 'Бета', ['b'], 'Омега', cyc) === 'Дальше: Альфа → Бета (пропуск: Бета; встанет в Омега)');
+const lines = landingLines([
+  {...t0, lands_in: 'z', skips: ['b']},
+  {key: 'back', name: 'Назад', to_status: 'c', allowed: false, lands_in: null, skips: [], unavailable: 'stage_disabled'},
+  {key: 'odd', name: 'Странный', to_status: 'c', allowed: false, unavailable: 'x'},
+  {key: 'plain', name: 'Обычный', to_status: 'z', allowed: true, lands_in: 'z', skips: []},
+], cyc);
+check('строки под схемой: пропуск и недоступность, обычный переход без строки',
+  lines.map((l) => l.text).join(' | ') === 'Дальше → Омега (пропуск: Бета) | Назад: недоступен: этап Гамма выключен | Странный: недоступен', lines.map((l) => l.text).join(' | '));
+check('в строках нет кода причины', !lines.some((l) => /stage_disabled|optional_/.test(l.text)));
+check('панель этапа: пропущен / выключен / ещё не начинался',
+  notStartedTitle('skipped') === 'Этап пропущен' && notStartedTitle('disabled') === 'Этап выключен у задачи'
+  && notStartedTitle('future') === 'Этап ещё не начинался' && notStartedTitle(undefined) === 'Этап ещё не начинался');
+check('заметка панели есть только у пропущенного и выключенного', !!notStartedNote('skipped') && !!notStartedNote('disabled') && notStartedNote('future') === undefined);
+
+console.log('события выбора этапов и пропуска (CLAB-318)');
+check('stage.skipped подписано', eventLabel('stage.skipped') === 'этап пропущен');
+check('stage.skipped: статус, обход, запрошенный переход',
+  eventDetails('stage.skipped', {status: 'b', bypass_transition: 'skip_b', transition: 'go'}).summary === 'b · обход: skip_b · по переходу go');
+check('stage.skipped без payload — пустая строка', eventDetails('stage.skipped', null).summary === '' && eventDetails('stage.skipped', {}).summary === '');
+check('task.advanced с skips', eventDetails('task.advanced', {transition: 'go', from: 'a', to: 'z', skips: ['b', 'c']}).summary === 'go · a → z · пропущено: b, c');
+check('task.advanced без skips — как раньше', eventDetails('task.advanced', {transition: 'go', from: 'a', to: 'b'}).summary === 'go · a → b');
+check('task.advanced: skips не массив — без «пропущено»', !eventDetails('task.advanced', {transition: 'go', skips: 'b'}).summary.includes('пропущено'));
+check('task.updated: этапы выкл → вкл',
+  eventDetails('task.updated', {changed: {optional_stages: {from: {b: false, c: true}, to: {b: true, c: true}}}}).summary === 'этапы: b выкл → вкл');
+check('task.updated: несколько ключей по алфавиту',
+  eventDetails('task.updated', {changed: {optional_stages: {from: {b: true, c: false}, to: {b: false, c: true}}}}).summary === 'этапы: b вкл → выкл, c выкл → вкл');
+check('task.updated: набор не объект — без мусора',
+  !/undefined|object/.test(eventDetails('task.updated', {changed: {optional_stages: {from: 1, to: 'x'}}}).summary)
+  && eventDetails('task.updated', {changed: {optional_stages: 5}}).summary === 'этапы: изменены');
+check('task.updated: ключа не было раньше — «—»', eventDetails('task.updated', {changed: {optional_stages: {from: {}, to: {b: true}}}}).summary === 'этапы: b — → вкл');
+check('task.workflow_moved: этапы при переезде',
+  eventDetails('task.workflow_moved', {workflow: 'Simple', version: 2, optional_stages: {from: {b: false}, to: {b: true}}}).summary === 'Simple v2 · этапы: b выкл → вкл');
+check('task.workflow_moved: optional_stages не объект — без мусора',
+  eventDetails('task.workflow_moved', {workflow: 'Simple', optional_stages: 'x'}).summary === 'Simple');
 
 console.log(`\n${ok} ok, ${fail} fail`);
 process.exit(fail ? 1 : 0);

@@ -38,6 +38,8 @@ import {
 } from './stagePanel';
 import {UNSPECIFIED_HINT, unspecifiedNote, usageState} from '../cost';
 import {Timeline} from './Timeline';
+import {cycleProgress, type NodeState} from '../cycle/state';
+import {notStartedNote, notStartedTitle} from '../optionalStage';
 
 // Этапы идут попытками: повторный заход после отката — новая попытка, а не
 // перезапись прежней, поэтому «аналитика делалась дважды» видно целиком. Но
@@ -56,6 +58,7 @@ export function Stages({
   detail,
   stage,
   workflow,
+  skipped,
   stageEvents,
   levelEditable,
   onClearStage,
@@ -65,6 +68,8 @@ export function Stages({
   // Выбранный статус — ключ из версии цикла задачи.
   stage: string;
   workflow?: Workflow;
+  // Статусы, мимо которых задача прошла (`stage.skipped` общей ленты).
+  skipped?: Set<string>;
   // Лента выбранного статуса (`timeline?status=`): её держит страница, чтобы
   // перезапрашивать вместе с карточкой и опросом живой аренды.
   stageEvents?: Resource<TaskEvent[]>;
@@ -77,6 +82,7 @@ export function Stages({
       detail={detail}
       stage={stage}
       workflow={workflow}
+      skipped={skipped}
       events={stageEvents}
       levelEditable={levelEditable ?? true}
       onClear={onClearStage}
@@ -91,6 +97,7 @@ function StagePanel({
   detail,
   stage,
   workflow,
+  skipped,
   events,
   levelEditable,
   onClear,
@@ -99,6 +106,7 @@ function StagePanel({
   detail: TaskDetail;
   stage: string;
   workflow?: Workflow;
+  skipped?: Set<string>;
   events?: Resource<TaskEvent[]>;
   levelEditable: boolean;
   onClear?: () => void;
@@ -177,7 +185,20 @@ function StagePanel({
       </Card>
 
       {attempts.length === 0 ? (
-        <NotStarted workflow={workflow} stage={stage} />
+        <NotStarted
+          workflow={workflow}
+          stage={stage}
+          state={
+            cycleProgress(
+              statuses ?? [],
+              detail.task.status_key,
+              detail.stage_runs,
+              detail.transitions,
+              detail.task.optional_stages,
+              skipped,
+            ).get(stage)?.state
+          }
+        />
       ) : (
         attempts.map((attempt, index) => (
           <StageCard
@@ -201,12 +222,18 @@ function StagePanel({
 }
 
 // Этап, который задача ещё не проходила: роль статуса и гейты выхода по
-// версии цикла задачи — что здесь будет и что держит переход дальше.
-function NotStarted({workflow, stage}: {workflow?: Workflow; stage: string}) {
+// версии цикла задачи — что здесь будет и что держит переход дальше. У
+// необязательного этапа заголовок говорит правду: задача прошла мимо него
+// («пропущен») или он выключен у задачи, а не «ещё не начинался».
+function NotStarted({workflow, stage, state}: {workflow?: Workflow; stage: string; state?: NodeState}) {
   const exits = stageExits(workflow, stage);
+  const title = notStartedTitle(state);
   return (
-    <Card className="gap-3 p-4" data-stage-unstarted={stage}>
-      <p className="text-sm font-medium">Этап ещё не начинался</p>
+    <Card className="gap-3 p-4" data-stage-unstarted={stage} data-stage-skip-state={state}>
+      <p className="text-sm font-medium">{title}</p>
+      {state === 'skipped' || state === 'disabled' ? (
+        <p className="text-muted-foreground text-xs">{notStartedNote(state)}</p>
+      ) : null}
       {exits.length === 0 ? (
         <p className="text-muted-foreground text-sm">Переходов из этого статуса нет — он конечный.</p>
       ) : (

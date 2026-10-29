@@ -26,7 +26,7 @@ registerHooks({
 });
 
 const {layoutCycle, orderStatuses} = await import('../src/components/cycle/layout.ts');
-const {awaitsApproval, cycleProgress, nodeLabel, resolveStage, toggleStage} = await import(
+const {awaitsApproval, cycleProgress, nodeLabel, resolveStage, skippedStages, toggleStage} = await import(
   '../src/components/cycle/state.ts'
 );
 const {boxesOverlap, pointInBox} = await import('../src/components/graph/geometry.ts');
@@ -310,6 +310,42 @@ const label = nodeLabel('Analysis', progress.get('analysis'), true);
 check('подпись узла: имя, состояние, попытки, апрув, выбор',
   label === 'Analysis, текущий статус, попыток: 2, ждёт апрува, выбран', label);
 check('подпись будущего узла без лишнего', nodeLabel('Testing', progress.get('testing'), false) === 'Testing, впереди');
+
+// ── необязательные этапы: «пропущен» и «выключен» (CLAB-318) ────────────────
+console.log('состояние необязательных этапов');
+const optional = (key, enabled_by_default = true) => ({
+  ...simpleNow.statuses.find((s) => s.key === key),
+  is_optional: true,
+  enabled_by_default,
+});
+const withOptional = simpleNow.statuses.map((s) =>
+  s.key === 'analysis' ? optional('analysis', false) : s.key === 'testing' ? optional('testing', true) : s,
+);
+const ended = (key) => run(key, {finished_at: '2026-10-25T10:05:00Z'});
+const skipEvent = (status) => ({type: 'stage.skipped', payload: {status, bypass_transition: 'skip', transition: 'go'}});
+const state = (key, current, choice, runsList = [], skipped = []) =>
+  cycleProgress(withOptional, current, runsList, [], choice, new Set(skipped)).get(key).state;
+check('текущий статус остаётся текущим при выборе «выкл»', state('analysis', 'analysis', {analysis: false}) === 'current');
+check('выключенный без прогонов и без события — «выключен»', state('analysis', 'new', {analysis: false}) === 'disabled');
+check('выбора нет — решает умолчание цикла: выключен', state('analysis', 'new', {}) === 'disabled');
+check('выбора нет — умолчание «включён»: впереди', state('testing', 'new', {}) === 'future');
+check('с событием пропуска и выбором «выкл» — «пропущен»', state('analysis', 'development', {analysis: false}, [], ['analysis']) === 'skipped');
+check('включённый после пропуска — «впереди»', state('analysis', 'new', {analysis: true}, [], ['analysis']) === 'future');
+check('выключенный с завершённым прогоном — «пройден»', state('analysis', 'development', {analysis: false}, [ended('analysis')], ['analysis']) === 'passed');
+check('включённый этап с событием пропуска и прогоном — «пройден»', state('analysis', 'development', {analysis: true}, [ended('analysis')], ['analysis']) === 'passed');
+check('обязательный статус не бывает «пропущен» и «выключен» даже при ключе в выборе',
+  state('development', 'new', {development: false}, [], ['development']) === 'future');
+check('событие пропуска без выбора и без умолчания «выкл» — не «пропущен»', state('testing', 'new', undefined, [], ['testing']) === 'future');
+check('без выбора и без событий результат прежний',
+  [...cycleProgress(simpleNow.statuses, 'analysis', runs, []).values()].every((p) => ['current', 'passed', 'future'].includes(p.state)));
+check('ответ без отметок статуса читается как обязательный',
+  cycleProgress(simpleNow.statuses, 'new', [], [], {testing: false}, new Set(['testing'])).get('testing').state === 'future');
+check('подпись узла называет состояние словами',
+  nodeLabel('Design', cycleProgress(withOptional, 'development', [], [], {analysis: false}, new Set(['analysis'])).get('analysis'), false) === 'Design, пропущен'
+  && nodeLabel('Design', cycleProgress(withOptional, 'new', [], [], {analysis: false}).get('analysis'), false) === 'Design, выключен');
+check('события пропуска собираются из ленты',
+  [...skippedStages([skipEvent('a'), {type: 'task.advanced', payload: {}}, skipEvent('b'), {type: 'stage.skipped'}, {type: 'stage.skipped', payload: {status: 3}}])].join() === 'a,b');
+check('без ленты — пустой набор', skippedStages(undefined).size === 0);
 
 console.log('выбор этапа в адресе');
 check('известный ключ выбран', resolveStage('testing', simpleNow.statuses) === 'testing');

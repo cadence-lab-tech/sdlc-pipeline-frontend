@@ -435,6 +435,10 @@ export interface Task {
   // {} в api/client.ts. Экран CLAB-262 их не показывает — их берёт панель
   // этапа CLAB-231.
   stage_settings: Record<string, StageSettings>;
+  // Выбор необязательных этапов (решение 0066): ключ статуса версии цикла
+  // задачи → включён ли. Сервер отдаёт полный набор, `{}` — у цикла без
+  // необязательных; сервер старше CLAB-315 поля не отдаёт, клиент читает `{}`.
+  optional_stages: Record<string, boolean>;
   created_at: string;
   updated_at: string;
   closed_at?: string;
@@ -616,9 +620,26 @@ export interface TransitionOption {
   key: string;
   name: string;
   kind: string;
+  // Назначение перехода в цикле; фактическое, если этапы пропускаются, —
+  // lands_in (решение 0066, п. 15).
   to_status: string;
+  // Статус, где встанет задача: без пропуска равен to_status; null — у
+  // недоступного перехода. Сервер старше CLAB-315 поля не отдаёт — клиент
+  // читает to_status.
+  lands_in: string | null;
+  // Ключи пропускаемых статусов по порядку; без пропуска [].
+  skips: string[];
+  // Причина недоступности перечислимым значением (сейчас "stage_disabled");
+  // есть только при allowed: false. Значения на экран не выводятся.
+  unavailable?: string;
   allowed: boolean;
   gates: GateCheck[];
+}
+
+// Результат перехода: задача уже в фактическом статусе, skips — что пропущено.
+export interface TransitionResult {
+  task: Task;
+  skips: string[];
 }
 
 // Связь между задачами. blocks задаёт порядок работ и читается гейтом

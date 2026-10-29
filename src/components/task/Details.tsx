@@ -3,15 +3,29 @@ import {Link} from 'react-router-dom';
 
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
-import {MultiSelector, Selector, TextInput} from '@/components/fields';
+import {MultiSelector, Selector, Switch, TextInput} from '@/components/fields';
 import {Section, Token} from '@/components/kit';
 
 import {ApiError, api} from '../../api/client';
-import type {ModelLevel, ProjectDetail, Task, TaskDetail, TaskPropertyDef, TaskRepoRef} from '../../api/types';
+import type {
+  ModelLevel,
+  ProjectDetail,
+  Task,
+  TaskDetail,
+  TaskPropertyDef,
+  TaskRepoRef,
+  Workflow,
+} from '../../api/types';
 import {useResource} from '../../api/useResource';
 import {Failure} from '../Feedback';
 import {ModelLevelToggle} from '../ModelLevelToggle';
 import {PropertyField} from '../PropertyFields';
+import {
+  OPTIONAL_STAGES_TITLE,
+  STAGES_READONLY_HINT,
+  stageLockHint,
+  stageToggles,
+} from '../optionalStage';
 import {priorityClass, priorityLabel} from '../priorities';
 
 // «Детали» — список ключ-значение: всё, что задача про себя знает, одной
@@ -21,6 +35,7 @@ export function Details({
   detail,
   refs,
   project,
+  workflow,
   levelEditable,
   onChanged,
 }: {
@@ -33,10 +48,14 @@ export function Details({
   // Проект задачи грузит страница: его владелец нужен и праву на уровень
   // модели, которое страница считает одно на «Детали» и панель этапа.
   project: ProjectDetail | undefined;
+  // Версия цикла задачи: по ней выбираются необязательные этапы (решение
+  // 0066); пока она не загружена или этапов нет, блока нет.
+  workflow?: Workflow;
   levelEditable: boolean;
   onChanged: () => void;
 }) {
   const {task} = detail;
+  const stageRows = stageToggles(workflow?.statuses, task.optional_stages);
   const [editing, setEditing] = useState(false);
   const [add, setAdd] = useState<string[]>([]);
   const [scopeError, setScopeError] = useState<ApiError>();
@@ -74,6 +93,11 @@ export function Details({
         <DetailRow label="Уровень модели">
           <TaskModelLevel task={task} editable={levelEditable} onChanged={onChanged} />
         </DetailRow>
+        {stageRows.length > 0 ? (
+          <DetailRow label={OPTIONAL_STAGES_TITLE}>
+            <TaskStages task={task} workflow={workflow} editable={levelEditable} onChanged={onChanged} />
+          </DetailRow>
+        ) : null}
         <DetailRow label="Исполнитель">
           <Assignee task={task} onChanged={onChanged} />
         </DetailRow>
@@ -268,6 +292,72 @@ function TaskModelLevel({
         title={editable ? undefined : 'Уровень задачи меняет сопровождающий проекта'}
       />
       {error ? <Failure error={error} title="Уровень не изменён" /> : null}
+    </div>
+  );
+}
+
+// Выбор необязательных этапов задачи (решение 0066): строка на этап версии
+// цикла, переключатель сохраняется сразу и несёт один ключ. Положение всегда
+// серверное: после отказа переключатель возвращается к нему сам.
+//
+// Право — подсказка интерфейса, как у уровня модели: решает сервер. Ответ 403
+// переводит блок в «только просмотр» с причиной из ответа; 409 (этап идёт
+// сейчас, задача закрыта) показывается в блоке и ничего не блокирует.
+function TaskStages({
+  task,
+  workflow,
+  editable,
+  onChanged,
+}: {
+  task: Task;
+  workflow?: Workflow;
+  editable: boolean;
+  onChanged: () => void;
+}) {
+  const [error, setError] = useState<ApiError>();
+  const [denied, setDenied] = useState<string>();
+  const [busy, setBusy] = useState(false);
+
+  const toggle = async (key: string, value: boolean) => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      await api.updateTask(task.key, {optional_stages: {[key]: value}});
+      onChanged();
+    } catch (err) {
+      const failure = err instanceof ApiError ? err : new ApiError('internal', String(err));
+      if (failure.code === 'forbidden' || failure.httpStatus === 403) setDenied(failure.message);
+      else setError(failure);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const readOnly = !editable || denied !== undefined;
+  const reason = denied ?? (editable ? undefined : STAGES_READONLY_HINT);
+
+  return (
+    <div className="space-y-2" data-task-stages data-readonly={readOnly ? 'true' : undefined} aria-busy={busy}>
+      {stageToggles(workflow?.statuses, task.optional_stages).map((s) => {
+        const lock = stageLockHint(s.key, task, workflow?.statuses);
+        return (
+          <Switch
+            key={s.key}
+            label={s.name}
+            description={lock}
+            value={s.value}
+            onChange={(value) => toggle(s.key, value)}
+            isDisabled={readOnly || busy || lock !== undefined}
+            data-optional-stage={s.key}
+          />
+        );
+      })}
+      {reason ? (
+        <p className="text-muted-foreground text-xs" data-task-stages-reason>
+          Только просмотр: {reason}
+        </p>
+      ) : null}
+      {error ? <Failure error={error} title="Этапы не изменены" /> : null}
     </div>
   );
 }
