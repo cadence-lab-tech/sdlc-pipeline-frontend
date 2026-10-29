@@ -55,6 +55,10 @@ jobs:
       # сети: docker и gh подменены заглушками.
       - run: bash .github/release/notify-self-hosted.test.sh
 
+      # Разбор govulncheck по бинарю Caddy образа (release.yml, CLAB-304) и
+      # VEX — тоже без сети: govulncheck подменён заглушкой.
+      - run: bash .github/release/govulncheck-binaries.test.sh
+
       # Образ собирается на каждом PR, без публикации (CLAB-203): база
       # Dockerfile закреплена по digest, и PR Dependabot с новым digest,
       # который ломает сборку, краснеет здесь, а не в deploy.yml уже на
