@@ -14,6 +14,7 @@ const EVENT_LABELS: Record<string, string> = {
   'task.scope_updated': 'область задачи изменена',
   'task.workflow_moved': 'переехала на новую версию цикла',
   'stage.entered': 'этап начат',
+  'stage.skipped': 'этап пропущен',
   'stage.claimed': 'этап забран',
   'stage.released': 'этап отпущен',
   'lease.extended': 'аренда продлена',
@@ -57,6 +58,7 @@ const FIELD_LABELS: Record<string, string> = {
   labels: 'метки',
   external_ref: 'ссылки на трекер',
   description: 'описание',
+  optional_stages: 'этапы',
 };
 
 const FIELD_ORDER = Object.keys(FIELD_LABELS);
@@ -132,6 +134,11 @@ function updated(payload: Payload, priority: (p: string) => string): EventDetail
         parts.push(`${label}: ${delta || 'порядок'}`);
         break;
       }
+      case 'optional_stages': {
+        const delta = stagesDelta(change.from, change.to);
+        parts.push(`${label}: ${delta || 'изменены'}`);
+        break;
+      }
       case 'description':
         parts.push(`${label} изменено`);
         long.push({field: label, from: text(change.from) ?? '', to: text(change.to) ?? ''});
@@ -141,6 +148,21 @@ function updated(payload: Payload, priority: (p: string) => string): EventDetail
     }
   }
   return {summary: parts.join(' · '), long};
+}
+
+// Выбор необязательных этапов (решение 0066): payload несёт полные наборы
+// «ключ → bool» до и после; в строку идут только изменившиеся ключи —
+// «design выкл → вкл». Значение не bool или неполный набор — «—», без
+// «undefined» и «[object Object]».
+function stagesDelta(from: unknown, to: unknown): string {
+  const a = isObject(from) ? from : {};
+  const b = isObject(to) ? to : {};
+  const state = (v: unknown) => (v === true ? 'вкл' : v === false ? 'выкл' : '—');
+  const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])].sort();
+  return keys
+    .filter((k) => a[k] !== b[k])
+    .map((k) => `${k} ${state(a[k])} → ${state(b[k])}`)
+    .join(', ');
 }
 
 function scope(payload: Payload): string {
@@ -185,7 +207,12 @@ export function eventDetails(
     case 'task.advanced':
     case 'task.rejected':
     case 'task.cancelled':
-      return only(join([text(p.transition), move(p.from, p.to), text(p.comment) && `«${text(p.comment)}»`]));
+      return only(join([
+        text(p.transition),
+        move(p.from, p.to),
+        list(p.skips).length > 0 && `пропущено: ${list(p.skips).join(', ')}`,
+        text(p.comment) && `«${text(p.comment)}»`,
+      ]));
     case 'task.created':
       return only(join([
         text(p.type) && `тип ${text(p.type)}`,
@@ -198,10 +225,19 @@ export function eventDetails(
     case 'task.linked':
     case 'task.unlinked':
       return only(join([text(p.rel) && text(p.task) && `${text(p.rel)} → ${text(p.task)}`, text(p.note)]));
-    case 'task.workflow_moved':
+    case 'task.workflow_moved': {
+      const moved = isObject(p.optional_stages) ? stagesDelta(p.optional_stages.from, p.optional_stages.to) : '';
       return only(join([
         text(p.workflow) && `${text(p.workflow)}${text(p.version) ? ` v${text(p.version)}` : ''}`,
         move(p.from_status, p.to_status),
+        moved && `этапы: ${moved}`,
+      ]));
+    }
+    case 'stage.skipped':
+      return only(join([
+        text(p.status),
+        text(p.bypass_transition) && `обход: ${text(p.bypass_transition)}`,
+        text(p.transition) && `по переходу ${text(p.transition)}`,
       ]));
     case 'stage.entered':
       return only(join([text(p.status), text(p.attempt) && `попытка ${text(p.attempt)}`]));

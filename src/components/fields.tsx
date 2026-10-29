@@ -301,16 +301,26 @@ export function Switch({
   description,
   value,
   onChange,
+  isDisabled = false,
+  ...data
 }: {
   label: string;
   description?: string;
   value: boolean;
   onChange: (value: boolean) => void;
-}) {
+  isDisabled?: boolean;
+} & {[key: `data-${string}`]: string | number | undefined}) {
   const id = useId();
   return (
     <div className="flex items-start gap-3">
-      <SwitchPrimitive id={id} checked={value} onCheckedChange={onChange} className="mt-0.5" />
+      <SwitchPrimitive
+        id={id}
+        checked={value}
+        onCheckedChange={onChange}
+        disabled={isDisabled}
+        className="mt-0.5"
+        {...data}
+      />
       <div className="space-y-0.5">
         <Label htmlFor={id}>{label}</Label>
         {description ? <p className="text-muted-foreground text-xs">{description}</p> : null}

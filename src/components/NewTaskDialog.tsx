@@ -1,4 +1,4 @@
-import {useState} from 'react';
+import {useEffect, useState} from 'react';
 import {useNavigate} from 'react-router-dom';
 
 import {Button} from '@/components/ui/button';
@@ -11,12 +11,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import {FormLayout, MultiSelector, Selector, TextArea, TextInput} from '@/components/fields';
+import {FormLayout, MultiSelector, Selector, Switch, TextArea, TextInput} from '@/components/fields';
 
 import {ApiError, api} from '../api/client';
 import type {ProjectDetail} from '../api/types';
 import {Failure} from './Feedback';
 import {PropertyField} from './PropertyFields';
+import {OPTIONAL_STAGES_FORM_TITLE, changedStages, stageToggles, type StageToggle} from './optionalStage';
 import {PRIORITY_OPTIONS} from './priorities';
 import {defaultProperties} from './properties';
 import {taskTypes} from './taskTypes';
@@ -44,6 +45,31 @@ export function NewTaskDialog({
   const [properties, setProperties] = useState(() => defaultProperties(project.task_property_defs));
   const [error, setError] = useState<ApiError>();
   const [saving, setSaving] = useState(false);
+  // Необязательные этапы цикла выбранного типа (решение 0066): показанные
+  // умолчания и то, что человек успел поменять. Оба набора помнят тип, к
+  // которому относятся, — смена типа подставляет набор другого цикла, а
+  // правки прежнего не переносит. Цикл не нашёлся или не загрузился — блока
+  // нет, и сервер заполнит умолчаниями сам.
+  const [loaded, setLoaded] = useState<{type: string; stages: StageToggle[]}>();
+  const [edits, setEdits] = useState<{type: string; values: Record<string, boolean>}>();
+  const stages = loaded?.type === taskType ? loaded.stages : [];
+  const edited = edits?.type === taskType ? edits.values : {};
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let stale = false;
+    api
+      .getWorkflow(project.project.key, taskType)
+      .then((w) => {
+        if (!stale) setLoaded({type: taskType, stages: stageToggles(w.statuses)});
+      })
+      .catch(() => {
+        if (!stale) setLoaded({type: taskType, stages: []});
+      });
+    return () => {
+      stale = true;
+    };
+  }, [isOpen, project.project.key, taskType]);
 
   const submit = async () => {
     setSaving(true);
@@ -57,6 +83,7 @@ export function NewTaskDialog({
         priority,
         properties,
         repositories,
+        optional_stages: changedStages(stages, edited),
       });
       setIsOpen(false);
       onCreated();
@@ -113,6 +140,23 @@ export function NewTaskDialog({
               label: `${r.owner}/${r.name}`,
             }))}
           />
+          {stages.length > 0 ? (
+            <fieldset className="space-y-2" data-optional-stages>
+              <legend className="text-sm font-medium">{OPTIONAL_STAGES_FORM_TITLE}</legend>
+              <p className="text-muted-foreground text-xs">
+                Выключенный этап задача пройдёт мимо; положение можно сменить и в карточке задачи
+              </p>
+              {stages.map((s) => (
+                <Switch
+                  key={s.key}
+                  label={s.name}
+                  value={edited[s.key] ?? s.value}
+                  onChange={(value) => setEdits({type: taskType, values: {...edited, [s.key]: value}})}
+                  data-optional-stage={s.key}
+                />
+              ))}
+            </fieldset>
+          ) : null}
           {project.task_property_defs
             .filter((def) => def.key !== 'type')
             .map((def) => (

@@ -52,6 +52,7 @@ import type {
   ProjectTeam,
   Transition,
   TransitionOption,
+  TransitionResult,
   UUID,
   Validation,
   Workflow,
@@ -283,6 +284,29 @@ function normalizeTask(t: Task): Task {
     labels: t.labels ?? [],
     properties: t.properties ?? {},
     stage_settings: t.stage_settings ?? {},
+    optional_stages: normalizeOptionalStages(t.optional_stages),
+  };
+}
+
+// Выбор необязательных этапов: объект «ключ → bool». Сервер старше CLAB-315
+// поля не отдаёт, а испорченное значение читается как «нет выбора» — решает
+// умолчание цикла, как в движке.
+function normalizeOptionalStages(v: unknown): Record<string, boolean> {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return {};
+  return Object.fromEntries(
+    Object.entries(v).filter((e): e is [string, boolean] => typeof e[1] === "boolean"),
+  );
+}
+
+// Переход из текущего статуса (решение 0066, п. 15): сервер старше CLAB-315
+// lands_in и skips не отдаёт — назначение тогда то же, что в цикле. У
+// недоступного перехода lands_in = null, и это не «поле не пришло».
+function normalizeTransition(t: TransitionOption): TransitionOption {
+  return {
+    ...t,
+    gates: t.gates ?? [],
+    lands_in: t.lands_in === undefined ? t.to_status : t.lands_in,
+    skips: Array.isArray(t.skips) ? t.skips : [],
   };
 }
 
@@ -940,10 +964,7 @@ export const api = {
         exit: r.exit ?? null,
       })),
       artifacts: d.artifacts ?? [],
-      transitions: (d.transitions ?? []).map((t) => ({
-        ...t,
-        gates: t.gates ?? [],
-      })),
+      transitions: (d.transitions ?? []).map(normalizeTransition),
       children: (d.children ?? []).map(normalizeTask),
       links: d.links ?? [],
     })),
@@ -965,10 +986,18 @@ export const api = {
   // Лента задачи; со status — только события прогонов этого статуса вместе
   // с перепроверками (CLAB-283). Ключ — как в версии цикла: сервер сравнивает
   // его с учётом регистра, поэтому он не приводится, а только кодируется.
-  timeline: (taskKey: string, status?: string) =>
-    request<{ events: TaskEvent[] }>(
-      `/tasks/${taskKey}/timeline${status ? `?status=${encodeURIComponent(status)}` : ""}`,
-    ).then((r) => r.events ?? []),
+  //
+  // limit — предел общей ленты (по умолчанию сервер отдаёт 200 свежих): схеме
+  // цикла нужны события пропуска, которых нет у ручки со status (CLAB-318).
+  timeline: (taskKey: string, status?: string, limit?: number) => {
+    const query = new URLSearchParams();
+    if (status) query.set("status", status);
+    if (limit) query.set("limit", String(limit));
+    const suffix = query.size > 0 ? `?${query}` : "";
+    return request<{ events: TaskEvent[] }>(
+      `/tasks/${taskKey}/timeline${suffix}`,
+    ).then((r) => r.events ?? []);
+  },
 
   // Журнал действий (CLAB-210): задачи и проекта — maintainer, инстанса —
   // администратор системы. Страница по курсору next прошлой.
@@ -1042,14 +1071,19 @@ export const api = {
   taskTransitions: (taskKey: string) =>
     request<{ transitions: TransitionOption[] }>(
       `/tasks/${taskKey}/transitions`,
-    ).then((r) =>
-      (r.transitions ?? []).map((t) => ({ ...t, gates: t.gates ?? [] })),
-    ),
+    ).then((r) => (r.transitions ?? []).map(normalizeTransition)),
 
+  // task.status_key — фактический статус: при пропуске необязательных этапов
+  // он не равен назначению запрошенного перехода (решение 0066, п. 14).
   execute: (taskKey: string, transitionKey: string, comment?: string) =>
-    request<{ task: Task }>(
+    request<{ task: Task; skips?: string[] }>(
       `/tasks/${taskKey}/transitions/${transitionKey}`,
       post({ comment }),
+    ).then(
+      (r): TransitionResult => ({
+        task: normalizeTask(r.task),
+        skips: Array.isArray(r.skips) ? r.skips : [],
+      }),
     ),
 
   decideGate: (

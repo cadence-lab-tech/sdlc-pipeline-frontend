@@ -1,15 +1,16 @@
 import {useMemo} from 'react';
-import {ChevronRight, UserCheck} from 'lucide-react';
+import {Ban, ChevronRight, SkipForward, UserCheck} from 'lucide-react';
 
 import {cn} from '@/lib/utils';
 import {Skeleton} from '@/components/ui/skeleton';
 
-import type {TaskDetail, Workflow} from '../../api/types';
+import type {TaskDetail, TransitionOption, Workflow} from '../../api/types';
 import type {Resource} from '../../api/useResource';
 import {useIsMobile} from '../../hooks/use-mobile';
 import {Failure} from '../Feedback';
 import {GraphBadge, GraphCanvas, GraphEdge, GraphEntry, GraphNode, type NodeTone} from '../graph/Graph';
 import {type CycleLayout, layoutCycle} from './layout';
+import {edgeLandingTitle, landingLines} from '../optionalStage';
 import {type NodeState, type StatusProgress, cycleProgress, nodeLabel} from './state';
 
 // Схема цикла задачи над обзором карточки: статусы версии, на которой
@@ -25,11 +26,14 @@ export function CycleDiagram({
   workflow,
   detail,
   selected,
+  skipped,
   onSelect,
 }: {
   workflow: Resource<Workflow | undefined>;
   detail: TaskDetail;
   selected?: string;
+  // Статусы, мимо которых задача прошла (`stage.skipped` общей ленты).
+  skipped?: Set<string>;
   onSelect: (statusKey: string) => void;
 }) {
   const mobile = useIsMobile();
@@ -45,8 +49,11 @@ export function CycleDiagram({
     detail.task.status_key,
     detail.stage_runs,
     detail.transitions,
+    detail.task.optional_stages,
+    skipped,
   );
   const awaiting = [...progress.values()].some((p) => p.awaitingApproval);
+  const lines = landingLines(detail.transitions, version.statuses);
 
   return (
     <section
@@ -58,13 +65,30 @@ export function CycleDiagram({
         <span>
           Цикл {version.name} · v{version.version}
         </span>
-        <Legend awaiting={awaiting} />
+        <Legend awaiting={awaiting} progress={progress} />
       </div>
       {mobile ? (
         <Stepper version={version} progress={progress} selected={selected} onSelect={onSelect} />
       ) : (
-        <Ring version={version} progress={progress} selected={selected} onSelect={onSelect} />
+        <Ring
+          version={version}
+          progress={progress}
+          selected={selected}
+          transitions={detail.transitions}
+          onSelect={onSelect}
+        />
       )}
+      {/* Версия цикла статична, новых рёбер схема не рисует: куда фактически
+          встанет задача, говорят строки под ней. */}
+      {lines.length > 0 ? (
+        <ul className="text-muted-foreground space-y-0.5 text-xs" aria-label="Переходы с пропуском" data-cycle-landing>
+          {lines.map((l) => (
+            <li key={l.key} data-cycle-landing-line={l.key} data-cycle-landing-kind={l.kind}>
+              {l.text}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </section>
   );
 }
@@ -72,6 +96,8 @@ export function CycleDiagram({
 const TONE: Record<NodeState, NodeTone> = {
   current: 'active',
   passed: 'filled',
+  skipped: 'skipped',
+  disabled: 'disabled',
   future: 'muted',
 };
 
@@ -82,7 +108,13 @@ interface ViewProps {
   onSelect: (statusKey: string) => void;
 }
 
-function Ring({version, progress, selected, onSelect}: ViewProps) {
+function Ring({
+  version,
+  progress,
+  selected,
+  transitions,
+  onSelect,
+}: ViewProps & {transitions: TransitionOption[]}) {
   // Раскладка зависит только от версии цикла, а версия иммутабельна: опрос
   // карточки на живой аренде её не пересчитывает.
   const layout: CycleLayout = useMemo(() => layoutCycle(version), [version]);
@@ -91,18 +123,37 @@ function Ring({version, progress, selected, onSelect}: ViewProps) {
 
   return (
     <GraphCanvas width={layout.width} height={layout.height} label="Статусы и переходы" className="mx-auto">
-      {layout.edges.map((e) => (
-        <GraphEdge
-          key={e.id}
-          d={e.d}
-          arrow={e.arrow}
-          dashed={e.reject}
-          tone={e.from === currentId ? 'emphasis' : 'default'}
-          title={`${e.name}: ${nodeById.get(e.from)?.name} → ${nodeById.get(e.to)?.name}`}
-          data-cycle-transition={e.key}
-          data-cycle-kind={e.kind}
-        />
-      ))}
+      {layout.edges.map((e) => {
+        // Переход из текущего статуса с пропуском: подпись называет, где
+        // задача встанет на самом деле (решение 0066, п. 15).
+        const option = e.from === currentId ? transitions.find((t) => t.key === e.key) : undefined;
+        const lands = option && option.skips.length > 0 ? option.lands_in : null;
+        const title = `${e.name}: ${nodeById.get(e.from)?.name} → ${nodeById.get(e.to)?.name}`;
+        return (
+          <GraphEdge
+            key={e.id}
+            d={e.d}
+            arrow={e.arrow}
+            dashed={e.reject}
+            tone={e.from === currentId ? 'emphasis' : 'default'}
+            title={
+              option && lands
+                ? edgeLandingTitle(
+                    e.name,
+                    nodeById.get(e.from)?.name ?? e.from,
+                    nodeById.get(e.to)?.name ?? e.to,
+                    option.skips,
+                    version.statuses.find((s) => s.key === lands)?.name ?? lands,
+                    version.statuses,
+                  )
+                : title
+            }
+            data-cycle-transition={e.key}
+            data-cycle-kind={e.kind}
+            data-cycle-lands={lands ?? undefined}
+          />
+        );
+      })}
       {layout.entries.map((e) => (
         <GraphEntry
           key={e.id}
@@ -147,6 +198,17 @@ function Ring({version, progress, selected, onSelect}: ViewProps) {
                 <UserCheck x={-6} y={-6} width={12} height={12} className="text-amber-950" />
               </GraphBadge>
             ) : null}
+            {/* Значок состояния необязательного этапа: не только рамка и
+                перечёркивание, но и картинка с подписью в aria-label. */}
+            {state === 'skipped' || state === 'disabled' ? (
+              <GraphBadge x={2} y={2} className="fill-muted-foreground">
+                {state === 'skipped' ? (
+                  <SkipForward x={-6} y={-6} width={12} height={12} className="text-background" />
+                ) : (
+                  <Ban x={-6} y={-6} width={12} height={12} className="text-background" />
+                )}
+              </GraphBadge>
+            ) : null}
           </GraphNode>
         );
       })}
@@ -157,6 +219,8 @@ function Ring({version, progress, selected, onSelect}: ViewProps) {
 const STEP_STATE: Record<NodeState, string> = {
   current: 'border-primary border-2 font-semibold',
   passed: 'border-muted-foreground bg-muted',
+  skipped: 'border-muted-foreground bg-muted text-muted-foreground border-dotted line-through',
+  disabled: 'border-muted-foreground text-muted-foreground border-dotted italic opacity-70',
   future: 'text-muted-foreground border-dashed',
 };
 
@@ -178,7 +242,7 @@ function Stepper({version, progress, selected, onSelect}: ViewProps) {
           const p = progress.get(n.key);
           const state = p?.state ?? 'future';
           const isSelected = n.key === selected;
-          const tint = n.color && state !== 'future';
+          const tint = n.color && (state === 'current' || state === 'passed');
           return (
             <li key={n.id} className="flex min-w-0 items-center gap-1">
               <button
@@ -212,6 +276,8 @@ function Stepper({version, progress, selected, onSelect}: ViewProps) {
                 {p?.awaitingApproval ? (
                   <UserCheck className="size-3.5 text-amber-600 dark:text-amber-300" aria-hidden />
                 ) : null}
+                {state === 'skipped' ? <SkipForward className="size-3.5 shrink-0" aria-hidden /> : null}
+                {state === 'disabled' ? <Ban className="size-3.5 shrink-0" aria-hidden /> : null}
               </button>
               {i < layout.nodes.length - 1 ? (
                 <ChevronRight className="text-muted-foreground size-3 shrink-0" aria-hidden />
@@ -232,7 +298,8 @@ function Stepper({version, progress, selected, onSelect}: ViewProps) {
 
 // Легенда — словами и теми же значками, что на схеме: цвет из данных один
 // смысла не несёт.
-function Legend({awaiting}: {awaiting: boolean}) {
+function Legend({awaiting, progress}: {awaiting: boolean; progress: Map<string, StatusProgress>}) {
+  const states = new Set([...progress.values()].map((p) => p.state));
   return (
     <ul className="flex flex-wrap items-center gap-x-3 gap-y-1" aria-label="Обозначения">
       <LegendItem label="пройден">
@@ -244,6 +311,17 @@ function Legend({awaiting}: {awaiting: boolean}) {
       <LegendItem label="впереди">
         <rect x={1} y={2} width={14} height={8} rx={2} className="fill-background stroke-muted-foreground" strokeDasharray="3 2" />
       </LegendItem>
+      {states.has('skipped') ? (
+        <LegendItem label="пропущен">
+          <rect x={1} y={2} width={14} height={8} rx={2} className="fill-muted stroke-muted-foreground" strokeDasharray="1 3" />
+          <path d="M3 6 H13" className="stroke-muted-foreground" />
+        </LegendItem>
+      ) : null}
+      {states.has('disabled') ? (
+        <LegendItem label="выключен">
+          <rect x={1} y={2} width={14} height={8} rx={2} className="fill-background stroke-muted-foreground opacity-70" strokeDasharray="1 3" />
+        </LegendItem>
+      ) : null}
       <LegendItem label="возврат">
         <path d="M1 6 H15" className="stroke-muted-foreground" strokeDasharray="3 2" />
       </LegendItem>
