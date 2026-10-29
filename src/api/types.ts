@@ -344,6 +344,10 @@ export interface Status {
   position: number;
   is_initial: boolean;
   is_terminal: boolean;
+  // Необязательный этап (решение 0066): задача может его не проходить. Сервер
+  // отдаёт оба поля всегда; умолчание «включён» осмысленно только при отметке.
+  is_optional: boolean;
+  enabled_by_default: boolean;
   wip_limit?: number;
   color?: string;
   roles?: StatusRole[];

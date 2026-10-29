@@ -11,6 +11,46 @@ const s = await session(BASE + '/p/SDLC/workflow');
 const run = (body) => s.evaluate(helpers + body);
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Необязательные этапы (CLAB-317, решение 0066): диалог статуса, бейджи строки
+// и перехват тел запросов к статусам. Переключатель находится по подписи, а его
+// состояние читается из aria-checked.
+const optionalHelpers = `
+  const dialog = () => document.querySelector('[role=dialog]');
+  const sw = (label) => {
+    const l = dialog() && Array.from(dialog().querySelectorAll('label')).find((x) => x.innerText.trim().startsWith(label));
+    return l ? document.getElementById(l.getAttribute('for')) : null;
+  };
+  const rowOf = (key) => statusRows().find((li) => (li.querySelectorAll('p')[1]?.innerText || '').split('·')[0].trim() === key);
+  const editStatus = async (key) => {
+    Array.from(rowOf(key).querySelectorAll('button')).find((b) => (b.innerText || '').trim() === 'Править').click();
+    await sleep(700);
+  };
+  const toggle = async (label) => { sw(label).click(); await sleep(300); };
+  const saveDialog = async () => {
+    Array.from(dialog().querySelectorAll('button')).find((b) => (b.innerText || '').trim() === 'Сохранить').click();
+    await sleep(1800);
+  };
+  const closeDialog = async () => {
+    Array.from(dialog().querySelectorAll('button')).find((b) => (b.innerText || '').trim() === 'Отмена').click();
+    await sleep(600);
+  };
+  // Тела запросов к статусам: PATCH и POST. Запрос уходит настоящий.
+  const spyStatuses = () => {
+    window.__bodies = [];
+    const orig = window.fetch;
+    window.__origFetch = orig;
+    window.fetch = async (input, init) => {
+      const url = typeof input === 'string' ? input : input.url;
+      const method = (init?.method || 'GET').toUpperCase();
+      if (['PATCH', 'POST'].includes(method) && /\\/statuses(\\/[a-z_]+)?$/.test(url)) {
+        window.__bodies.push(JSON.parse(init.body));
+      }
+      return orig(input, init);
+    };
+  };
+  const unspy = () => { if (window.__origFetch) window.fetch = window.__origFetch; };
+`;
+
 // Строки секции «Статусы» и стрелки перестановки в них. Стрелка ищется по
 // aria-label, а не по позиции: подпись — часть проверяемого поведения.
 const statusHelpers = `
@@ -320,6 +360,187 @@ check('проблема ушла вместе со статусом', !t.include
 // Все десять типов гейтов реализованы: у демонстрационного цикла ни ошибок, ни предупреждений.
 check('проверка проходит без предупреждений', t.includes('Цикл проходит проверку') && !t.includes('Предупреждения'), t.slice(0, 400));
 
+console.log('необязательный этап: диалог статуса');
+// Обязательный статус: переключатель умолчания скрыт, пока отметки нет.
+await run(statusHelpers + optionalHelpers + "await editStatus('architecture'); return true;");
+const dlg0 = await run(optionalHelpers + `
+  return {
+    optional: sw('Необязательный')?.getAttribute('aria-checked'),
+    hasDefault: Boolean(sw('Включён по умолчанию')),
+  };
+`);
+check('у обязательного статуса «Необязательный» выключен', dlg0.optional === 'false', JSON.stringify(dlg0));
+check('умолчание скрыто, пока отметки нет', !dlg0.hasDefault, JSON.stringify(dlg0));
+const dlg1 = await run(optionalHelpers + `
+  await toggle('Необязательный');
+  return {
+    optional: sw('Необязательный')?.getAttribute('aria-checked'),
+    def: sw('Включён по умолчанию')?.getAttribute('aria-checked') ?? null,
+  };
+`);
+check('с отметкой появляется «Включён по умолчанию», он включён',
+  dlg1.optional === 'true' && dlg1.def === 'true', JSON.stringify(dlg1));
+await run(optionalHelpers + "await closeDialog(); return true;");
+
+console.log('необязательный этап: сохранение отметки и умолчания (AC-1, AC-5)');
+const marked = await run(statusHelpers + optionalHelpers + `
+  spyStatuses();
+  await editStatus('architecture');
+  await toggle('Необязательный');
+  await toggle('Включён по умолчанию');
+  await saveDialog();
+  unspy();
+  const row = rowOf('architecture');
+  return {bodies: window.__bodies, row: row.innerText.replace(/\\s+/g, ' '), page: texts(),
+    dialogOpen: Boolean(dialog()), toast: toasts()};
+`);
+check('тело запроса несёт отметку и умолчание «выключен»',
+  marked.bodies.length === 1 && marked.bodies[0].is_optional === true && marked.bodies[0].enabled_by_default === false,
+  JSON.stringify(marked.bodies));
+check('диалог закрыт, тост называет статус',
+  !marked.dialogOpen && marked.toast.some((x) => x.includes('architecture') && x.includes('сохранён')), JSON.stringify(marked.toast));
+check('строка статуса показывает «необязательный» и «выключен по умолчанию»',
+  marked.row.includes('необязательный') && marked.row.includes('выключен по умолчанию'), marked.row);
+check('ключ статуса по-прежнему во втором <p> строки',
+  (await run(statusHelpers + 'return statusKeys();')).includes('architecture'));
+// Проверка пересчитана без перехода по адресу: у необязательного этапа
+// сервер предупреждает об обходных переходах и не держит активацию.
+check('предупреждения сервера видны без перезагрузки',
+  marked.page.includes('Предупреждения') && marked.page.includes('"architecture"'), marked.page.slice(0, 600));
+check('предупреждение активацию не держит',
+  !marked.page.includes('Цикл не активируется') && !(await run(statusHelpers + "return tipOf('Активировать');")).disabled);
+
+await s.goto(BASE + '/p/SDLC/workflow');
+await pause(2000);
+await run(statusHelpers + "await pickVersion('Default SDLC · v2'); return true;");
+const afterReload = await run(statusHelpers + optionalHelpers + `
+  return {row: rowOf('architecture').innerText.replace(/\\s+/g, ' '), other: rowOf('analysis').innerText.replace(/\\s+/g, ' ')};
+`);
+check('после перезагрузки отметка и умолчание на месте',
+  afterReload.row.includes('необязательный') && afterReload.row.includes('выключен по умолчанию'), afterReload.row);
+check('у обычного статуса бейджей отметки нет', !afterReload.other.includes('необязательный'), afterReload.other);
+
+console.log('необязательный этап: диалог показывает сохранённое');
+const reopened = await run(statusHelpers + optionalHelpers + `
+  await editStatus('architecture');
+  const r = {optional: sw('Необязательный')?.getAttribute('aria-checked'), def: sw('Включён по умолчанию')?.getAttribute('aria-checked')};
+  await closeDialog();
+  return r;
+`);
+check('в диалоге те же значения, что в списке', reopened.optional === 'true' && reopened.def === 'false', JSON.stringify(reopened));
+
+console.log('необязательный этап: проблема держит активацию (AC-4, AC-5)');
+const problem = await run(statusHelpers + optionalHelpers + `
+  await editStatus('new');
+  await toggle('Необязательный');
+  await saveDialog();
+  return texts();
+`);
+check('блок «Цикл не активируется» называет начальный статус текстом сервера',
+  problem.includes('Цикл не активируется') && problem.includes('"new"') && problem.includes('начальный статус'), problem.slice(0, 600));
+const tipProblem = await run(statusHelpers + "return tipOf('Активировать');");
+check('«Активировать» выключена с подсказкой о проверке',
+  tipProblem.disabled && tipProblem.text.includes('Цикл не проходит проверку'), JSON.stringify(tipProblem));
+check('коды optional_* на экран не выводятся', !problem.includes('optional_'), problem.slice(0, 300));
+
+console.log('необязательный этап: снятие отметки (AC-2)');
+const cleared = await run(statusHelpers + optionalHelpers + `
+  spyStatuses();
+  await editStatus('new');
+  await toggle('Необязательный');
+  const hidden = !sw('Включён по умолчанию');
+  await saveDialog();
+  unspy();
+  return {hidden, bodies: window.__bodies, dialogOpen: Boolean(dialog()), page: texts(),
+    row: rowOf('new').innerText.replace(/\\s+/g, ' ')};
+`);
+check('при снятии отметки умолчание скрыто', cleared.hidden);
+check('запрос несёт is_optional:false и enabled_by_default:true',
+  cleared.bodies.length === 1 && cleared.bodies[0].is_optional === false && cleared.bodies[0].enabled_by_default === true,
+  JSON.stringify(cleared.bodies));
+check('сервер принял пару: диалог закрыт, бейджей нет',
+  !cleared.dialogOpen && !cleared.row.includes('необязательный'), cleared.row);
+check('проблема ушла без перезагрузки', !cleared.page.includes('Цикл не активируется'), cleared.page.slice(0, 400));
+
+// Снятие отметки у статуса, который был «выключен по умолчанию»: пару сводит
+// интерфейс, иначе сервер ответил бы 400.
+const cleared2 = await run(statusHelpers + optionalHelpers + `
+  spyStatuses();
+  await editStatus('architecture');
+  await toggle('Необязательный');
+  await saveDialog();
+  unspy();
+  return {bodies: window.__bodies, dialogOpen: Boolean(dialog()), row: rowOf('architecture').innerText.replace(/\\s+/g, ' ')};
+`);
+check('снятие у «выключен по умолчанию» уходит с умолчанием «включён» и проходит',
+  cleared2.bodies.length === 1 && cleared2.bodies[0].is_optional === false && cleared2.bodies[0].enabled_by_default === true &&
+    !cleared2.dialogOpen && !cleared2.row.includes('необязательный') && !cleared2.row.includes('выключен'),
+  JSON.stringify(cleared2));
+
+console.log('необязательный этап: отказ сервера виден в диалоге (AC-3)');
+const refusedSave = await run(statusHelpers + optionalHelpers + `
+  const orig = window.fetch;
+  window.fetch = async (input, init) => {
+    const url = typeof input === 'string' ? input : input.url;
+    if ((init?.method || '').toUpperCase() === 'PATCH' && /\\/statuses\\/[a-z_]+$/.test(url)) {
+      return new Response(JSON.stringify({error: {code: 'conflict', message: 'версия цикла уже активна, правка не принимается'}}),
+        {status: 409, headers: {'Content-Type': 'application/json'}});
+    }
+    return orig(input, init);
+  };
+  const before = statusRows().map((li) => li.innerText.replace(/\\s+/g, ' '));
+  await editStatus('architecture');
+  await toggle('Необязательный');
+  await toggle('Включён по умолчанию');
+  await saveDialog();
+  window.fetch = orig;
+  return {dialogOpen: Boolean(dialog()), text: dialog() ? dialog().innerText.replace(/\\s+/g, ' ') : '',
+    optional: sw('Необязательный')?.getAttribute('aria-checked'), def: sw('Включён по умолчанию')?.getAttribute('aria-checked'),
+    same: statusRows().map((li) => li.innerText.replace(/\\s+/g, ' ')).join('|') === before.join('|'),
+    toasts: toasts()};
+`);
+check('диалог остался открытым с текстом ответа',
+  refusedSave.dialogOpen && refusedSave.text.includes('Статус не сохранён') && refusedSave.text.includes('версия цикла уже активна'),
+  refusedSave.text.slice(0, 300));
+check('введённое не потеряно', refusedSave.optional === 'true' && refusedSave.def === 'false',
+  JSON.stringify([refusedSave.optional, refusedSave.def]));
+check('список статусов не изменился, тоста об ошибке нет',
+  refusedSave.same && !refusedSave.toasts.some((x) => x.includes('сохранён')), JSON.stringify(refusedSave.toasts));
+await run(optionalHelpers + "await closeDialog(); return true;");
+
+console.log('необязательный этап: статус сохранён, роли нет (BR-8)');
+const partial = await run(statusHelpers + optionalHelpers + `
+  const orig = window.fetch;
+  window.fetch = async (input, init) => {
+    const url = typeof input === 'string' ? input : input.url;
+    if ((init?.method || '').toUpperCase() === 'PUT' && /\\/statuses\\/[a-z_]+\\/roles$/.test(url)) {
+      return new Response(JSON.stringify({error: {code: 'internal', message: 'роли не сохранены'}}),
+        {status: 500, headers: {'Content-Type': 'application/json'}});
+    }
+    return orig(input, init);
+  };
+  await editStatus('architecture');
+  await toggle('Необязательный');
+  await saveDialog();
+  window.fetch = orig;
+  return {dialogOpen: Boolean(dialog()), text: dialog() ? dialog().innerText.replace(/\\s+/g, ' ') : '',
+    row: rowOf('architecture').innerText.replace(/\\s+/g, ' ')};
+`);
+check('ошибка ролей остаётся в диалоге', partial.dialogOpen && partial.text.includes('роли не сохранены'), partial.text.slice(0, 300));
+check('сохранённая отметка видна в списке без перезагрузки', partial.row.includes('необязательный'), partial.row);
+await run(optionalHelpers + "await closeDialog(); return true;");
+// Возвращаем статус обязательным: дальше сценарий идёт по прежнему циклу.
+// Оставляем отметку у architecture до активации, чтобы проверить активную версию.
+const restoreMark = await run(statusHelpers + optionalHelpers + `
+  await editStatus('architecture');
+  if (sw('Необязательный').getAttribute('aria-checked') !== 'true') await toggle('Необязательный');
+  await toggle('Включён по умолчанию');
+  await saveDialog();
+  return rowOf('architecture').innerText.replace(/\\s+/g, ' ');
+`);
+check('перед активацией architecture — необязательный, выключен по умолчанию',
+  restoreMark.includes('необязательный') && restoreMark.includes('выключен по умолчанию'), restoreMark);
+
 console.log('активация черновика');
 // Второй клик по «Активировать», пока идёт первый, второй активации не шлёт:
 // ответ задержан подменённым fetch, запросы считаются в нём же.
@@ -354,6 +575,98 @@ t = await run('return texts();');
 check('доска на новой версии цикла', t.includes('v2'), t.slice(0, 200));
 check('задачи не пропали с доски', t.includes('SDLC-1') && t.includes('SDLC-3'), t.slice(0, 600));
 check('задача с прежней версии помечена', t.includes('прежняя версия цикла'), t.slice(0, 600));
+
+console.log('активная версия: отметки видны, правки нет (AC-6)');
+await s.goto(BASE + '/p/SDLC/workflow');
+await pause(2000);
+await run(statusHelpers + "await pickVersion('Default SDLC · v2'); return true;");
+const readonlyRows = await run(statusHelpers + optionalHelpers + `
+  const edit = statusRows().some((li) =>
+    arrow(li, 'up') || arrow(li, 'down') ||
+    Array.from(li.querySelectorAll('button')).some((b) => ['Править', 'Удалить'].includes((b.innerText || '').trim())));
+  return {
+    text: texts(),
+    edit,
+    addButton: all('button').some((b) => (b.innerText || '').trim() === 'Добавить статус'),
+    row: rowOf('architecture').innerText.replace(/\\s+/g, ' '),
+    plain: rowOf('analysis').innerText.replace(/\\s+/g, ' '),
+  };
+`);
+check('активная версия помечена как неправимая', readonlyRows.text.includes('Эта версия не редактируется'), readonlyRows.text.slice(0, 200));
+check('у активной версии отметка и умолчание видны',
+  readonlyRows.row.includes('необязательный') && readonlyRows.row.includes('выключен по умолчанию'), readonlyRows.row);
+check('у обычного статуса бейджей нет', !readonlyRows.plain.includes('необязательный'), readonlyRows.plain);
+check('у активной версии нет ни правки, ни порядка, ни удаления, ни «Добавить статус»',
+  !readonlyRows.edit && !readonlyRows.addButton, JSON.stringify(readonlyRows));
+
+console.log('отметки переезжают с копией и связкой (AC-7)');
+const API = process.env.SDLC_API_URL ?? 'http://localhost:8088';
+const call = (method, path, body) =>
+  fetch(API + '/v1' + path, {
+    method,
+    headers: {'X-SDLC-Actor': 'e2e', 'Content-Type': 'application/json'},
+    body: body ? JSON.stringify(body) : undefined,
+  }).then(async (r) => ({status: r.status, body: r.status === 204 ? null : await r.json()}));
+const drafts = [];
+await run('return click("Черновик копией активного");');
+await pause(1800);
+const copied = await run(statusHelpers + optionalHelpers + `
+  return {text: texts(), row: rowOf('architecture').innerText.replace(/\\s+/g, ' '),
+    plain: rowOf('analysis').innerText.replace(/\\s+/g, ' ')};
+`);
+check('черновик копией активного — правимый', copied.text.includes('Добавить статус') && !copied.text.includes('Эта версия не редактируется'), copied.text.slice(0, 200));
+check('копия несёт те же отметку и умолчание',
+  copied.row.includes('необязательный') && copied.row.includes('выключен по умолчанию') && !copied.plain.includes('необязательный'),
+  copied.row);
+const list = await call('GET', '/projects/SDLC/workflows');
+const copyDraft = list.body.workflows.find((w) => w.state === 'draft' && w.task_types.includes('task'));
+if (copyDraft) drafts.push(copyDraft.id);
+
+// Связка: статус qa отмечен необязательным с умолчанием «включён», прочие метки
+// остаются. Импорт заводит черновик, интерфейс показывает его так же.
+const bundle = (await call('GET', '/projects/SDLC/export')).body;
+const wfIn = bundle.workflows.find((w) => w.name === 'Default SDLC');
+const st = (key) => wfIn.statuses.find((x) => x.key === key);
+check('экспорт отдаёт отметку статуса architecture',
+  st('architecture').is_optional === true && st('architecture').enabled_by_default === false, JSON.stringify(st('architecture')));
+st('qa').is_optional = true;
+st('qa').enabled_by_default = true;
+const imported = await call('POST', '/projects/SDLC/import', bundle);
+check('импорт связки с отметками прошёл', imported.status === 200, JSON.stringify(imported).slice(0, 300));
+const afterImport = (await call('GET', '/projects/SDLC/workflows')).body.workflows;
+const importDraft = afterImport.find((w) => w.state === 'draft' && !drafts.includes(w.id) && w.task_types.includes('task'));
+if (importDraft) drafts.push(importDraft.id);
+await s.goto(BASE + '/p/SDLC/workflow');
+await pause(2000);
+await run(statusHelpers + `await pickVersion('Default SDLC · v${importDraft ? importDraft.version : 4}'); return true;`);
+const fromBundle = await run(statusHelpers + optionalHelpers + `
+  return {arch: rowOf('architecture').innerText.replace(/\\s+/g, ' '), qa: rowOf('qa').innerText.replace(/\\s+/g, ' '),
+    plain: rowOf('analysis').innerText.replace(/\\s+/g, ' ')};
+`);
+check('черновик из связки: architecture — необязательный, выключен по умолчанию',
+  fromBundle.arch.includes('необязательный') && fromBundle.arch.includes('выключен по умолчанию'), fromBundle.arch);
+check('черновик из связки: qa — необязательный, включён по умолчанию',
+  fromBundle.qa.includes('необязательный') && !fromBundle.qa.includes('выключен'), fromBundle.qa);
+check('черновик из связки: обычный статус без бейджей', !fromBundle.plain.includes('необязательный'), fromBundle.plain);
+
+// Связка без полей (прежняя версия сервиса): все статусы обязательные.
+for (const x of wfIn.statuses) { delete x.is_optional; delete x.enabled_by_default; }
+const legacy = await call('POST', '/projects/SDLC/import', bundle);
+const afterLegacy = (await call('GET', '/projects/SDLC/workflows')).body.workflows;
+const legacyDraft = afterLegacy.find((w) => w.state === 'draft' && !drafts.includes(w.id) && w.task_types.includes('task'));
+if (legacyDraft) drafts.push(legacyDraft.id);
+check('импорт связки без полей прошёл', legacy.status === 200, JSON.stringify(legacy).slice(0, 300));
+if (legacyDraft) {
+  await s.goto(BASE + '/p/SDLC/workflow');
+  await pause(2000);
+  await run(statusHelpers + `await pickVersion('Default SDLC · v${legacyDraft.version}'); return true;`);
+  const noFields = await run(statusHelpers + 'return statusRows().map((li) => li.innerText.replace(/\\s+/g, " ")).join("|");');
+  check('черновик из связки без полей: бейджей отметки нет', !noFields.includes('необязательный'), noFields.slice(0, 300));
+} else {
+  check('черновик из связки без полей заведён', false, JSON.stringify(afterLegacy.map((w) => [w.version, w.state])));
+}
+// Черновики сценария снимаются: следующим сценариям нужен чистый список версий.
+for (const id of drafts) await call('DELETE', '/workflows/' + id);
 
 console.log('пустой черновик под другой тип задач');
 await s.goto(BASE + '/p/SDLC/workflow');

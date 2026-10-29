@@ -19,6 +19,12 @@ import {
   installationState,
   runState,
 } from '../src/components/health.ts';
+import {
+  DISABLED_BY_DEFAULT_LABEL,
+  OPTIONAL_LABEL,
+  optionalBadges,
+  optionalFields,
+} from '../src/components/optionalStage.ts';
 import {externalLinks} from '../src/components/externalRef.ts';
 import {
   AUTO_LABEL,
@@ -291,6 +297,25 @@ check('команды проекта не загрузились — решае�
 check('команды не нужны в режиме header и при прямом праве',
   !needsProjectTeams(person({mode: 'header'}), 'SDLC') && !needsProjectTeams(person({memberships: [member('maintainer')]}), 'SDLC') && !needsProjectTeams(undefined, 'SDLC'));
 check('команды нужны наблюдателю', needsProjectTeams(person({memberships: [member('viewer')]}), 'SDLC'));
+
+console.log('подписи необязательного этапа');
+check('подписи отметки', OPTIONAL_LABEL === 'необязательный' && DISABLED_BY_DEFAULT_LABEL === 'выключен по умолчанию');
+check('обязательный статус — без бейджей', optionalBadges({is_optional: false, enabled_by_default: true}).length === 0);
+check('ответ без полей читается как обязательный', optionalBadges({}).length === 0);
+check('необязательный включённый по умолчанию — один бейдж',
+  optionalBadges({is_optional: true, enabled_by_default: true}).join(',') === 'необязательный');
+check('необязательный, выключенный по умолчанию — два бейджа по порядку',
+  optionalBadges({is_optional: true, enabled_by_default: false}).join(',') === 'необязательный,выключен по умолчанию');
+check('умолчание «выключен» у обязательного бейджа не даёт',
+  optionalBadges({is_optional: false, enabled_by_default: false}).length === 0);
+check('отметка без умолчания в ответе — «включён»', optionalBadges({is_optional: true}).join(',') === 'необязательный');
+let f = optionalFields(true, false);
+check('необязательный выключенный уходит парой true/false', f.is_optional === true && f.enabled_by_default === false);
+f = optionalFields(true, true);
+check('необязательный включённый уходит парой true/true', f.is_optional === true && f.enabled_by_default === true);
+f = optionalFields(false, false);
+check('снятая отметка уходит с умолчанием «включён» (иначе сервер ответит 400)',
+  f.is_optional === false && f.enabled_by_default === true);
 
 console.log(`\n${ok} ok, ${fail} fail`);
 process.exit(fail ? 1 : 0);

@@ -22,6 +22,7 @@ import {
 import {ApiError, api} from '../api/client';
 import type {Role, Status, UUID} from '../api/types';
 import {Failure} from './Feedback';
+import {optionalFields} from './optionalStage';
 
 // Категория статуса — фиксированный перечень схемы, а не выдумка проекта:
 // по ней движок и доска понимают, чем статус является.
@@ -51,6 +52,8 @@ export function StatusDialog({
   const [category, setCategory] = useState(status?.category ?? 'active');
   const [isInitial, setIsInitial] = useState(status?.is_initial ?? false);
   const [isTerminal, setIsTerminal] = useState(status?.is_terminal ?? false);
+  const [isOptional, setIsOptional] = useState(status?.is_optional ?? false);
+  const [enabledByDefault, setEnabledByDefault] = useState(status?.enabled_by_default ?? true);
   const [wipLimit, setWipLimit] = useState<number | undefined>(status?.wip_limit);
   const [color, setColor] = useState(status?.color ?? '');
   const [primaryRole, setPrimaryRole] = useState(
@@ -65,6 +68,7 @@ export function StatusDialog({
   const submit = async () => {
     setBusy(true);
     setError(undefined);
+    let saved: Status | undefined;
     try {
       const body = {
         key,
@@ -73,10 +77,12 @@ export function StatusDialog({
         category,
         is_initial: isInitial,
         is_terminal: isTerminal,
+        // Пара уходит всегда и явно; умолчание сводит optionalFields.
+        ...optionalFields(isOptional, enabledByDefault),
         wip_limit: wipLimit,
         color: color || undefined,
       };
-      const saved = status
+      saved = status
         ? await api.updateStatus(workflowID, status.key, body)
         : await api.createStatus(workflowID, body);
 
@@ -93,6 +99,11 @@ export function StatusDialog({
       onSaved();
       onClose();
     } catch (err) {
+      // Статус мог сохраниться, а роли — нет: список всё равно перечитывается,
+      // иначе сохранённая отметка видна только после перезагрузки. Диалог
+      // остаётся открытым с ошибкой. Для нового статуса повторное сохранение
+      // дало бы «ключ занят», но это ответ сервера, и он виден в диалоге.
+      if (saved) onSaved();
       setError(err instanceof ApiError ? err : new ApiError('internal', String(err)));
     } finally {
       setBusy(false);
@@ -143,6 +154,20 @@ export function StatusDialog({
           />
           <Switch label="Начальный" value={isInitial} onChange={setIsInitial} />
           <Switch label="Терминальный" value={isTerminal} onChange={setIsTerminal} />
+          <Switch
+            label="Необязательный"
+            description="Задача может не проходить этот этап; правила проверяет сервер при активации"
+            value={isOptional}
+            onChange={setIsOptional}
+          />
+          {isOptional ? (
+            <Switch
+              label="Включён по умолчанию"
+              description="Выключенный по умолчанию этап задача проходит, только если его включили"
+              value={enabledByDefault}
+              onChange={setEnabledByDefault}
+            />
+          ) : null}
         </FormLayout>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
