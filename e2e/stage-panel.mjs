@@ -213,7 +213,7 @@ const KEYS = ['new', 'analysis', 'development', 'testing', 'merge', 'release', '
 const quoted = new RegExp(`(['"\`])(${KEYS.join('|')})\\1`);
 const comparison = new RegExp(`(status_key|role_key|statusKey|stage)\\s*[!=]==?\\s*['"\`]`);
 const dir = 'src/components/task';
-const files = [...readdirSync(new URL(`../${dir}/`, import.meta.url)).map((f) => `${dir}/${f}`), 'src/hooks/useTaskLevelEditable.ts'];
+const files = [...readdirSync(new URL(`../${dir}/`, import.meta.url)).map((f) => `${dir}/${f}`), 'src/hooks/useTaskLevelEditable.ts', 'src/components/optionalStage.ts'];
 for (const file of files) {
   const lines = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8')
     .split('\n')
