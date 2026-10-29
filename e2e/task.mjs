@@ -257,12 +257,29 @@ t = await run('return texts();');
 check('гейт артефактов больше не держит', !t.includes('не сданы артефакты'), t.slice(0, 400));
 
 console.log('оформление разметки в артефакте');
-await run('await clickIn("analysis.brief", "Содержимое"); return true;');
-await wait(1200);
+// Артефакты этапа — плитки (CLAB-308): текст читается в модалке, открывает её
+// клик по плитке.
+const openTile = (text) => run(`
+  const tile = all('[data-file-tile]').find((e) => (e.innerText || '').includes(${JSON.stringify(text)}));
+  if (!tile) throw new Error('плитки нет: ' + ${JSON.stringify(text)});
+  tile.click();
+  await sleep(1200);
+  return true;
+`);
+const closeDialog = async () => {
+  await run(`
+    document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}));
+    await sleep(600);
+    return true;
+  `);
+};
+await openTile('analysis.brief');
 const md = await run(`
-  // Разметкой на карточке выводится и постановка задачи: нужен именно блок
-  // раскрытого артефакта.
-  const root = all('.prose-sdlc').find((el) => (el.innerText || '').includes('Разметка артефакта'));
+  // Разметка проверяется на теле модалки: постановка задачи тоже выводится
+  // разметкой, но не внутри диалога.
+  const dialog = document.querySelector('[role=dialog][data-file-dialog]');
+  if (!dialog) return {missing: true};
+  const root = Array.from(dialog.querySelectorAll('.prose-sdlc')).find((el) => (el.innerText || '').includes('Разметка артефакта'));
   if (!root) return {missing: true};
   const size = (el) => (el ? parseFloat(getComputedStyle(el).fontSize) : 0);
   const h1 = root.querySelector('h1');
@@ -295,25 +312,26 @@ check('блок кода отрисован', md.codeBlock);
 check('внешняя ссылка открывается в новой вкладке', md.linkTarget === '_blank' && md.linkRel.includes('noopener'), md.linkTarget + ' ' + md.linkRel);
 check('сырой HTML не исполнен', !md.rawHtmlRendered);
 
-console.log('копирование и чтение целиком');
-let t2 = await run('return texts();');
-check('кнопка копирования есть', t2.includes('Копировать'), t2.slice(0, 300));
-check('кнопка «Открыть целиком» есть', t2.includes('Открыть целиком'), t2.slice(0, 300));
-await run('await clickExact("Открыть целиком"); return true;');
-await wait(900);
-t2 = await run(`
-  const dialog = all('[role=dialog]')[0];
+console.log('плитка и модалка артефакта');
+// Модалка уже открыта проверкой разметки: в ней и копирование, и скачивание.
+let t2 = await run(`
+  const dialog = document.querySelector('[role=dialog][data-file-dialog]');
   return dialog ? dialog.innerText.replace(/\\s+/g, ' ') : '';
 `);
-check('артефакт открылся во весь экран', t2.includes('Разметка артефакта'), t2.slice(0, 300));
-await run(`
-  document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}));
-  await sleep(600);
-  return true;
-`);
+check('артефакт открылся в модалке', t2.includes('Разметка артефакта'), t2.slice(0, 300));
+check('в модалке есть «Копировать»', t2.includes('Копировать'), t2.slice(0, 300));
+check('в модалке есть «Скачать»', t2.includes('Скачать'), t2.slice(0, 300));
+check('в шапке модалки вид и версия', t2.includes('analysis.brief') && t2.includes('v1'), t2.slice(0, 300));
+await closeDialog();
 t2 = await run("return String(all('[role=dialog]').length);");
-check('диалог закрывается по Esc', t2 === '0', t2);
-await run('await clickIn("analysis.brief", "Содержимое"); return true;');
+check('модалка закрывается по Esc', t2 === '0', t2);
+t2 = await run(`return document.activeElement && document.activeElement.hasAttribute('data-file-tile') ? document.activeElement.getAttribute('data-artifact') : '';`);
+check('фокус вернулся на плитку', t2.length > 0, t2);
+t2 = await run(`
+  const tile = all('[data-file-tile]').find((e) => (e.innerText || '').includes('analysis.brief'));
+  return JSON.stringify({buttons: tile ? tile.querySelectorAll('button, a').length : -1, tag: tile && tile.tagName});
+`);
+check('на плитке нет вложенных кнопок', t2.includes('"buttons":0') && t2.includes('"tag":"BUTTON"'), t2);
 
 console.log('ожидание апрува видно без раскрытия');
 // Перепроверку снимает решение человека: после этого переход держит только
@@ -784,7 +802,7 @@ p = await run(PANEL + `const el = attempt(${JSON.stringify(a1.id)});
     state: el.getAttribute('data-state'),
     verdicts: all('[data-gate-verdict]').filter((v) => el.contains(v) && !v.closest('[data-review-run]')).map((v) => ({
       key: v.getAttribute('data-gate-verdict'), status: v.getAttribute('data-gate-status'), text: text(v)})),
-    reviews: all('[data-review-run]').filter((r) => el.contains(r)).map((r) => ({id: r.getAttribute('data-review-run'), text: text(r), cost: r.querySelector('[data-run-cost]')?.getAttribute('data-run-cost')})),
+    reviews: all('[data-review-run]').filter((r) => el.contains(r)).map((r) => ({id: r.getAttribute('data-review-run'), text: text(r), tiles: r.querySelectorAll('[data-file-tile]').length, cost: r.querySelector('[data-run-cost]')?.getAttribute('data-run-cost')})),
     cost: text(el.querySelector('[data-run-cost]')),
     exit: el.querySelector('[data-attempt-exit]')?.getAttribute('data-attempt-exit'),
     model: text(el.querySelector('[data-run-model]')),
@@ -801,6 +819,7 @@ check('выход попытки — переход вперёд', p.exit === 'a
 check('перепроверка внутри своей попытки', p.reviews.length === 1 && p.reviews[0].id === review.id, JSON.stringify(p.reviews));
 check('у перепроверки роль с версией, исход и свой артефакт',
   p.reviews[0]?.text.includes(`${review.role_key} v${review.role_version}`) && p.reviews[0].text.includes('review.verdict'), p.reviews[0]?.text);
+check('артефакт перепроверки — плитка внутри её прогона (CLAB-308)', p.reviews[0]?.tiles === 1, JSON.stringify(p.reviews[0]));
 check('у перепроверки без отчёта — состояние учёта от сервера, не «нет данных»',
   p.reviews[0]?.cost === (review.usage?.state ?? 'missing'), JSON.stringify(p.reviews[0]));
 check('стоимость прогона с отчётом — деньги (отчёт без признака оплаты) и токены',
@@ -830,12 +849,13 @@ p = await run(PANEL + `const el = attempt(${JSON.stringify(RETURNED.id)}); retur
   to: text(el.querySelector('[data-return="to"]')),
   comment: text(el.querySelector('[data-return="to"] [data-return-comment]')),
   href: el.querySelector('[data-return="to"] [data-return-problem]')?.getAttribute('href'),
-  target: Boolean(document.querySelector('#artifact-${problem.id}')),
+  target: Boolean(document.querySelector('#artifact-${problem.id}[data-file-tile]')),
+  noModal: !document.querySelector('[role=dialog]'),
   gates: all('[data-gate-verdict]').filter((v) => el.contains(v)).map((v) => v.getAttribute('data-gate-verdict') + ':' + v.getAttribute('data-gate-status')),
 };`);
 check('«вернула в» имя статуса из версии', p.to.startsWith(`вернула в «${statusOf(ANALYSIS).name}»`), p.to);
 check('комментарий перехода', p.comment === 'нет схемы данных', p.comment);
-check('ссылка на problem.report этой попытки', p.href === `#artifact-${problem.id}` && p.target, JSON.stringify(p));
+check('ссылка на problem.report этой попытки ведёт на плитку и модалку не открывает', p.href === `#artifact-${problem.id}` && p.target && p.noModal, JSON.stringify(p));
 check('гейты возврата — как записаны', p.gates.join() === RETURNED.gate_results.map((g) => `${g.gate_key}:${g.status}`).join(), JSON.stringify(p.gates));
 await run(PANEL + `attempt(${JSON.stringify(RETURNED.id)}).querySelector('[data-return-stage]').click(); await sleep(1500); return true;`);
 check('ссылка возврата открывает этап, куда вернули', (await run('return location.search;')) === `?stage=${encodeURIComponent(ANALYSIS)}`, await run('return location.search;'));

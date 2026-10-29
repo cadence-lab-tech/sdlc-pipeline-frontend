@@ -989,10 +989,12 @@ export const api = {
       (r) => r.repo_refs ?? [],
     ),
 
-  listArtifacts: (taskKey: string) =>
-    request<{ artifacts: Artifact[] }>(`/tasks/${taskKey}/artifacts`).then(
-      (r) => r.artifacts ?? [],
-    ),
+  // Вытесненные версии (supersedes_id) — только по запросу: модалка артефакта
+  // берёт их для истории версий (CLAB-308), список карточки их не несёт.
+  listArtifacts: (taskKey: string, opts?: { includeSuperseded?: boolean }) =>
+    request<{ artifacts: Artifact[] }>(
+      `/tasks/${taskKey}/artifacts${opts?.includeSuperseded ? "?include_superseded=true" : ""}`,
+    ).then((r) => r.artifacts ?? []),
 
   submitArtifact: (taskKey: string, body: Record<string, unknown>) =>
     request<Artifact>(`/tasks/${taskKey}/artifacts`, post(body)),

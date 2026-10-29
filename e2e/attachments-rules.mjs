@@ -153,7 +153,10 @@ check('сообщение сервера идёт в ApiError как есть (r
 check('отправка файла не ставит JSON-заголовок', !/xhr\.setRequestHeader\("Content-Type"/.test(client));
 check('401 при отправке поднимает событие входа (через raise)', /function upload/.test(client) && /raise\(\s*\{ status: xhr\.status \}/.test(client));
 
-const modules = ['src/components/task/attachmentRules.ts', 'src/components/task/AttachmentsSection.tsx', 'src/components/FileViewer.tsx'];
+const modules = [
+  'src/components/task/attachmentRules.ts', 'src/components/task/AttachmentsSection.tsx', 'src/components/FileViewer.tsx',
+  'src/components/task/fileItem.ts', 'src/components/FileTile.tsx', 'src/components/ArtifactView.tsx', 'src/components/fileContent.ts',
+];
 const forbidden = /['"`](analysis|development|testing|merge|release|new|done|cancelled|analytics|developer|reviewer|analyst)['"`]/;
 for (const m of modules) {
   const src = readFileSync(new URL('../' + m, import.meta.url), 'utf8');
