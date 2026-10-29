@@ -15,6 +15,7 @@ import {
   mcpJSON,
   releaseVersion,
   setupCommand,
+  waitCommand,
 } from '../components/cli';
 import {useInstance} from '../hooks/useInstance';
 
@@ -118,6 +119,20 @@ export function Docs() {
 
         <Section title="5. Скилы агента" description="Ставит clab setup; набор приходит с этого сервера и той же версии.">
           <AgentKitList kit={kit.data} failed={!!kit.error} loading={kit.loading} serverVersion={instance?.version} projectKey={shown} />
+          <div className="mt-4 space-y-2" data-wait>
+            <h3 className="text-sm font-medium">Ожидание апрува</h3>
+            <p className="text-muted-foreground text-sm">
+              На апруве агент не держит чат вопросом: он ждёт решения на сервере и продолжает сам. Апрув ставится где
+              удобно — ответом в чате, в карточке задачи или <code>clab decide</code>. Так ждут скилы{' '}
+              <code>/clab-run</code> и <code>/clab-work</code>; та же команда годится для скрипта и CI.
+            </p>
+            <CodeBlock title="clab wait" language="sh" code={waitCommand(key)} />
+            <p className="text-muted-foreground text-sm">
+              Коды выхода: 0 — пройден, 3 — возвращён с причиной, 4 — статус сменился иначе, 5 — вышел срок, 1 —
+              ошибка, 2 — ждать нечего. <code>--gate</code> — тип или ключ гейта, <code>--transition</code> — только
+              этот переход; <code>clab heartbeat … --</code> держит аренду, пока идёт ожидание.
+            </p>
+          </div>
         </Section>
 
         <Section title="6. Коннекторы и плагины">

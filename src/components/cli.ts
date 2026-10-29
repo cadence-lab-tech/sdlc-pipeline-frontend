@@ -54,6 +54,13 @@ export const mcpJSON = (origin: string, key?: string) =>
     2,
   );
 
+// Ожидание апрува агентом (CLAB-323): clab wait держит долгий опрос событий
+// задачи, а clab heartbeat вокруг — аренду этапа. Номер задачи — пример:
+// ждут конкретную задачу, а на странице есть только ключ проекта.
+export const waitCommand = (key?: string) =>
+  `clab heartbeat ${key || KEY_PLACEHOLDER}-12 --with-credentials -- \\\n` +
+  `  clab wait ${key || KEY_PLACEHOLDER}-12 --gate human_approval --timeout 8h --json`;
+
 // Адрес страницы с выбранным проектом: ссылка со страниц проекта приносит
 // его ключ.
 export const docsHref = (key?: string) => (key ? `/docs?project=${encodeURIComponent(key)}` : '/docs');
