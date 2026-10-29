@@ -167,20 +167,44 @@ export function fileKinds(version: RoleVersion | undefined, gateKinds: string[])
   return fromContract.length ? fromContract : gateKinds;
 }
 
-// Текущие версии и цепочки прежних: сервер отдаёт всё одним списком
-// (include_superseded), версию заменяет та, чей supersedes_id на неё указывает.
-// Прежние версии выстроены от более новой к старой.
-export function groupVersions(list: Attachment[]): {current: Attachment; history: Attachment[]}[] {
+// Цепочка версий одним правилом для артефактов и вложений: нужно только
+// `id` и `supersedes_id`. Версию заменяет та, чей supersedes_id на неё указывает.
+export interface Versioned {
+  id: string;
+  supersedes_id?: string | null;
+}
+
+// Прежние версии версии `id`: от более новой к старой. Список может быть без
+// вытесненных версий — тогда цепочка пуста; цикл в данных (чужой id в
+// supersedes_id) обрывается на повторе, а не зависает.
+export function versionHistory<T extends Versioned>(list: T[], id: string): T[] {
   const byId = new Map(list.map((a) => [a.id, a]));
+  const history: T[] = [];
+  const seen = new Set<string>([id]);
+  for (let prev = byId.get(byId.get(id)?.supersedes_id ?? ''); prev && !seen.has(prev.id); prev = byId.get(prev.supersedes_id ?? '')) {
+    seen.add(prev.id);
+    history.push(prev);
+  }
+  return history;
+}
+
+// Текущие версии (на которые никто не указывает) и цепочки их прежних версий,
+// в порядке входного списка.
+export function versionGroups<T extends Versioned>(list: T[]): {current: T; history: T[]}[] {
   const replaced = new Set(list.map((a) => a.supersedes_id).filter(Boolean));
   return list
     .filter((a) => !replaced.has(a.id))
-    .map((current) => {
-      const history: Attachment[] = [];
-      for (let prev = byId.get(current.supersedes_id ?? ''); prev; prev = byId.get(prev.supersedes_id ?? '')) {
-        history.push(prev);
-      }
-      return {current, history};
-    })
-    .sort((a, b) => b.current.added_at.localeCompare(a.current.added_at));
+    .map((current) => ({current, history: versionHistory(list, current.id)}));
+}
+
+// Корень цепочки: id самой первой версии. Он не меняется, когда выходит новая
+// версия, поэтому годится ключом плитки: модалка не закрывается, когда версию
+// вложения заменяет следующая.
+export function versionRoot<T extends Versioned>(current: T, history: T[]): string {
+  return (history[history.length - 1] ?? current).id;
+}
+
+// Вложения: текущие сверху по времени, внутри — цепочка прежних версий.
+export function groupVersions(list: Attachment[]): {current: Attachment; history: Attachment[]}[] {
+  return versionGroups(list).sort((a, b) => b.current.added_at.localeCompare(a.current.added_at));
 }

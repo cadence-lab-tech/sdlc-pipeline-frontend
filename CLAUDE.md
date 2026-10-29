@@ -362,8 +362,29 @@ e2e/           сквозные проверки в headless-Chrome поверх
   `e2e/attachments-rules.mjs`; экран — `e2e/attachments.mjs`. «Сдать
   артефакт» умеет режим «Файл»: виды — из `output_contract` версии роли
   текущего прогона (`getRole`) без видов со схемой, иначе виды гейтов.
-  `format: binary` в `ArtifactView` в текст не читается. Предел файла — из
+  `format: binary` в модалке файла в текст не читается. Предел файла — из
   `limits.max_file_bytes` ответа `/v1/instance` (`useInstance().maxFileBytes`).
+
+- **Файлы задачи — плитки и одна модалка** (CLAB-308). Артефакты этапа
+  (`ArtifactView.tsx`, `ArtifactTile`) и вложения (`AttachmentsSection.tsx`)
+  рисуются одним `FileTile` (`components/FileTile.tsx`): плитка — одна кнопка
+  без действий внутри (заголовок, вид или имя и тип, роль прогона или автор,
+  `vN`, размер, время, отметка «принят»), клик, Enter и пробел открывают
+  модалку `[data-file-dialog]`, в которой «Копировать» (у текста), «Скачать»,
+  «Принять» (текущая версия этапа, не вложение), «Новая версия» (вложение),
+  история версий и тело. Содержимое запрашивает только модалка и только один
+  раз за жизнь плитки (`ContentCache`, `fileContent.ts`); показ плиток
+  `/artifacts/<id>/content` не трогает. История артефакта этапа —
+  `listArtifacts(key, {includeSuperseded: true})` при открытии модалки и
+  только у артефакта с `supersedes_id`; у вложений она уже в списке раздела.
+  Плитка вложения держится на корне цепочки версий (`versionRoot`), поэтому
+  новая версия не закрывает открытую модалку. Правила — `task/fileItem.ts` и
+  `task/attachmentRules.ts` без React, проверяются
+  `e2e/file-tile-rules.mjs`; экран — `e2e/attachments.mjs` и `e2e/task.mjs`.
+  Опоры: `data-file-tile`, `data-file-dialog`, `data-file-history`,
+  `data-file-version`, `data-file-title`, плюс прежние `data-artifact`,
+  `data-attachment`, `data-attachment-name` на самой плитке и якорь
+  `#artifact-<id>` на ней же.
 
 ## Что нельзя делать
 

@@ -11,11 +11,13 @@ import {StatusDot, Timestamp, Token, type DotVariant} from '@/components/kit';
 import {ApiError, api} from '../../api/client';
 import type {Artifact, ModelLevel, StageRun, Status, TaskDetail, TaskEvent, Workflow} from '../../api/types';
 import type {Resource} from '../../api/useResource';
-import {ArtifactView} from '../ArtifactView';
+import {ArtifactTile} from '../ArtifactView';
+import {TileGrid} from '../FileTile';
 import {Failure, Loading} from '../Feedback';
 import {GateVerdictRow} from '../Gates';
 import {ModelLevelToggle} from '../ModelLevelToggle';
 import {runModelLine} from '../modelLevel';
+import {artifactAnchor} from './fileItem';
 import {isLeaseLive} from './lease';
 import {
   exitLabel,
@@ -186,6 +188,7 @@ function StagePanel({
             reviews={attempt.reviews}
             artifacts={runArtifacts(detail.artifacts, attempt.run.id)}
             allArtifacts={detail.artifacts}
+            taskKey={detail.task.key}
             onChanged={onChanged}
             panel={{attempt, runs: detail.stage_runs, artifacts: detail.artifacts, statuses}}
           />
@@ -334,6 +337,7 @@ function StageCard({
   reviews,
   artifacts,
   allArtifacts,
+  taskKey,
   onChanged,
   panel,
 }: {
@@ -343,6 +347,7 @@ function StageCard({
   reviews: StageRun[];
   artifacts: Artifact[];
   allArtifacts: Artifact[];
+  taskKey: string;
   onChanged: () => void;
   panel: PanelContext;
 }) {
@@ -372,13 +377,11 @@ function StageCard({
           {artifacts.length === 0 ? (
             <p className="text-muted-foreground text-sm">Артефактов на этой попытке нет</p>
           ) : (
-            <div className="space-y-2">
+            <TileGrid>
               {artifacts.map((a) => (
-                <div key={a.id} id={artifactAnchor(a.id)} className="scroll-mt-20">
-                  <ArtifactView artifact={a} onChanged={onChanged} />
-                </div>
+                <ArtifactTile key={a.id} artifact={a} runs={panel.runs} taskKey={taskKey} onChanged={onChanged} />
               ))}
-            </div>
+            </TileGrid>
           )}
           {reviews.length > 0 ? (
             <div className="space-y-2 border-l-2 pl-3">
@@ -388,6 +391,8 @@ function StageCard({
                   key={review.id}
                   run={review}
                   artifacts={runArtifacts(allArtifacts, review.id)}
+                  runs={panel.runs}
+                  taskKey={taskKey}
                   onChanged={onChanged}
                 />
               ))}
@@ -399,8 +404,6 @@ function StageCard({
     </Card>
   );
 }
-
-const artifactAnchor = (id: string) => `artifact-${id}`;
 
 // Шапка попытки в панели: кто, когда, чем кончилась и откуда пришла.
 function AttemptHead({run, panel}: {run: StageRun; panel: PanelContext}) {
@@ -498,10 +501,14 @@ function RunCost({run}: {run: StageRun}) {
 function ReviewRun({
   run,
   artifacts,
+  runs,
+  taskKey,
   onChanged,
 }: {
   run: StageRun;
   artifacts: Artifact[];
+  runs: StageRun[];
+  taskKey: string;
   onChanged: () => void;
 }) {
   const role = roleWithVersion(run);
@@ -519,9 +526,13 @@ function ReviewRun({
       <RunModel run={run} />
       <RunCost run={run} />
       {run.summary ? <p className="text-muted-foreground text-sm">{run.summary}</p> : null}
-      {artifacts.map((a) => (
-        <ArtifactView key={a.id} artifact={a} onChanged={onChanged} />
-      ))}
+      {artifacts.length > 0 ? (
+        <TileGrid>
+          {artifacts.map((a) => (
+            <ArtifactTile key={a.id} artifact={a} runs={runs} taskKey={taskKey} onChanged={onChanged} />
+          ))}
+        </TileGrid>
+      ) : null}
     </div>
   );
 }

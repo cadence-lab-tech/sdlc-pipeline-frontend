@@ -1,7 +1,9 @@
 import {createHash} from 'node:crypto';
 import {session, helpers} from './driver.mjs';
 
-// Вложения в карточке задачи (CLAB-299, AC-24–AC-28). Сценарий заводит свои
+// Вложения в карточке задачи (CLAB-299, AC-24–AC-28) и плитки файлов
+// (CLAB-308): артефакты этапа и вложения — одни плитки, всё, что можно сделать
+// с файлом, — в модалке. Сценарий заводит свои
 // задачи и всё делает ручками API стенда, демонстрационные SDLC-1 и SDLC-2 не
 // трогает. Экран — настоящий, поверх живого бэкенда: файлы выбираются и
 // перетаскиваются в настоящий input и зону, сервер принимает и отдаёт их
@@ -172,13 +174,28 @@ const PAGE = `
   };
   const net = () => window.__net;
   const contentCalls = (id) => net().filter((n) => n.url && n.url.includes('/artifacts/' + id + '/content')).length;
-  const expand = async (root, label = 'Просмотр') => {
-    const b = Array.from(root.querySelectorAll('button')).find((x) => (x.innerText || '').trim() === label);
-    if (!b) throw new Error('нет кнопки: ' + label);
-    b.click();
-    await sleep(900);
-  };
   const buttons = (root) => Array.from(root.querySelectorAll('button')).map((b) => (b.innerText || '').trim());
+  // Модалка файла (CLAB-308): открывает клик по плитке, закрывает Esc.
+  const dlg = () => document.querySelector('[role=dialog][data-file-dialog]');
+  const dlgText = () => (dlg() ? dlg().innerText.replace(/\\s+/g, ' ') : '');
+  const openTile = async (tile) => {
+    if (!tile) throw new Error('нет плитки');
+    tile.click();
+    const d = await waitFor(() => dlg());
+    await sleep(700);
+    return d;
+  };
+  const closeDlg = async () => {
+    document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}));
+    await waitFor(() => !dlg(), 5000);
+    await sleep(300);
+  };
+  const dlgClick = async (label, ms = 700) => {
+    const b = Array.from(dlg().querySelectorAll('button')).find((x) => (x.innerText || '').trim() === label);
+    if (!b) throw new Error('в модалке нет кнопки: ' + label);
+    b.click();
+    await sleep(ms);
+  };
 `;
 
 const initId = await s.addInitScript(INIT);
@@ -250,8 +267,10 @@ let c = await run(`
   const el = await waitFor(() => card(${JSON.stringify(png.name)}));
   return el ? el.innerText.replace(/\\s+/g, ' ') : null;
 `);
-check('вложение появилось в списке без перезагрузки', c !== null, String(c));
-check('в строке — имя, версия 1, тип, размер, автор', c && c.includes(png.name) && c.includes('v1') && c.includes('image/png') && c.includes(`${png.size} Б`) && c.includes('web'), String(c));
+check('вложение появилось плиткой без перезагрузки', c !== null, String(c));
+const tileBtns = await run(`const t = card(${JSON.stringify(png.name)}); return {tag: t.tagName, inner: t.querySelectorAll('button, a, input').length, tile: t.hasAttribute('data-file-tile')};`);
+check('плитка вложения — одна кнопка без действий внутри', tileBtns.tag === 'BUTTON' && tileBtns.inner === 0 && tileBtns.tile, JSON.stringify(tileBtns));
+check('на плитке — имя, версия 1, тип, размер, автор', c && c.includes(png.name) && c.includes('v1') && c.includes('image/png') && c.includes(`${png.size} Б`) && c.includes('web'), String(c));
 let a = (await listed())[0];
 check('на сервере — то же вложение, sha256 совпадает', a && a.file_name === png.name && a.sha256 === png.sha && a.version === 1, JSON.stringify(a));
 let post = await run(`return net().filter((n) => n.kind === 'xhr' && /\\/attachments$/.test(n.url));`);
@@ -298,18 +317,23 @@ check('интерфейс видит viewer', me.includes('viewer'), JSON.string
 const viewerPick = await run(`
   const sec = section();
   const input = inputFor(sec, 'Выбрать файл');
-  const nv = Array.from(sec.querySelectorAll('label')).filter((l) => l.innerText.trim() === 'Новая версия').length;
+  await openTile(card(${JSON.stringify(png.name)}));
+  const nv = Array.from(dlg().querySelectorAll('label')).filter((l) => l.innerText.trim() === 'Новая версия').length;
+  await closeDlg();
   return {pick: !input.disabled, newVersion: nv};
 `);
-check('кнопки прикрепления и «Новая версия» у viewer не спрятаны', viewerPick.pick && viewerPick.newVersion >= 1, JSON.stringify(viewerPick));
+check('кнопки прикрепления и «Новая версия» (в модалке) у viewer не спрятаны', viewerPick.pick && viewerPick.newVersion === 1, JSON.stringify(viewerPick));
 const viewerFile = file('от-заказчика.csv', 'text/csv', CSV);
 await attach(viewerFile);
 c = await run(`const el = await waitFor(() => card(${JSON.stringify(viewerFile.name)})); return el ? el.innerText.replace(/\\s+/g, ' ') : null;`);
 check('viewer прикрепил файл: 201 и запись в списке', c !== null && c.includes('v1'), String(c));
 const base = (await listed()).find((x) => x.file_name === png.name);
-await run(`setFiles(inputFor(card(${JSON.stringify(png.name)}), 'Новая версия'), [${JSON.stringify(file(png.name, 'image/png', PNG2))}]); return true;`);
+await run(`await openTile(card(${JSON.stringify(png.name)})); setFiles(inputFor(dlg(), 'Новая версия'), [${JSON.stringify(file(png.name, 'image/png', PNG2))}]); return true;`);
 c = await run(`const el = await waitFor(() => card(${JSON.stringify(png.name)}) && card(${JSON.stringify(png.name)}).innerText.includes('v2')); return Boolean(el);`);
-check('viewer выпустил новую версию: в списке v2', c === true);
+check('viewer выпустил новую версию: на плитке v2', c === true);
+c = await run(`await sleep(800); return {open: Boolean(dlg()), text: dlgText().slice(0, 200)};`);
+check('новая версия не закрыла модалку: в ней уже v2', c.open && c.text.includes('v2'), JSON.stringify(c));
+await run(`await closeDlg(); return true;`);
 post = await run(`return net().filter((n) => n.kind === 'xhr' && /\\/attachments$/.test(n.url)).at(-1);`);
 check('запрос новой версии несёт supersedes_id прежней, поля до file',
   post && post.fields.supersedes_id === base.id && JSON.stringify(post.keys) === JSON.stringify(['title', 'supersedes_id', 'file']), JSON.stringify(post));
@@ -317,14 +341,24 @@ check('запрос новой версии несёт supersedes_id прежн�
 // ── версии (AC-26.1, AC-26.3) ───────────────────────────────────────────────
 console.log('версии');
 await open();
+check('прежняя версия отдельной плиткой не показана', (await run(`return document.querySelectorAll('[data-attachment-name=' + JSON.stringify(${JSON.stringify(png.name)}) + ']').length;`)) === 1);
 const hist = await run(`
-  const root = card(${JSON.stringify(png.name)});
-  const b = Array.from(root.querySelectorAll('button')).find((x) => (x.innerText || '').trim().startsWith('История версий'));
+  await openTile(card(${JSON.stringify(png.name)}));
+  const root = dlg();
+  const b = Array.from(root.querySelectorAll('[data-file-history] button')).find((x) => (x.innerText || '').trim().startsWith('История версий'));
   const before = b ? b.innerText.trim() : null;
   if (b) { b.click(); await sleep(700); }
-  return {before, text: root.innerText.replace(/\\s+/g, ' '), prev: root.querySelectorAll('[data-attachment-version]').length};
+  return {before, text: root.innerText.replace(/\\s+/g, ' '), prev: root.querySelectorAll('[data-file-version]').length};
 `);
 check('текущая версия — вторая, история версий раскрывается по действию', hist.before === 'История версий (1)' && hist.prev === 1 && hist.text.includes('v2') && hist.text.includes('v1'), JSON.stringify(hist));
+const oldVer = await run(`
+  dlg().querySelector('[data-file-version]').click();
+  await sleep(1000);
+  const t = dlgText();
+  return {t: t.slice(0, 300), newVersion: Array.from(dlg().querySelectorAll('label')).some((l) => l.innerText.trim() === 'Новая версия'), back: Boolean(dlg().querySelector('[data-file-old]')), img: Boolean(dlg().querySelector('img[data-file-preview=image]'))};
+`);
+check('прежняя версия открывается: превью, «К текущей», «Новой версии» для неё нет', oldVer.img && oldVer.back && !oldVer.newVersion && oldVer.t.includes('v1'), JSON.stringify(oldVer));
+await run(`await closeDlg(); return true;`);
 const all2 = await listed(KEY, true);
 check('на сервере прежняя версия осталась (superseded), удаления нет',
   all2.filter((x) => x.file_name === png.name).map((x) => `${x.version}:${x.status}`).sort().join() === '1:superseded,2:submitted', JSON.stringify(all2.map((x) => [x.file_name, x.version, x.status])));
@@ -341,12 +375,14 @@ form.append('file', new Blob(['вторая'], {type: 'text/plain'}), stale.name
 const rival = await fetch(`${API}/v1/tasks/${KEY}/attachments`, {method: 'POST', headers: {'X-SDLC-Actor': 'rival'}, body: form});
 check('параллельная версия принята сервером', rival.status === 201, String(rival.status));
 const before409 = (await listed(KEY, true)).length;
-await run(`setFiles(inputFor(card(${JSON.stringify(stale.name)}), 'Новая версия'), [${JSON.stringify(file(stale.name, 'text/plain', Buffer.from('третья')))}]); return true;`);
+await run(`await openTile(card(${JSON.stringify(stale.name)})); setFiles(inputFor(dlg(), 'Новая версия'), [${JSON.stringify(file(stale.name, 'text/plain', Buffer.from('третья')))}]); return true;`);
 c = await run(`
-  await waitFor(() => card(${JSON.stringify(stale.name)}).innerText.includes('Новая версия не отправлена'));
-  return card(${JSON.stringify(stale.name)}).innerText.replace(/\\s+/g, ' ');
+  await waitFor(() => dlgText().includes('Новая версия не отправлена'));
+  return dlgText();
 `);
-check('отказ 409 показан рядом с записью текстом сервера', c.includes('Новая версия не отправлена') && c.length > 120, c);
+check('отказ 409 показан в модалке текстом сервера', c.includes('Новая версия не отправлена') && c.length > 120, c);
+c = await run(`const t = card(${JSON.stringify(stale.name)}).innerText; await closeDlg(); return t.replace(/\\s+/g, ' ');`);
+check('плитка после отказа не изменилась (v1)', c.includes('v1') && !c.includes('v2'), c);
 check('отказ не добавил версий на сервере', (await listed(KEY, true)).length === before409);
 
 // ── AC-25: превью и скачивание ──────────────────────────────────────────────
@@ -363,32 +399,41 @@ const idOf = async (name) => (await listed()).find((x) => x.file_name === name)?
 const pngId = (await listed()).find((x) => x.file_name === png.name).id;
 check('превью не грузится при показе списка (нет запросов содержимого)', (await run(`return net().filter((n) => n.url && n.url.includes('/content')).length;`)) === 0);
 const pngView = await run(`
-  const root = card(${JSON.stringify(png.name)});
-  await expand(root.querySelector('[data-file-body]'));
+  const root = await openTile(card(${JSON.stringify(png.name)}));
   const img = root.querySelector('img[data-file-preview=image]');
-  return {src: img ? img.getAttribute('src') : null, calls: contentCalls(${JSON.stringify(pngId)})};
+  const src = img ? img.getAttribute('src') : null;
+  const calls = contentCalls(${JSON.stringify(pngId)});
+  await closeDlg();
+  await openTile(card(${JSON.stringify(png.name)}));
+  const again = contentCalls(${JSON.stringify(pngId)});
+  await closeDlg();
+  return {src, calls, again};
 `);
-check('PNG — картинка из blob-ссылки, один запрос содержимого', pngView.src && pngView.src.startsWith('blob:') && pngView.calls === 1, JSON.stringify(pngView));
+check('PNG — картинка из blob-ссылки в модалке, один запрос содержимого', pngView.src && pngView.src.startsWith('blob:') && pngView.calls === 1, JSON.stringify(pngView));
+check('повторное открытие модалки запроса не добавляет', pngView.again === 1, JSON.stringify(pngView));
 const pdfId = await idOf(pdf.name);
 const pdfView = await run(`
-  const root = card(${JSON.stringify(pdf.name)});
-  await expand(root.querySelector('[data-file-body]'));
+  const root = await openTile(card(${JSON.stringify(pdf.name)}));
   const f = root.querySelector('iframe[data-file-preview=pdf]');
-  return {src: f ? f.getAttribute('src') : null, calls: contentCalls(${JSON.stringify(pdfId)})};
+  const r = {src: f ? f.getAttribute('src') : null, calls: contentCalls(${JSON.stringify(pdfId)})};
+  await closeDlg();
+  return r;
 `);
 check('PDF — встроенный просмотр из blob-ссылки', pdfView.src && pdfView.src.startsWith('blob:') && pdfView.calls === 1, JSON.stringify(pdfView));
 const mdView = await run(`
-  const root = card(${JSON.stringify(md.name)});
-  await expand(root.querySelector('[data-file-body]'));
+  const root = await openTile(card(${JSON.stringify(md.name)}));
   const t = root.querySelector('[data-file-preview=text]');
-  return {h1: t ? Boolean(t.querySelector('h1')) : null, text: t ? t.innerText : null};
+  const r = {h1: t ? Boolean(t.querySelector('h1')) : null, text: t ? t.innerText : null};
+  await closeDlg();
+  return r;
 `);
 check('markdown — разметкой, кириллица читается', mdView.h1 === true && mdView.text.includes('Привет, мир — кириллица читается'), JSON.stringify(mdView));
 const csvView = await run(`
-  const root = card('данные.csv');
-  await expand(root.querySelector('[data-file-body]'));
+  const root = await openTile(card('данные.csv'));
   const t = root.querySelector('[data-file-preview=text]');
-  return {text: t ? t.innerText : null, pre: t ? Boolean(t.querySelector('pre, h1')) : null};
+  const r = {text: t ? t.innerText : null, pre: t ? Boolean(t.querySelector('pre, h1')) : null};
+  await closeDlg();
+  return r;
 `);
 check('csv — текстом, кириллица читается', csvView.text && csvView.text.includes('Ёжик') && csvView.text.includes('имя;цвет') && csvView.pre === false, JSON.stringify(csvView));
 
@@ -409,25 +454,29 @@ await open();
 for (const f of others) {
   const id = await idOf(f.name);
   const st = await run(`
-    const root = card(${JSON.stringify(f.name)});
-    return {btns: buttons(root), embeds: root.querySelectorAll('iframe, object, embed, img, [data-file-preview]').length,
+    const root = await openTile(card(${JSON.stringify(f.name)}));
+    const r = {btns: buttons(root), embeds: root.querySelectorAll('iframe, object, embed, img, [data-file-preview]:not([data-file-preview=none])').length,
+      note: Boolean(root.querySelector('[data-file-preview=none]')),
       calls: contentCalls(${JSON.stringify(id)}), pwned: window.__pwned ?? null};
+    await closeDlg();
+    return r;
   `);
-  check(`${f.name}: только «Скачать», превью и blob нет, содержимое не запрашивалось`,
-    st.btns.includes('Скачать') && !st.btns.includes('Просмотр') && st.embeds === 0 && st.calls === 0 && st.pwned === null, JSON.stringify(st));
+  check(`${f.name}: в модалке только «Скачать», превью и blob нет, содержимое не запрашивалось`,
+    st.btns.includes('Скачать') && st.note && st.embeds === 0 && st.calls === 0 && st.pwned === null, JSON.stringify(st));
 }
 // Скачивание: запрос с токеном, имя и содержимое (AC-25.4, AC-28.2)
 const dl = async (name, expected) => {
   const id = await idOf(name.replace('"', '%22'));
+  // Модалка открыта до замера: превью (если оно есть у типа) уже запросило
+  // содержимое, и считается только запрос самого скачивания.
+  await run(`await openTile(card(${JSON.stringify(name.replace('"', '%22'))})); return true;`);
   const before = await run(`return {calls: contentCalls(${JSON.stringify(id)}), url: location.href, n: window.__downloads.length};`);
   await run(`
-    const root = card(${JSON.stringify(name.replace('"', '%22'))});
-    const b = Array.from(root.querySelectorAll('button')).find((x) => (x.innerText || '').trim() === 'Скачать');
-    b.click();
+    await dlgClick('Скачать', 100);
     await waitFor(() => window.__downloads.length > ${before.n} && window.__downloads.at(-1).sha, 15000);
     return true;
   `);
-  const got = await run(`return {d: window.__downloads.at(-1), calls: contentCalls(${JSON.stringify(id)}), url: location.href, pwned: window.__pwned ?? null};`);
+  const got = await run(`const r = {d: window.__downloads.at(-1), calls: contentCalls(${JSON.stringify(id)}), url: location.href, pwned: window.__pwned ?? null}; await closeDlg(); return r;`);
   return {before, got, expected};
 };
 for (const f of [others[3], others[4], quote, pdf]) {
@@ -437,7 +486,7 @@ for (const f of [others[3], others[4], quote, pdf]) {
     got.calls === before.calls + 1 && got.d && got.d.name === stored && got.d.sha === f.sha && got.d.href.startsWith('blob:'), JSON.stringify(got));
   check(`${f.name}: страница не ушла на содержимое`, got.url === before.url && got.pwned === null, JSON.stringify(got));
 }
-c = await run(`return card('a%22b.png').querySelector('[data-attachment-title]').innerText.trim();`);
+c = await run(`return card('a%22b.png').querySelector('[data-file-title]').innerText.trim();`);
 check('имя с %22 показано как хранит сервер (не раскодировано)', c === 'a%22b.png', c);
 
 // AC-28.3: PNG с HTML внутри — превью нет, остаётся «Скачать»
@@ -446,10 +495,11 @@ const fake = file('evil.png', 'image/png', HTML);
 await attach(fake);
 await run(`await waitFor(() => card('evil.png')); return true;`);
 const fakeView = await run(`
-  const root = card('evil.png');
-  await expand(root.querySelector('[data-file-body]'));
-  return {img: root.querySelectorAll('img').length, blocked: Boolean(root.querySelector('[data-file-preview=blocked]')),
+  const root = await openTile(card('evil.png'));
+  const r = {img: root.querySelectorAll('img').length, blocked: Boolean(root.querySelector('[data-file-preview=blocked]')),
     text: root.innerText.replace(/\\s+/g, ' '), btns: buttons(root), pwned: window.__pwned ?? null};
+  await closeDlg();
+  return r;
 `);
 check('PNG с HTML внутри: картинки нет, сообщение и «Скачать»',
   fakeView.img === 0 && fakeView.blocked && fakeView.btns.includes('Скачать') && fakeView.pwned === null, JSON.stringify(fakeView));
@@ -459,9 +509,10 @@ const win = file('win1251.txt', 'text/plain', WIN1251);
 await attach(win);
 await run(`await waitFor(() => card('win1251.txt')); return true;`);
 const winView = await run(`
-  const root = card('win1251.txt');
-  await expand(root.querySelector('[data-file-body]'));
-  return {blocked: root.querySelector('[data-file-preview=blocked]')?.innerText ?? null, text: root.querySelector('[data-file-preview=text]')};
+  const root = await openTile(card('win1251.txt'));
+  const r = {blocked: root.querySelector('[data-file-preview=blocked]')?.innerText ?? null, text: root.querySelector('[data-file-preview=text]')};
+  await closeDlg();
+  return r;
 `);
 check('текст не в UTF-8: просмотра нет, объяснение и «Скачать»', winView.blocked && /UTF-8/.test(winView.blocked) && winView.text === null, JSON.stringify(winView));
 const bigText = big('длинный.txt', 'text/plain', MIB + 1);
@@ -469,11 +520,13 @@ await attach(bigText);
 await run(`await waitFor(() => card('длинный.txt'), 40000); return true;`);
 const bigId = await idOf('длинный.txt');
 const bigView = await run(`
-  const root = card('длинный.txt');
-  return {btns: buttons(root), note: root.innerText.replace(/\\s+/g, ' '), calls: contentCalls(${JSON.stringify(bigId)})};
+  const root = await openTile(card('длинный.txt'));
+  const r = {btns: buttons(root), note: dlgText(), calls: contentCalls(${JSON.stringify(bigId)})};
+  await closeDlg();
+  return r;
 `);
-check('текст крупнее 1 МиБ: «Просмотра» нет, сказано про предел, содержимое не запрашивалось',
-  !bigView.btns.includes('Просмотр') && bigView.btns.includes('Скачать') && /Крупнее 1 МиБ/.test(bigView.note) && bigView.calls === 0, JSON.stringify(bigView));
+check('текст крупнее 1 МиБ: сказано про предел, есть «Скачать», содержимое не запрашивалось',
+  bigView.btns.includes('Скачать') && /Крупнее 1 МиБ/.test(bigView.note) && bigView.calls === 0, JSON.stringify(bigView));
 
 // ── AC-24.2, AC-24.3, AC-24.7: предел файла ────────────────────────────────
 console.log('предел файла');
@@ -589,36 +642,189 @@ check('диалог закрылся', dlg === false);
 
 await open(flow.key, `?stage=${stageNow}`);
 await run(`await waitFor(() => document.querySelector('[data-artifact="${sub.id}"]')); return true;`);
+const txt = arts.find((x) => x.kind === 'analysis.open_questions');
 const panel = await run(`
   const el = document.querySelector('[data-artifact="${sub.id}"]');
-  return {text: el.innerText.replace(/\\s+/g, ' '), btns: buttons(el), calls: contentCalls(${JSON.stringify(sub.id)}), file: el.querySelector('[data-artifact-file]')?.innerText ?? null};
+  return {text: el.innerText.replace(/\\s+/g, ' '), tag: el.tagName, tile: el.hasAttribute('data-file-tile'), inner: el.querySelectorAll('button, a, input').length,
+    inRun: Boolean(el.closest('[data-run-id]')), calls: net().filter((n) => n.url && n.url.includes('/content')).length, anchor: el.id};
 `);
-check('файл в панели этапа: имя, тип, размер, версия, «Скачать»; текст не запрашивался',
-  panel.file && panel.file.includes('макет.png') && panel.file.includes('image/png') && panel.file.includes(`${PNG.length} Б`) && panel.text.includes('v1') && panel.btns.includes('Скачать') && panel.calls === 0, JSON.stringify(panel));
-check('у файла этапа «Принять» остаётся (он участвует в гейтах)', panel.btns.includes('Принять'));
+check('файл этапа — плитка внутри своей попытки: заголовок, имя, тип, размер, версия',
+  panel.tile && panel.inRun && panel.text.includes('Макет экрана') && panel.text.includes('макет.png') && panel.text.includes('image/png') && panel.text.includes(`${PNG.length} Б`) && panel.text.includes('v1'), JSON.stringify(panel));
+check('в тексте плитки роль прогона с версией', /analyst\S* v\d+|\w+ v\d+/.test(panel.text), JSON.stringify(panel.text));
+check('плитка — одна кнопка, вложенных действий нет, якорь artifact-<id>', panel.tag === 'BUTTON' && panel.inner === 0 && panel.anchor === 'artifact-' + sub.id, JSON.stringify(panel));
+check('показ плиток не запрашивает содержимое (AC-5)', panel.calls === 0, JSON.stringify(panel));
+check('«Принять», «Копировать», «Содержимое» на плитке нет', !/Принять|Копировать|Содержимое|Открыть целиком|Скачать/.test(panel.text), panel.text);
+
+// Файл этапа в модалке: превью, «Скачать», «Принять» (он участвует в гейтах).
+const fileDlg = await run(`
+  await openTile(document.querySelector('[data-artifact="${sub.id}"]'));
+  return {btns: buttons(dlg()), img: Boolean(dlg().querySelector('img[data-file-preview=image]')), text: dlgText()};
+`);
+check('модалка файла этапа: превью, «Скачать», «Принять»', fileDlg.img && fileDlg.btns.includes('Скачать') && fileDlg.btns.includes('Принять') && !fileDlg.btns.includes('Копировать'), JSON.stringify(fileDlg));
 const dl2 = await run(`
   const n = window.__downloads.length;
-  const el = document.querySelector('[data-artifact="${sub.id}"]');
-  Array.from(el.querySelectorAll('button')).find((x) => x.innerText.trim() === 'Скачать').click();
+  await dlgClick('Скачать', 100);
   await waitFor(() => window.__downloads.length > n && window.__downloads.at(-1).sha, 15000);
-  return window.__downloads.at(-1);
+  const r = window.__downloads.at(-1);
+  await closeDlg();
+  return r;
 `);
 check('скачивание файла этапа: имя и sha256', dl2.name === 'макет.png' && dl2.sha === shot.sha, JSON.stringify(dl2));
-const txt = arts.find((x) => x.kind === 'analysis.open_questions');
-const txtBtns = await run(`
-  const el = document.querySelector('[data-artifact="${txt.id}"]');
-  return buttons(el);
+
+// Текстовый артефакт: чтение, копирование, скачивание — в модалке.
+const before5 = await run(`return contentCalls(${JSON.stringify(txt.id)});`);
+const txtDlg = await run(`
+  await openTile(document.querySelector('[data-artifact="${txt.id}"]'));
+  return {btns: buttons(dlg()), text: dlgText(), calls: contentCalls(${JSON.stringify(txt.id)})};
 `);
-check('у текстового артефакта тоже есть «Скачать»', txtBtns.includes('Скачать') && txtBtns.includes('Содержимое'), JSON.stringify(txtBtns));
+check('модалка текста: «Копировать», «Скачать», «Принять», тело разметкой', txtDlg.btns.includes('Копировать') && txtDlg.btns.includes('Скачать') && txtDlg.btns.includes('Принять') && txtDlg.text.includes('Как дела?'), JSON.stringify(txtDlg));
+check('открытие модалки — ровно один запрос содержимого', before5 === 0 && txtDlg.calls === 1, JSON.stringify([before5, txtDlg]));
 const dl3 = await run(`
   const n = window.__downloads.length;
-  const el = document.querySelector('[data-artifact="${txt.id}"]');
-  Array.from(el.querySelectorAll('button')).find((x) => x.innerText.trim() === 'Скачать').click();
+  await dlgClick('Скачать', 100);
   await waitFor(() => window.__downloads.length > n && window.__downloads.at(-1).sha, 15000);
   return window.__downloads.at(-1);
 `);
 check('скачивание текста: имя из вида и версии, содержимое то, что сдано',
   dl3.name === 'analysis.open_questions-v1.md' && dl3.sha === sha('# Вопросы\n\nКак дела?'), JSON.stringify(dl3));
+// Буфер обмена: разрешение выдаёт драйвер, копия — байт в байт.
+await s.grant(['clipboardReadWrite', 'clipboardSanitizedWrite'], BASE);
+const copied = await run(`
+  await dlgClick('Копировать', 400);
+  try { return await navigator.clipboard.readText(); } catch (e) { return 'ERR ' + e; }
+`);
+check('«Копировать» кладёт в буфер исходный текст', copied === '# Вопросы\n\nКак дела?', JSON.stringify(copied));
+const copiedFrom = await (await fetch(`${API}/v1/artifacts/${txt.id}/content`, {headers: {'X-SDLC-Actor': 'e2e'}})).text();
+check('буфер совпадает с содержимым с сервера', copied === copiedFrom);
+
+// Принять в модалке (AC-9)
+await run(`await dlgClick('Принять', 1500); return true;`);
+const acc = await run(`return {btns: buttons(dlg()), tile: document.querySelector('[data-artifact="${txt.id}"]').innerText};`);
+check('после «Принять» кнопки в модалке нет, на плитке «принят»', !acc.btns.includes('Принять') && /принят/.test(acc.tile), JSON.stringify(acc));
+const approvedNow = (await get(`/v1/tasks/${flow.key}`)).artifacts.find((x) => x.id === txt.id);
+check('на сервере у артефакта заполнен approved_by', Boolean(approvedNow?.approved_by), JSON.stringify(approvedNow));
+await run(`await closeDlg(); return true;`);
+const focusBack = await run(`return document.activeElement && document.activeElement.getAttribute('data-artifact');`);
+check('Esc закрыл модалку, фокус вернулся на плитку', focusBack === txt.id, String(focusBack));
+// Enter на плитке в фокусе открывает модалку так же, как клик.
+await run(`document.querySelector('[data-artifact="${txt.id}"]').focus(); return true;`);
+await s.key('Enter', 'Enter', 13, '\r');
+await wait(900);
+check('Enter на плитке в фокусе открывает модалку', (await run(`return Boolean(dlg());`)) === true);
+await run(`await closeDlg(); return true;`);
+
+// ── история версий артефакта этапа (AC-3, AC-10) ────────────────────────────
+console.log('история версий артефакта этапа');
+const v2 = await (await api('POST', `/v1/tasks/${flow.key}/artifacts`, {kind: 'analysis.open_questions', title: 'Вопросы', format: 'markdown', content: '# Вопросы\n\nВторая версия.', supersedes_id: txt.id}, 'agent:analyst-bot')).json();
+check('вторая версия сдана через supersedes_id', v2.version === 2 && v2.supersedes_id === txt.id, JSON.stringify(v2));
+await open(flow.key, `?stage=${stageNow}`);
+await run(`await waitFor(() => document.querySelector('[data-artifact="${v2.id}"]')); return true;`);
+const chain = await run(`
+  return {cur: document.querySelectorAll('[data-artifact="${v2.id}"]').length, old: document.querySelectorAll('[data-artifact="${txt.id}"]').length,
+    superseded: net().filter((n) => n.url && /\\/artifacts\\?include_superseded/.test(n.url)).length};
+`);
+check('на цепочку одна плитка — текущая версия; прежней плитки нет', chain.cur === 1 && chain.old === 0, JSON.stringify(chain));
+check('история не запрашивается, пока модалка закрыта', chain.superseded === 0, JSON.stringify(chain));
+const histDlg = await run(`
+  await openTile(document.querySelector('[data-artifact="${v2.id}"]'));
+  const h = dlg().querySelector('[data-file-history]');
+  const trigger = h && h.querySelector('button');
+  const label = trigger ? trigger.innerText.trim() : null;
+  if (trigger) { trigger.click(); await sleep(600); }
+  return {label, versions: dlg().querySelectorAll('[data-file-version]').length, net: net().filter((n) => n.url && /\\/artifacts\\?include_superseded=true/.test(n.url)).length, text: dlgText().slice(0, 300)};
+`);
+check('при открытии модалки — один запрос с include_superseded, блок «История версий (1)»', histDlg.label === 'История версий (1)' && histDlg.versions === 1 && histDlg.net === 1, JSON.stringify(histDlg));
+const oldArt = await run(`
+  dlg().querySelector('[data-file-version="${txt.id}"]').click();
+  await sleep(1000);
+  const btns = buttons(dlg());
+  const r = {text: dlgText(), btns, old: Boolean(dlg().querySelector('[data-file-old]'))};
+  const n = window.__downloads.length;
+  await dlgClick('Скачать', 100);
+  await waitFor(() => window.__downloads.length > n && window.__downloads.at(-1).sha, 15000);
+  r.dl = window.__downloads.at(-1);
+  return r;
+`);
+check('прежняя версия: содержимое v1, «Копировать» и «Скачать» есть, «Принять» нет',
+  oldArt.text.includes('Как дела?') && oldArt.btns.includes('Копировать') && oldArt.btns.includes('Скачать') && !oldArt.btns.includes('Принять') && oldArt.old, JSON.stringify(oldArt).slice(0, 400));
+check('скачивание прежней версии: analysis.open_questions-v1.md, содержимое первой версии', oldArt.dl.name === 'analysis.open_questions-v1.md' && oldArt.dl.sha === sha('# Вопросы\n\nКак дела?'), JSON.stringify(oldArt.dl));
+await run(`await closeDlg(); return true;`);
+
+// ── вёрстка: узкий экран, тёмная тема, живой опрос (AC-14–AC-17) ────────────
+console.log('вёрстка и живой опрос');
+await s.resize(1440, 900);
+await open(flow.key, `?stage=${stageNow}`);
+await run(`await waitFor(() => document.querySelector('[data-artifact="${v2.id}"]')); return true;`);
+const wide = await run(`
+  const tiles = Array.from(document.querySelectorAll('[data-run-id] [data-file-tile]'));
+  const tops = new Set(tiles.map((t) => Math.round(t.getBoundingClientRect().top)));
+  return {tiles: tiles.length, rows: tops.size};
+`);
+check('1440×900: в ряду больше одной плитки', wide.tiles >= 2 && wide.rows < wide.tiles, JSON.stringify(wide));
+await s.resize(375, 800);
+await open(flow.key, `?stage=${stageNow}`);
+await run(`await waitFor(() => document.querySelector('[data-artifact="${v2.id}"]')); return true;`);
+const narrow = await run(`
+  const tiles = Array.from(document.querySelectorAll('[data-run-id] [data-file-tile]'));
+  const lefts = new Set(tiles.map((t) => Math.round(t.getBoundingClientRect().left)));
+  const de = document.documentElement;
+  return {tiles: tiles.length, cols: lefts.size, page: de.scrollWidth <= de.clientWidth, over: tiles.filter((t) => t.getBoundingClientRect().right > de.clientWidth).length};
+`);
+check('375×800: плитки этапа в одну колонку и не выходят за край', narrow.tiles >= 2 && narrow.cols === 1 && narrow.page && narrow.over === 0, JSON.stringify(narrow));
+const narrowAtt = await run(`
+  const de = document.documentElement;
+  const tiles = Array.from(document.querySelectorAll('[data-attachments] [data-file-tile]'));
+  const lefts = new Set(tiles.map((t) => Math.round(t.getBoundingClientRect().left)));
+  return {tiles: tiles.length, cols: lefts.size, page: de.scrollWidth <= de.clientWidth};
+`);
+check('375×800: плитки вложений в одну колонку', narrowAtt.cols <= 1 && narrowAtt.page, JSON.stringify(narrowAtt));
+const narrowDlg = await run(`
+  await openTile(document.querySelector('[data-artifact="${sub.id}"]'));
+  const d = dlg();
+  const de = document.documentElement;
+  const acts = d.querySelector('[data-file-actions]');
+  const body = d.querySelector('[data-file-body]');
+  const r = {dlgFits: d.scrollWidth <= d.clientWidth && d.getBoundingClientRect().right <= de.clientWidth, page: de.scrollWidth <= de.clientWidth,
+    actions: acts.scrollWidth <= acts.clientWidth, bodyScroll: getComputedStyle(body).overflowY, w: d.getBoundingClientRect().width};
+  await closeDlg();
+  await openTile(document.querySelector('[data-artifact="${v2.id}"]'));
+  const t = dlg().querySelector('[data-file-body]');
+  r.textBody = getComputedStyle(t).overflowY;
+  r.dlgFits2 = dlg().scrollWidth <= dlg().clientWidth;
+  await closeDlg();
+  return r;
+`);
+check('375×800: модалка не шире окна, действия видны, тело прокручивается внутри', narrowDlg.dlgFits && narrowDlg.dlgFits2 && narrowDlg.page && narrowDlg.actions && narrowDlg.bodyScroll === 'auto' && narrowDlg.textBody === 'auto', JSON.stringify(narrowDlg));
+
+// Тёмная тема: цвета различимы, фон плитки не белый.
+await s.resize(1440, 900);
+await run(`document.documentElement.classList.add('dark'); await sleep(400); return true;`);
+const dark = await run(`
+  const tile = document.querySelector('[data-artifact="${v2.id}"]');
+  const cs = getComputedStyle(tile);
+  const r = {tileColor: cs.color, tileBg: cs.backgroundColor};
+  await openTile(tile);
+  const d = getComputedStyle(dlg());
+  r.dlgColor = d.color; r.dlgBg = d.backgroundColor;
+  await closeDlg();
+  return r;
+`);
+check('тёмная тема: цвет и фон плитки и модалки различимы, фон плитки не белый',
+  dark.tileColor !== dark.tileBg && dark.dlgColor !== dark.dlgBg && dark.tileBg !== 'rgb(255, 255, 255)', JSON.stringify(dark));
+await run(`document.documentElement.classList.remove('dark'); return true;`);
+
+// Живой опрос (аренда жива): открытая модалка переживает циклы опроса и не
+// перезапрашивает содержимое (AC-17, R10).
+const poll = await run(`
+  await openTile(document.querySelector('[data-artifact="${v2.id}"]'));
+  const before = {calls: contentCalls(${JSON.stringify(v2.id)}), cards: net().filter((n) => /\\/v1\\/tasks\\/[^/?]+$/.test(n.url || '')).length};
+  await sleep(23000);
+  const after = {calls: contentCalls(${JSON.stringify(v2.id)}), cards: net().filter((n) => /\\/v1\\/tasks\\/[^/?]+$/.test(n.url || '')).length, open: Boolean(dlg())};
+  await closeDlg();
+  return {before, after};
+`);
+check('живой опрос: карточка перезапрошена минимум дважды, модалка открыта, содержимое не перезапрошено',
+  poll.after.cards - poll.before.cards >= 2 && poll.after.open && poll.after.calls === poll.before.calls && poll.before.calls === 1, JSON.stringify(poll));
 
 await s.removeInitScript(initId);
 s.close();

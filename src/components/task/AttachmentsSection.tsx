@@ -1,28 +1,21 @@
 import {useId, useMemo, useState} from 'react';
-import {ChevronRight, Paperclip, Upload} from 'lucide-react';
+import {Upload} from 'lucide-react';
 import {toast} from 'sonner';
 
 import {cn} from '@/lib/utils';
-import {Button, buttonVariants} from '@/components/ui/button';
-import {Collapsible, CollapsibleContent, CollapsibleTrigger} from '@/components/ui/collapsible';
-import {Note, Section, Timestamp, Token} from '@/components/kit';
+import {buttonVariants} from '@/components/ui/button';
+import {Note, Section} from '@/components/kit';
 
 import {ApiError, api} from '../../api/client';
 import type {Attachment} from '../../api/types';
 import {useResource} from '../../api/useResource';
 import {useInstance} from '../../hooks/useInstance';
 import {Failure, Loading} from '../Feedback';
-import {FileBody, type FileRef} from '../FileViewer';
-import {buildForm, fileLimitProblem, formatBytes, groupVersions} from './attachmentRules';
+import {FileTile, TileGrid} from '../FileTile';
+import {buildForm, fileLimitProblem, formatBytes, groupVersions, versionRoot} from './attachmentRules';
+import {attachmentItem} from './fileItem';
 
 const toError = (err: unknown) => (err instanceof ApiError ? err : new ApiError('internal', String(err)));
-
-const fileOf = (a: Attachment): FileRef => ({
-  id: a.id,
-  name: a.file_name,
-  mediaType: a.media_type,
-  sizeBytes: a.size_bytes,
-});
 
 interface Progress {
   name: string;
@@ -32,9 +25,9 @@ interface Progress {
   target?: string;
 }
 
-// Раздел «Вложения» карточки задачи (CLAB-299): список, прикрепление
-// перетаскиванием или выбором файла, новая версия, история версий, просмотр и
-// «Скачать». Виден у задачи любого типа и в любом статусе — состояния задачи
+// Раздел «Вложения» карточки задачи (CLAB-299): плитки файлов (CLAB-308),
+// прикрепление перетаскиванием или выбором файла; новая версия, история
+// версий, просмотр и «Скачать» — в модалке плитки. Виден у задачи любого типа и в любом статусе — состояния задачи
 // раздел не знает, а права прикреплять проверяет сервер: кнопки по уровню
 // участника не прячутся.
 export function Attachments({taskKey, refreshToken}: {taskKey: string; refreshToken: number}) {
@@ -134,23 +127,32 @@ export function Attachments({taskKey, refreshToken}: {taskKey: string; refreshTo
           </p>
         ) : null}
 
-        {groups.map(({current, history}) => (
-          <AttachmentCard
-            key={current.id}
-            current={current}
-            history={history}
-            busy={busy}
-            progress={progress?.target === current.id ? progress : undefined}
-            error={failure?.target === current.id ? failure.error : undefined}
-            onVersion={(file) => void send([file], current)}
-          />
-        ))}
+        {groups.length > 0 ? (
+          <TileGrid>
+            {groups.map(({current, history}) => (
+              <AttachmentTile
+                // Ключ — корень цепочки: новая версия не пересоздаёт плитку,
+                // и открытая модалка остаётся открытой.
+                key={versionRoot(current, history)}
+                current={current}
+                history={history}
+                busy={busy}
+                progress={progress?.target === current.id ? progress : undefined}
+                error={failure?.target === current.id ? failure.error : undefined}
+                onVersion={(file) => void send([file], current)}
+              />
+            ))}
+          </TileGrid>
+        ) : null}
       </div>
     </Section>
   );
 }
 
-function AttachmentCard({
+// Плитка вложения (CLAB-308): тот же вид, что у артефакта этапа. «Новая
+// версия», прогресс отправки и ошибка отправки — в модалке плитки; для прежней
+// версии из истории новой версии не выпустить, и кнопки там нет.
+function AttachmentTile({
   current,
   history,
   busy,
@@ -167,10 +169,12 @@ function AttachmentCard({
 }) {
   const versionId = useId();
   return (
-    <div className="space-y-2 rounded-lg border p-3" data-attachment={current.id} data-attachment-name={current.file_name}>
-      <AttachmentHead
-        item={current}
-        end={
+    <FileTile
+      item={attachmentItem(current)}
+      history={history.map(attachmentItem)}
+      attrs={{'data-attachment': current.id, 'data-attachment-name': current.file_name}}
+      actions={({current: isCurrent}) =>
+        isCurrent ? (
           <FilePick
             id={versionId}
             label="Новая версия"
@@ -178,61 +182,17 @@ function AttachmentCard({
             variant="ghost"
             onFiles={(files) => files[0] && onVersion(files[0])}
           />
-        }
-      />
-      {progress ? <UploadProgress progress={progress} /> : null}
-      {error ? <Failure error={error} title="Новая версия не отправлена" /> : null}
-      <FileBody file={fileOf(current)} />
-      {history.length > 0 ? (
-        <Collapsible data-attachment-history={current.id}>
-          <CollapsibleTrigger asChild>
-            <Button variant="ghost" size="sm" className="group -ml-2">
-              <ChevronRight className="transition-transform group-data-[state=open]:rotate-90" />
-              История версий ({history.length})
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="space-y-2 pt-2">
-            {history.map((prev) => (
-              <div
-                key={prev.id}
-                className="space-y-2 border-l-2 pl-3"
-                data-attachment-version={prev.id}>
-                <AttachmentHead item={prev} />
-                <FileBody file={fileOf(prev)} />
-              </div>
-            ))}
-          </CollapsibleContent>
-        </Collapsible>
-      ) : null}
-    </div>
-  );
-}
-
-function AttachmentHead({item, end}: {item: Attachment; end?: React.ReactNode}) {
-  return (
-    <div className="flex items-start justify-between gap-3">
-      <div className="flex min-w-0 items-start gap-2">
-        <Token label={`v${item.version}`} />
-        <div className="min-w-0">
-          {/* Имя — как хранит сервер, без раскодирования: `a%22b.png` так и
-              остаётся `a%22b.png`. */}
-          <p className="text-sm font-medium break-all" data-attachment-title>
-            <Paperclip className="text-muted-foreground mr-1 inline size-3.5" aria-hidden />
-            {item.file_name || item.title}
-          </p>
-          {item.title && item.title !== item.file_name ? (
-            <p className="text-muted-foreground text-xs break-all">{item.title}</p>
-          ) : null}
-          <p className="text-muted-foreground flex flex-wrap items-center gap-x-2 text-xs">
-            <span>{item.media_type || 'тип не указан'}</span>
-            <span>{formatBytes(item.size_bytes)}</span>
-            <span>{item.added_by}</span>
-            <Timestamp value={item.added_at} format="relative" className="text-xs" />
-          </p>
-        </div>
-      </div>
-      {end ? <div className="shrink-0">{end}</div> : null}
-    </div>
+        ) : null
+      }
+      notice={
+        progress || error ? (
+          <>
+            {progress ? <UploadProgress progress={progress} /> : null}
+            {error ? <Failure error={error} title="Новая версия не отправлена" /> : null}
+          </>
+        ) : null
+      }
+    />
   );
 }
 

@@ -1,13 +1,13 @@
-import {useEffect, useRef, useState} from 'react';
-import {ChevronRight, Download} from 'lucide-react';
+import {useEffect, useState} from 'react';
+import {Download} from 'lucide-react';
 
 import {Button} from '@/components/ui/button';
-import {Collapsible, CollapsibleContent, CollapsibleTrigger} from '@/components/ui/collapsible';
 import {CodeBlock, Markdown, Spinner} from '@/components/kit';
 
 import {ApiError, api} from '../api/client';
 import type {UUID} from '../api/types';
 import {Failure} from './Feedback';
+import type {ContentCache} from './fileContent';
 import {
   TEXT_PREVIEW_MAX_BYTES,
   baseMediaType,
@@ -81,94 +81,80 @@ export function DownloadButton({file, variant = 'ghost'}: {file: FileRef; varian
   );
 }
 
-// Просмотр на месте и «Скачать». Содержимое тянется по раскрытию, а не при
-// показе списка: файлы бывают по десятку мегабайт. Тип решает previewMode;
-// всё, что не картинка, не PDF и не текст из allowlist, — только «Скачать»,
-// и blob для просмотра не создаётся вовсе.
-export function FileBody({file}: {file: FileRef}) {
+// Просмотр файла в модалке: открыт сразу, свёртки нет. Тип решает previewMode;
+// всё, что не картинка, не PDF и не текст из allowlist, — только «Скачать»
+// (кнопка в полосе действий модалки), и ни запроса, ни blob для просмотра нет.
+export function FilePreview({file, cache}: {file: FileRef; cache: ContentCache}) {
   const preview = previewMode(file.mediaType, file.sizeBytes);
-  const [open, setOpen] = useState(false);
-  const [view, setView] = useState<View>();
-  const [error, setError] = useState<ApiError>();
-  // Blob-ссылка отзывается, когда вложение уходит с экрана; пока оно на
-  // экране, свёрнутый просмотр её держит, чтобы не качать файл заново.
-  const urlRef = useRef<string>(undefined);
-  const mounted = useRef(true);
-  const started = useRef(false);
+  const [state, setState] = useState<{id: UUID; view?: View; error?: ApiError}>();
 
   useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-    };
-  }, []);
-
-  const load = async (isOpen: boolean) => {
-    setOpen(isOpen);
-    if (!isOpen || started.current || preview.mode === 'none') return;
-    started.current = true;
-    setError(undefined);
-    try {
-      const {blob, disposition} = await api.artifactFile(file.id);
-      if (!mounted.current) return;
-      // Сервер ответил attachment: сигнатура не сошлась с заявленным типом.
-      if (isAttachmentDisposition(disposition)) {
-        setView({kind: 'blocked', reason: 'Сервер не подтвердил тип файла, просмотр недоступен.'});
-        return;
-      }
-      if (preview.mode === 'text') {
-        if (blob.size > TEXT_PREVIEW_MAX_BYTES) {
-          setView({kind: 'blocked', reason: `Текст крупнее ${formatBytes(TEXT_PREVIEW_MAX_BYTES)}.`});
+    if (preview.mode === 'none') return;
+    let live = true;
+    // Blob-ссылка живёт, пока открыт просмотр: уходит модалка — отзывается.
+    let url: string | undefined;
+    (async () => {
+      try {
+        const {blob, disposition} = await cache.file(file.id);
+        if (!live) return;
+        // Сервер ответил attachment: сигнатура не сошлась с заявленным типом.
+        if (isAttachmentDisposition(disposition)) {
+          setState({id: file.id, view: {kind: 'blocked', reason: 'Сервер не подтвердил тип файла, просмотр недоступен.'}});
           return;
         }
-        const text = decodeUtf8(await blob.arrayBuffer());
-        if (!mounted.current) return;
-        setView(
-          text === null
-            ? {kind: 'blocked', reason: 'Файл не в кодировке UTF-8, просмотр недоступен.'}
-            : {kind: 'text', text, format: preview.text},
-        );
-        return;
+        if (preview.mode === 'text') {
+          if (blob.size > TEXT_PREVIEW_MAX_BYTES) {
+            setState({id: file.id, view: {kind: 'blocked', reason: `Текст крупнее ${formatBytes(TEXT_PREVIEW_MAX_BYTES)}.`}});
+            return;
+          }
+          const text = decodeUtf8(await blob.arrayBuffer());
+          if (!live) return;
+          setState({
+            id: file.id,
+            view:
+              text === null
+                ? {kind: 'blocked', reason: 'Файл не в кодировке UTF-8, просмотр недоступен.'}
+                : {kind: 'text', text, format: preview.text},
+          });
+          return;
+        }
+        url = URL.createObjectURL(new Blob([blob], {type: baseMediaType(file.mediaType)}));
+        setState({id: file.id, view: {kind: preview.mode, url}});
+      } catch (err) {
+        if (live) setState({id: file.id, error: toError(err)});
       }
-      const url = URL.createObjectURL(new Blob([blob], {type: baseMediaType(file.mediaType)}));
-      urlRef.current = url;
-      setView({kind: preview.mode, url});
-    } catch (err) {
-      started.current = false;
-      if (mounted.current) setError(toError(err));
-    }
-  };
+    })();
+    return () => {
+      live = false;
+      if (url) URL.revokeObjectURL(url);
+    };
+    // preview — функция типа и размера, они и есть зависимости.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cache, file.id, file.mediaType, file.sizeBytes]);
 
-  return (
-    <Collapsible open={open} onOpenChange={load} data-file-body={file.id}>
-      <div className="flex flex-wrap items-center gap-1">
-        {preview.mode === 'none' ? null : (
-          <CollapsibleTrigger asChild>
-            <Button variant="ghost" size="sm" className="group -ml-2">
-              <ChevronRight className="transition-transform group-data-[state=open]:rotate-90" />
-              Просмотр
-            </Button>
-          </CollapsibleTrigger>
-        )}
-        <DownloadButton file={file} />
-        {preview.mode === 'none' ? (
-          <span className="text-muted-foreground text-xs">
-            {previewNote(file)}
-          </span>
-        ) : null}
-      </div>
-      {preview.mode === 'none' ? null : (
-        <CollapsibleContent className="pt-2">
-          {error ? <Failure error={error} title="Файл не открылся" /> : null}
-          {!error && !view ? (
-            <p className="text-muted-foreground text-sm">Загрузка…</p>
-          ) : null}
-          {view ? <ViewBody view={view} name={file.name} /> : null}
-        </CollapsibleContent>
-      )}
-    </Collapsible>
-  );
+  if (preview.mode === 'none') {
+    return (
+      <p className="text-muted-foreground text-sm" data-file-preview="none">
+        {previewNote(file)}
+      </p>
+    );
+  }
+  const own = state?.id === file.id ? state : undefined;
+  if (own?.error) return <Failure error={own.error} title="Файл не открылся" />;
+  if (!own?.view) return <p className="text-muted-foreground text-sm">Загрузка…</p>;
+  return <ViewBody view={own.view} name={file.name} />;
+}
+
+// Формат артефакта задаёт бэкенд (markdown, json, yaml, diff, text, html), и
+// показывается артефакт по своему формату: markdown — разметкой, машинные
+// форматы — блоком кода, текст и html — текстом. HTML именно текстом: он
+// приехал от агента, и исполнять его здесь нечего.
+export function ArtifactBody({format, content}: {format: string; content: string}) {
+  if (format === 'markdown') return <Markdown>{content}</Markdown>;
+  if (format === 'json' || format === 'yaml' || format === 'diff') {
+    return <CodeBlock code={content} language={format} />;
+  }
+  return <p className="text-sm whitespace-pre-wrap">{content}</p>;
 }
 
 function previewNote(file: FileRef): string {
@@ -188,7 +174,7 @@ function ViewBody({view, name}: {view: View; name: string}) {
           src={view.url}
           alt={name}
           data-file-preview="image"
-          className="max-h-96 max-w-full rounded-md border object-contain"
+          className="max-h-[60svh] max-w-full rounded-md border object-contain"
         />
       );
     case 'pdf':
@@ -197,12 +183,12 @@ function ViewBody({view, name}: {view: View; name: string}) {
           src={view.url}
           title={name}
           data-file-preview="pdf"
-          className="h-[32rem] w-full rounded-md border"
+          className="h-[60svh] min-h-64 w-full rounded-md border"
         />
       );
     case 'text':
       return (
-        <div data-file-preview="text" className="max-h-[32rem] overflow-auto">
+        <div data-file-preview="text" className="min-w-0">
           {view.format === 'markdown' ? (
             <Markdown>{view.text}</Markdown>
           ) : view.format === 'json' ? (
