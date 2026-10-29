@@ -9,6 +9,7 @@ import {session, helpers} from './driver.mjs';
 import {
   BREW_COMMAND,
   KEY_PLACEHOLDER,
+  PLUGIN_COMMAND,
   docsHref,
   installCommand,
   loginCommand,
@@ -40,6 +41,7 @@ check(
 );
 const cfg = JSON.parse(mcpJSON('https://clab.acme.io', 'ACME'));
 check('JSON для других агентов', cfg.mcpServers.sdlc.url === 'https://clab.acme.io/mcp/projects/ACME' && cfg.mcpServers.sdlc.type === 'http', JSON.stringify(cfg));
+check('плагин — без ключа и адреса', PLUGIN_COMMAND === 'clab setup --plugin', PLUGIN_COMMAND);
 check('ссылка со страницы проекта несёт ключ', docsHref('ACME') === '/docs?project=ACME' && docsHref() === '/docs', docsHref('ACME'));
 
 // ── в браузере ──────────────────────────────────────────────────────────────
@@ -104,6 +106,18 @@ for (const sk of kit.skills) {
 }
 check('версия набора на странице', page.includes(`Версия набора — ${kit.version}`), page.slice(0, 200));
 check('раздел коннекторов', page.includes('Коннекторы и плагины') && page.includes('--external-ref'), '');
+
+console.log('CLAB-329: плагин Claude');
+check('команда плагина', b.includes(PLUGIN_COMMAND), JSON.stringify(b));
+check('строки «плагина пока нет» нет', !page.includes('Плагина Claude Code пока нет'), '');
+check('абзац о плагине', page.includes('clab-plugin') && page.includes('/clab-plugin SDLC-12') && page.includes('без GitHub'), '');
+const pluginCopied = await run(`
+  const pre = all('pre.code-block').find((p) => p.textContent.trim() === ${JSON.stringify(PLUGIN_COMMAND)});
+  pre.parentElement.querySelector('button[aria-label="Скопировать"]').click();
+  await sleep(300);
+  return navigator.clipboard.readText();
+`);
+check('clab setup --plugin копируется кнопкой', pluginCopied === PLUGIN_COMMAND, pluginCopied);
 
 const copied = await run(`
   const pre = all('pre.code-block').find((p) => p.textContent.trim().startsWith('clab setup'));
