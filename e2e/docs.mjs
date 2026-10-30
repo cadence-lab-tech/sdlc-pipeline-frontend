@@ -118,6 +118,11 @@ console.log('CLAB-329: плагин Claude');
 check('команда плагина', b.includes(PLUGIN_COMMAND), JSON.stringify(b));
 check('строки «плагина пока нет» нет', !page.includes('Плагина Claude Code пока нет'), '');
 check('абзац о плагине', page.includes('clab-plugin') && page.includes('/clab-plugin SDLC-12') && page.includes('без GitHub'), '');
+console.log('CLAB-340: что умеет плагин');
+check('плагин: три вкладки', ['Этот чат', 'Ждут меня', 'Задачи'].every((t) => page.includes(`«${t}»`)), '');
+check('плагин: артефакты этапов, апрув, возврат и чек-лист', ['артефактами по этапам', 'поставить апрув', 'вернуть задачу с причиной', 'отметить чек-лист'].every((t) => page.includes(t)), '');
+check('плагин: права — maintainer и личный вход', page.includes('maintainer') && page.includes('clab auth login') && page.includes('Модель в чате задачу не меняет'), '');
+check('плагин: панель среди мест апрува', page.includes('в панели плагина Claude'), '');
 const pluginCopied = await run(`
   const pre = all('pre.code-block').find((p) => p.textContent.trim() === ${JSON.stringify(PLUGIN_COMMAND)});
   pre.parentElement.querySelector('button[aria-label="Скопировать"]').click();
