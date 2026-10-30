@@ -124,7 +124,7 @@ export function Docs() {
             <h3 className="text-sm font-medium">Ожидание апрува</h3>
             <p className="text-muted-foreground text-sm">
               На апруве агент не держит чат вопросом: он ждёт решения на сервере и продолжает сам. Апрув ставится где
-              удобно — ответом в чате, в карточке задачи или <code>clab decide</code>. Так ждут скилы{' '}
+              удобно — ответом в чате, в панели плагина Claude, в карточке задачи или <code>clab decide</code>. Так ждут скилы{' '}
               <code>/clab-run</code> и <code>/clab-work</code>; та же команда годится для скрипта и CI.
             </p>
             <CodeBlock title="clab wait" language="sh" code={waitCommand(key)} />
@@ -142,10 +142,14 @@ export function Docs() {
           </div>
           <ul className="text-muted-foreground list-disc space-y-1 pl-5 text-sm" data-connectors>
             <li data-plugin>
-              Плагин Claude <code>clab-plugin</code> показывает рядом с чатом задачи, которые в нём звучат, и их
-              статус. Он вшит в clab той же версии и ставится на машину, а не в проект: без GitHub, нужен только
-              Claude Code. Вход — ваш <code>clab auth login</code>; в чате — <code>/clab-plugin</code> или{' '}
-              <code>/clab-plugin {shown}-12</code>; <code>--dry-run</code> — показать, что будет сделано.
+              Плагин Claude <code>clab-plugin</code> — панель рядом с чатом. Вкладки: «Этот чат» — задачи чата со
+              статусом, гейтами и сданными артефактами по этапам; «Ждут меня» — апрувы и чек-листы проекта,
+              ждущие решения; «Задачи» — задачи и эпики проекта. Из карточки можно поставить апрув, вернуть задачу
+              с причиной и отметить чек-лист, но только участнику с уровнем <code>maintainer</code> и выше: панель
+              ходит вашим <code>clab auth login</code> и делает то, что даёт участие в проекте. Модель в чате задачу
+              не меняет. Плагин вшит в clab той же версии и ставится на машину, а не в проект: без GitHub, нужен
+              только Claude Code. В чате — <code>/clab-plugin</code> или <code>/clab-plugin {shown}-12</code>;{' '}
+              <code>--dry-run</code> — показать, что будет сделано.
             </li>
             <li>
               MCP-сервер проекта <code>{`${origin}/mcp/projects/${shown}`}</code> работает с любым агентом, который
