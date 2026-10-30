@@ -16,6 +16,7 @@ import {
   mcpAddCommand,
   mcpJSON,
   setupCommand,
+  waitCommand,
 } from '../src/components/cli.ts';
 
 const BASE = process.env.SDLC_UI_URL ?? 'http://localhost:5173';
@@ -32,6 +33,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 console.log('команды подключения');
 check('clab setup с ключом', setupCommand('ACME') === 'clab setup --project ACME', setupCommand('ACME'));
 check('без проекта — заглушка', setupCommand() === `clab setup --project ${KEY_PLACEHOLDER}`, setupCommand());
+// Ожидание апрува (CLAB-323): флаги — те, что есть в clab wait --help.
+const wait = waitCommand('ACME');
+check('clab wait с ключом проекта и флагами', wait.includes('clab wait ACME-12 --gate human_approval --timeout 8h --json')
+  && wait.includes('clab heartbeat ACME-12 --with-credentials --'), wait);
+check('clab wait без проекта — заглушка', waitCommand().includes(`clab wait ${KEY_PLACEHOLDER}-12`), waitCommand());
 const add = mcpAddCommand('https://clab.acme.io', 'ACME');
 check(
   'claude mcp add на адрес инстанса, токен — из clab auth token',
@@ -97,6 +103,7 @@ for (const [name, cmd] of [
   ['clab setup --project SDLC', setupCommand('SDLC')],
   ['claude mcp add', mcpAddCommand(ORIGIN, 'SDLC')],
   ['JSON mcpServers', mcpJSON(ORIGIN, 'SDLC')],
+  ['clab wait с ключом проекта', waitCommand('SDLC')],
 ]) {
   check(name, b.includes(cmd.trim()), JSON.stringify(b));
 }
