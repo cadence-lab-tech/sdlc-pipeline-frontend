@@ -9,6 +9,7 @@ import {useResource} from '../api/useResource';
 import {
   BREW_COMMAND,
   KEY_PLACEHOLDER,
+  PLUGIN_COMMAND,
   installCommand,
   loginCommand,
   mcpAddCommand,
@@ -136,7 +137,16 @@ export function Docs() {
         </Section>
 
         <Section title="6. Коннекторы и плагины">
+          <div className="mb-3">
+            <CodeBlock title="плагин Claude" language="sh" code={PLUGIN_COMMAND} />
+          </div>
           <ul className="text-muted-foreground list-disc space-y-1 pl-5 text-sm" data-connectors>
+            <li data-plugin>
+              Плагин Claude <code>clab-plugin</code> показывает рядом с чатом задачи, которые в нём звучат, и их
+              статус. Он вшит в clab той же версии и ставится на машину, а не в проект: без GitHub, нужен только
+              Claude Code. Вход — ваш <code>clab auth login</code>; в чате — <code>/clab-plugin</code> или{' '}
+              <code>/clab-plugin {shown}-12</code>; <code>--dry-run</code> — показать, что будет сделано.
+            </li>
             <li>
               MCP-сервер проекта <code>{`${origin}/mcp/projects/${shown}`}</code> работает с любым агентом, который
               понимает MCP по HTTP.
@@ -145,7 +155,6 @@ export function Docs() {
               Задачи связываются с тикетами вашего трекера ссылками: <code>clab create --external-ref jira:PROJ-12=https://…</code>,
               поиск — <code>clab tasks --external PROJ-12</code>.
             </li>
-            <li>Плагина Claude Code пока нет: набор ставит clab setup.</li>
           </ul>
         </Section>
       </div>

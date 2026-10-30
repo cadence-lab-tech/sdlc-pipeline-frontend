@@ -37,6 +37,10 @@ export const KEY_PLACEHOLDER = '<KEY>';
 // git remote, но с --project команда работает из любого каталога.
 export const setupCommand = (key?: string) => `clab setup --project ${key || KEY_PLACEHOLDER}`;
 
+// Плагин Claude clab-plugin (CLAB-329, решение 0067): вшит в clab, ставится
+// на машину, а не в проект, — поэтому без ключа и адреса.
+export const PLUGIN_COMMAND = 'clab setup --plugin';
+
 export const mcpURL = (origin: string, key?: string) => `${origin}/mcp/projects/${key || KEY_PLACEHOLDER}`;
 
 // Ручное подключение Claude Code: токен в команду подставляет сам clab
