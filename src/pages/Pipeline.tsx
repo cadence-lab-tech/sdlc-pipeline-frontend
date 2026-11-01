@@ -42,7 +42,7 @@ import {Switch} from '@/components/fields';
 import {ConfirmButton, EmptyState, StatusDot} from '@/components/kit';
 
 import {ApiError, api} from '../api/client';
-import type {ActivationResult, UUID, Workflow, WorkflowHead} from '../api/types';
+import type {ActivationResult, InstructionDetail, RoleDocument, UUID, Workflow, WorkflowHead} from '../api/types';
 import {useResource} from '../api/useResource';
 import {Failure} from '../components/Feedback';
 import {GateDialog} from '../components/GateDialog';
@@ -60,6 +60,14 @@ import {
 } from '../components/pipeline/Inspector';
 import {Minimap, PipelineCanvas, ZoomControls} from '../components/pipeline/PipelineCanvas';
 import {RolePanel} from '../components/pipeline/RolePanel';
+import {
+  ApplyDialog,
+  InstructionForm,
+  InstructionPanel,
+  ToLibraryDialog,
+  type InstructionNotice,
+} from '../components/pipeline/InstructionLibrary';
+import {useTaskLevelEditable} from '../hooks/useTaskLevelEditable';
 import {activateText, activateTitle, stateLabel, versionLabel} from '../components/pipeline/labels';
 import {
   ZOOM_FIT_MAX,
@@ -77,6 +85,8 @@ const toApiError = (err: unknown) => (err instanceof ApiError ? err : new ApiErr
 
 const STATE_DOT = {draft: 'accent', active: 'success', retired: 'neutral'} as const;
 
+// Выбор в панели взаимоисключающий: статус, переход, роль или инструкция
+// библиотеки (CLAB-351) — выбор одного снимает остальные.
 const NO_SELECTION: ParamPatch = {
   status: undefined,
   transition: undefined,
@@ -84,6 +94,8 @@ const NO_SELECTION: ParamPatch = {
   v: undefined,
   view: undefined,
   doc: undefined,
+  instruction: undefined,
+  iv: undefined,
 };
 
 export function Pipeline() {
@@ -99,6 +111,9 @@ export function Pipeline() {
   );
 
   const project = useResource(() => api.getProject(projectKey), [projectKey]);
+  // Право правки библиотеки: знает, что maintainer нет, — кнопок нет; не
+  // знает — кнопки есть, отказ покажет сервер (design.spec CLAB-351 §3).
+  const canEditLibrary = useTaskLevelEditable(projectKey, project.data?.project.owner_team_key);
   const versions = useResource(() => api.listWorkflows(projectKey), [projectKey]);
   const roles = useResource(() => api.listRoles(projectKey, true), [projectKey]);
 
@@ -139,6 +154,22 @@ export function Pipeline() {
   const [confirmActivate, setConfirmActivate] = useState(false);
   // Узкий экран: обзор цикла (проверка, роли) открывается кнопкой в Sheet.
   const [overviewOpen, setOverviewOpen] = useState(false);
+  // Библиотека (CLAB-351): формы — состояние страницы, не адрес; диалоги
+  // «Обновить в ролях» и «В библиотеку»; знак перечитать после действий.
+  const [libraryForm, setLibraryForm] = useState<{kind: 'create'} | {kind: 'version'; detail: InstructionDetail}>();
+  const [notice, setNotice] = useState<InstructionNotice>();
+  const [applyFor, setApplyFor] = useState<{key: string; roles?: string[]}>();
+  const [toLibrary, setToLibrary] = useState<{role: string; doc: RoleDocument}>();
+  const [libraryRev, setLibraryRev] = useState(0);
+  // Название инструкции для крошек: «Библиотека / <название>».
+  const libraryList = useResource(
+    () => (p.instruction ? api.listInstructions(projectKey).catch(() => []) : Promise.resolve([])),
+    [projectKey, p.instruction, libraryRev],
+  );
+  const libraryChanged = () => {
+    setLibraryRev((n) => n + 1);
+    roles.reload();
+  };
 
   const refresh = () => {
     workflow.reload();
@@ -284,15 +315,70 @@ export function Pipeline() {
   const status = wf?.statuses.find((s) => s.key === p.status);
   const transition = wf?.transitions.find((t) => t.key === p.transition);
   const role = roleList.find((r) => r.key === p.role);
-  const hasSelection = Boolean(status || transition || role);
-  const closePanel = () => set(NO_SELECTION);
+  const instructionKey = !role && !libraryForm ? p.instruction : undefined;
+  const instructionName = libraryList.data?.find((i) => i.key === instructionKey)?.name ?? instructionKey;
+  const hasSelection = Boolean(status || transition || role || instructionKey || libraryForm);
+  const closePanel = () => {
+    setLibraryForm(undefined);
+    setNotice(undefined);
+    set(NO_SELECTION);
+  };
+  const openInstruction = (key: string, version?: number) => {
+    setLibraryForm(undefined);
+    setNotice(undefined);
+    set({...NO_SELECTION, instruction: key, iv: version ? String(version) : undefined});
+  };
   const selectStatus = (key: string) => set({...NO_SELECTION, status: key});
   const selectTransition = (key: string) => set({...NO_SELECTION, transition: key});
 
   let crumbs: string[] = [wf ? versionLabel(wf) : 'Пайплайн'];
   let body: React.ReactNode;
   let back: (() => void) | undefined;
-  if (role) {
+  if (libraryForm) {
+    const formFor = libraryForm.kind === 'version' ? libraryForm.detail : undefined;
+    crumbs = [...crumbs, 'Библиотека', ...(formFor ? [formFor.instruction.name, 'Новая версия'] : ['Новая инструкция'])];
+    back = () => setLibraryForm(undefined);
+    body = (
+      <InstructionForm
+        key={formFor ? `v:${formFor.instruction.key}` : 'create'}
+        projectKey={projectKey}
+        mode={libraryForm.kind}
+        detail={formFor}
+        onCancel={() => setLibraryForm(undefined)}
+        onDone={(key, version) => {
+          setLibraryForm(undefined);
+          libraryChanged();
+          set({...NO_SELECTION, instruction: key});
+          setNotice({kind: formFor ? 'version' : 'created', key, version});
+        }}
+      />
+    );
+  } else if (instructionKey) {
+    crumbs = [...crumbs, 'Библиотека', instructionName ?? instructionKey];
+    back = () => {
+      setNotice(undefined);
+      set({instruction: undefined, iv: undefined, view: undefined});
+    };
+    body = (
+      <InstructionPanel
+        key={instructionKey}
+        projectKey={projectKey}
+        instKey={instructionKey}
+        version={p.iv}
+        view={p.view}
+        canEdit={canEditLibrary}
+        reloadKey={libraryRev}
+        notice={notice}
+        onVersion={(v) => set({iv: v ? String(v) : undefined, view: undefined})}
+        onView={(v) => set({view: v === 'diff' ? 'diff' : undefined}, true)}
+        onRole={(key) => set({...NO_SELECTION, role: key})}
+        onApply={() => setApplyFor({key: instructionKey})}
+        onNewVersion={(detail) => setLibraryForm({kind: 'version', detail})}
+        onBackToLibrary={closePanel}
+        onChanged={libraryChanged}
+      />
+    );
+  } else if (role) {
     crumbs = [...crumbs, ...(status ? [status.name] : []), role.name];
     back = () => set({role: undefined, v: undefined, view: undefined, doc: undefined});
     body = (
@@ -313,6 +399,11 @@ export function Pipeline() {
           others.reload();
         }}
         onForm={(open) => setWideFor(open ? role.key : undefined)}
+        canEdit={canEditLibrary}
+        reloadKey={libraryRev}
+        onInstruction={openInstruction}
+        onApply={(key, keys) => setApplyFor({key, roles: keys})}
+        onToLibrary={(roleKey, doc) => setToLibrary({role: roleKey, doc})}
       />
     );
   } else if (wf && transition) {
@@ -369,6 +460,12 @@ export function Pipeline() {
         onRoleCreated={(key) => {
           roles.reload();
           set({...NO_SELECTION, role: key});
+        }}
+        library={{
+          canEdit: canEditLibrary,
+          reloadKey: libraryRev,
+          onOpen: (key) => openInstruction(key),
+          onNew: () => setLibraryForm({kind: 'create'}),
         }}
       />
     );
@@ -574,6 +671,25 @@ export function Pipeline() {
         )}
       </div>
 
+      {applyFor ? (
+        <ApplyDialog
+          projectKey={projectKey}
+          instKey={applyFor.key}
+          preRoles={applyFor.roles}
+          onClose={() => setApplyFor(undefined)}
+          onApplied={libraryChanged}
+        />
+      ) : null}
+      {toLibrary ? (
+        <ToLibraryDialog
+          projectKey={projectKey}
+          roleKey={toLibrary.role}
+          doc={toLibrary.doc}
+          onClose={() => setToLibrary(undefined)}
+          onCreated={libraryChanged}
+          onApply={(key) => setApplyFor({key})}
+        />
+      ) : null}
       {wf && dialog?.kind === 'status-new' ? (
         <StatusDialog
           projectKey={projectKey}

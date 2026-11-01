@@ -4,18 +4,25 @@
 // «Завести роль». Операции и отметки — roleDocs.ts; до сохранения всё
 // обратимо, кроме убирания нового документа с текстом (подтверждение).
 import {useEffect, useState} from 'react';
-import {ArrowDown, ArrowUp, Info, Plus, Undo2} from 'lucide-react';
+import {ArrowDown, ArrowUp, BookMarked, Info, Link2, Plus, Undo2} from 'lucide-react';
 
 import {cn} from '@/lib/utils';
 import {Button} from '@/components/ui/button';
 import {Card} from '@/components/ui/card';
 import {Selector, TextArea, TextInput} from '@/components/fields';
-import {ConfirmButton, Token} from '@/components/kit';
+import {ConfirmButton, Markdown, Note, Token} from '@/components/kit';
+
+import type {RoleDocumentPin} from '../../api/types';
+import {LibraryPicker, PinTokens} from './InstructionLibrary';
 
 import {
   type DraftDoc,
   type DraftMark,
   addDoc,
+  addPinnedDoc,
+  repinDoc,
+  repinNeedsConfirm,
+  unpinDoc,
   canMove,
   customBaseKind,
   draftMark,
@@ -52,6 +59,7 @@ export function DocumentEditor({
   onFlagCleared,
   baseVersion,
   focusFirst,
+  library,
 }: {
   docs: DraftDoc[];
   onDocs: (docs: DraftDoc[]) => void;
@@ -65,6 +73,13 @@ export function DocumentEditor({
   baseVersion?: number;
   // При открытии формы фокус — в «Имя» первого документа.
   focusFirst?: boolean;
+  // Библиотека инструкций (CLAB-351): «Из библиотеки» и закреплённые
+  // документы. Нет — кнопки нет, закреплённые показываются как есть.
+  library?: {
+    projectKey: string;
+    latest: Map<string, number>;
+    onOpenInstruction?: (key: string, version: number) => void;
+  };
 }) {
   const current = docs.find((d) => d.id === selected) ?? docs.find((d) => !d.removed) ?? docs[0];
   const numbers = rowNumbers(docs);
@@ -72,6 +87,7 @@ export function DocumentEditor({
 
   // Куда перевести фокус после следующей отрисовки; n — чтобы повторная
   // просьба о том же поле тоже срабатывала.
+  const [picking, setPicking] = useState(false);
   const [focus, setFocus] = useState<{id: string; n: number} | undefined>(
     focusFirst ? {id: DOC_NAME_ID, n: 0} : undefined,
   );
@@ -121,6 +137,13 @@ export function DocumentEditor({
     focusOn(canMove(next, d.id, dir) ? moveId(d.id, dir) : moveId(d.id, dir < 0 ? 1 : -1));
   };
 
+  const unpin = (d: DraftDoc) => {
+    onDocs(unpinDoc(docs, d.id));
+    focusOn(DOC_NAME_ID);
+  };
+  const repin = (d: DraftDoc) => onDocs(repinDoc(docs, d.id));
+  const taken = new Map<string, RoleDocumentPin | undefined>(live.map((d) => [d.name, d.pin]));
+
   const customKind = current ? customBaseKind(current) : undefined;
   const mark = current ? draftMark(current) : undefined;
 
@@ -166,9 +189,17 @@ export function DocumentEditor({
                         {numbers[i]}
                       </span>
                       <span className="min-w-0">
-                        <span className={cn('block truncate font-mono', d.removed && 'line-through')} title={d.name}>
-                          {d.name || '—'}
+                        <span className={cn('flex items-center gap-1 truncate font-mono', d.removed && 'line-through')} title={d.name}>
+                          {d.pin ? (
+                            <Link2 className="text-muted-foreground size-3 shrink-0" aria-label="закреплён за версией инструкции" />
+                          ) : null}
+                          <span className="truncate">{d.name || '—'}</span>
                         </span>
+                        {d.pin ? (
+                          <span className="text-muted-foreground block truncate text-[10px]" data-doc-row-pin>
+                            библиотека: {d.pin.key} v{d.pin.version}
+                          </span>
+                        ) : null}
                         {m === 'renamed' ? (
                           <span className="text-muted-foreground block truncate text-[10px]" data-doc-was>
                             было {d.base?.name}
@@ -210,9 +241,16 @@ export function DocumentEditor({
               );
             })}
           </ol>
-          <Button size="sm" variant="secondary" className="w-full @max-[600px]:h-10" onClick={add}>
-            <Plus /> Добавить документ
-          </Button>
+          <div className={cn('grid gap-2', library && 'grid-cols-2 @max-[600px]:grid-cols-1')}>
+            <Button size="sm" variant="secondary" className="w-full @max-[600px]:h-10" onClick={add}>
+              <Plus /> Добавить документ
+            </Button>
+            {library ? (
+              <Button size="sm" variant="secondary" className="w-full @max-[600px]:h-10" onClick={() => setPicking(true)} data-library-pick>
+                <BookMarked /> Из библиотеки
+              </Button>
+            ) : null}
+          </div>
         </div>
 
         {current ? (
@@ -231,8 +269,65 @@ export function DocumentEditor({
                 </Button>
               </div>
             </Card>
+          ) : current.pin ? (
+            <Card className="min-w-0 gap-3 p-3" data-doc-card={current.name} data-doc-pinned={current.pin.key}>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-mono text-sm font-medium break-all">{current.name}</span>
+                <Token label={current.kind} />
+                <PinTokens pin={current.pin} latest={library?.latest.get(current.pin.key)} />
+              </div>
+              <Note
+                tone="info"
+                title="Документ из библиотеки: здесь только чтение"
+                description={`Текст — версия ${current.pin.version} инструкции ${current.pin.key}. Изменить его для всех ролей — новая версия инструкции в «Библиотеке инструкций». Править только в этой роли — «Отвязать».`}
+              />
+              <div className="max-h-64 overflow-y-auto rounded-md border px-3 py-2">
+                <Markdown>{current.content}</Markdown>
+              </div>
+              <div className="flex flex-wrap justify-between gap-2">
+                {library?.onOpenInstruction ? (
+                  <Button size="sm" variant="ghost" onClick={() => library.onOpenInstruction!(current.pin!.key, current.pin!.version)}>
+                    Открыть инструкцию
+                  </Button>
+                ) : (
+                  <span />
+                )}
+                <div className="flex gap-2">
+                  <Button size="sm" variant="secondary" onClick={() => unpin(current)} data-doc-unpin>
+                    Отвязать
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => remove(current)}>
+                    Убрать документ
+                  </Button>
+                </div>
+              </div>
+            </Card>
           ) : (
             <Card className="min-w-0 gap-3 p-3" data-doc-card={current.name}>
+              {current.wasPin ? (
+                <div data-doc-unpinned={current.wasPin.key}>
+                  <Note
+                    tone="warning"
+                    title={`Документ отвязан от библиотеки (${current.wasPin.key} v${current.wasPin.version})`}
+                    description="После сохранения версии он станет обычным документом: обновления инструкции его не коснутся. Текст сейчас тот же, что в инструкции, пока его не править.">
+                    {repinNeedsConfirm(current) ? (
+                      <ConfirmButton
+                        variant="secondary"
+                        size="sm"
+                        title="Вернуть закрепление?"
+                        description={`Правки текста документа ${current.name} пропадут: он снова станет версией ${current.wasPin.version} инструкции ${current.wasPin.key}`}
+                        confirmLabel="Вернуть закрепление"
+                        onConfirm={async () => repin(current)}>
+                        Вернуть закрепление
+                      </ConfirmButton>
+                    ) : (
+                      <Button size="sm" variant="secondary" onClick={() => repin(current)} data-doc-repin>
+                        Вернуть закрепление
+                      </Button>
+                    )}
+                  </Note>
+                </div>
+              ) : null}
               <div className="grid gap-3 @sm:grid-cols-[minmax(0,1fr)_170px]">
                 <TextInput
                   id={DOC_NAME_ID}
@@ -296,6 +391,19 @@ export function DocumentEditor({
           )
         ) : null}
       </div>
+      {picking && library ? (
+        <LibraryPicker
+          projectKey={library.projectKey}
+          taken={taken}
+          onClose={() => setPicking(false)}
+          onPick={({pin, kind, content}) => {
+            const r = addPinnedDoc(docs, pin, kind, content);
+            onDocs(r.docs);
+            onSelect(r.id);
+            setPicking(false);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

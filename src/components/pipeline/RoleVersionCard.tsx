@@ -4,9 +4,10 @@
 // в списке версий его нет. Загрузка и сбой — внутри карточки, остальная
 // панель работает.
 import {useEffect, useMemo, useRef} from 'react';
-import {ChevronDown, ChevronRight, FileText} from 'lucide-react';
+import {BookMarked, ChevronDown, ChevronRight, FileText, Link2} from 'lucide-react';
 
 import {Badge} from '@/components/ui/badge';
+import {Button} from '@/components/ui/button';
 import {Card} from '@/components/ui/card';
 import {Skeleton} from '@/components/ui/skeleton';
 import {ToggleGroup, ToggleGroupItem} from '@/components/ui/toggle-group';
@@ -17,6 +18,8 @@ import type {RoleDocument, RoleVersion} from '../../api/types';
 import {Failure} from '../Feedback';
 import {modelLevelLabel} from '../modelLevel';
 import {DocumentDiff} from './DocumentDiff';
+import {PinTokens} from './InstructionLibrary';
+import {newerLabel} from './libraryRules';
 import type {RoleVersionView} from './params';
 import {diffVersions, shortSha, versionDocuments} from './roleDocs';
 
@@ -70,6 +73,7 @@ export function RoleVersionCard({
   onDoc,
   onRetry,
   onRetryPrev,
+  library,
 }: {
   version: RoleVersion;
   // Предыдущая версия; нет — первая, сравнивать не с чем.
@@ -85,6 +89,9 @@ export function RoleVersionCard({
   onDoc: (name?: string) => void;
   onRetry: () => void;
   onRetryPrev: () => void;
+  // Библиотека (CLAB-351): последние версии инструкций, переход к
+  // инструкции и «В библиотеку» (только у последней версии и с правом).
+  library?: DocLibrary;
 }) {
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -137,7 +144,14 @@ export function RoleVersionCard({
           onRetryPrev={onRetryPrev}
         />
       ) : (
-        <DocsArea version={version} content={content} doc={doc} onDoc={onDoc} onRetry={onRetry} />
+        <DocsArea
+          version={version}
+          content={content}
+          doc={doc}
+          onDoc={onDoc}
+          onRetry={onRetry}
+          library={library && {...library, onToLibrary: isLatest ? library.onToLibrary : undefined}}
+        />
       )}
 
       <div className="space-y-1">
@@ -177,18 +191,26 @@ function DocsSkeleton({n}: {n: number}) {
   );
 }
 
+export interface DocLibrary {
+  latest: Map<string, number>;
+  onOpenInstruction: (key: string, version: number) => void;
+  onToLibrary?: (d: RoleDocument) => void;
+}
+
 function DocsArea({
   version,
   content,
   doc,
   onDoc,
   onRetry,
+  library,
 }: {
   version: RoleVersion;
   content: VersionContent;
   doc?: string;
   onDoc: (name?: string) => void;
   onRetry: () => void;
+  library?: DocLibrary;
 }) {
   if (content.state === 'loading') return <DocsSkeleton n={versionDocuments(version).length} />;
   if (content.state === 'error') {
@@ -206,7 +228,13 @@ function DocsArea({
       <ol className="space-y-1.5">
         {content.docs.map((d, i) => (
           <li key={d.name}>
-            <DocumentRow d={d} index={i} open={doc === d.name} onToggle={() => onDoc(doc === d.name ? undefined : d.name)} />
+            <DocumentRow
+              d={d}
+              index={i}
+              open={doc === d.name}
+              onToggle={() => onDoc(doc === d.name ? undefined : d.name)}
+              library={library}
+            />
           </li>
         ))}
       </ol>
@@ -215,10 +243,32 @@ function DocsArea({
 }
 
 // Строка документа версии: номер, имя, тип, sha256[0:7]; по клику — текст
-// разметкой. Отдельный компонент: к нему CLAB-351 добавит закрепление версии.
-export function DocumentRow({d, index, open, onToggle}: {d: RoleDocument; index: number; open: boolean; onToggle: () => void}) {
+// разметкой. Закреплённый за библиотекой (CLAB-351) — метки «git v1» и
+// «есть v2», в раскрытом — полоса «Библиотека: …» и «Открыть инструкцию»;
+// обычный документ последней версии — «В библиотеку».
+export function DocumentRow({
+  d,
+  index,
+  open,
+  onToggle,
+  library,
+}: {
+  d: RoleDocument;
+  index: number;
+  open: boolean;
+  onToggle: () => void;
+  library?: DocLibrary;
+}) {
+  const pin = d.instruction;
+  const latest = pin ? library?.latest.get(pin.key) : undefined;
+  const newer = pin ? newerLabel(pin, latest) : undefined;
   return (
-    <div className="rounded-md border" data-role-document={d.name} data-role-document-kind={d.kind} data-role-document-sha={shortSha(d.sha256)}>
+    <div
+      className="rounded-md border"
+      data-role-document={d.name}
+      data-role-document-kind={d.kind}
+      data-role-document-sha={shortSha(d.sha256)}
+      data-doc-pin={pin ? `${pin.key}@${pin.version}` : undefined}>
       <button
         type="button"
         onClick={onToggle}
@@ -231,14 +281,37 @@ export function DocumentRow({d, index, open, onToggle}: {d: RoleDocument; index:
           {d.name}
         </span>
         <span className="text-muted-foreground shrink-0 text-xs">{d.kind}</span>
-        {d.sha256 ? (
-          <span className="text-muted-foreground ml-auto shrink-0 font-mono text-[10px]" title={d.sha256}>
-            {shortSha(d.sha256)}
-          </span>
-        ) : null}
+        <span className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1">
+          {pin ? <PinTokens pin={pin} latest={latest} short /> : null}
+          {d.sha256 ? (
+            <span className="text-muted-foreground font-mono text-[10px]" title={d.sha256}>
+              {shortSha(d.sha256)}
+            </span>
+          ) : null}
+        </span>
       </button>
       {open ? (
-        <div className="border-t px-3 py-2">
+        <div className="space-y-2 border-t px-3 py-2">
+          {pin ? (
+            <div className="bg-muted/40 flex flex-wrap items-center gap-2 rounded-md px-2.5 py-1.5 text-xs" data-doc-pin-bar>
+              <Link2 className="size-3.5 shrink-0" aria-hidden />
+              <span>
+                Библиотека: <span className="font-mono">{pin.key}</span> v{pin.version}
+                {newer ? ` · в библиотеке ${newer}` : ''}
+              </span>
+              {library ? (
+                <Button size="xs" variant="ghost" className="ml-auto" onClick={() => library.onOpenInstruction(pin.key, pin.version)}>
+                  Открыть инструкцию
+                </Button>
+              ) : null}
+            </div>
+          ) : library?.onToLibrary ? (
+            <div className="flex justify-end">
+              <Button size="xs" variant="secondary" onClick={() => library.onToLibrary!(d)} data-to-library-open>
+                <BookMarked /> В библиотеку
+              </Button>
+            </div>
+          ) : null}
           <Markdown>{d.content ?? ''}</Markdown>
         </div>
       ) : null}

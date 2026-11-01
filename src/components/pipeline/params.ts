@@ -14,6 +14,10 @@ export interface PipelineParams {
   transition?: string;
   role?: string;
   v?: number;
+  // Панель инструкции библиотеки (CLAB-351) и раскрытая её версия; режим
+  // «Изменения» — тот же view=diff.
+  instruction?: string;
+  iv?: number;
   // Режим карточки версии роли: view=diff — «Изменения против vN-1», любое
   // иное значение и отсутствие — «Документы».
   view: RoleVersionView;
@@ -45,6 +49,7 @@ export function clampZoom(z: number): number {
 
 export function parsePipelineParams(q: URLSearchParams): PipelineParams {
   const v = Number(q.get('v'));
+  const iv = Number(q.get('iv'));
   const zoom = q.get('zoom');
   return {
     type: clean(q.get('type')),
@@ -53,6 +58,8 @@ export function parsePipelineParams(q: URLSearchParams): PipelineParams {
     transition: clean(q.get('transition')),
     role: clean(q.get('role')),
     v: Number.isInteger(v) && v > 0 ? v : undefined,
+    instruction: clean(q.get('instruction')),
+    iv: Number.isInteger(iv) && iv > 0 ? iv : undefined,
     view: q.get('view') === 'diff' ? 'diff' : 'docs',
     doc: clean(q.get('doc')),
     showReturns: q.get('returns') !== '0',

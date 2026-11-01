@@ -721,6 +721,87 @@ export interface Role {
   summary?: string;
   archived_at?: string;
   latest_version?: number;
+  // «Есть новее» (решение 0069): закрепления последней версии роли ниже
+  // последней версии инструкции. Поля нет — отставания нет (или сервер без
+  // библиотеки).
+  instruction_lag?: InstructionLag[];
+}
+
+export interface InstructionLag {
+  key: string;
+  pinned_version: number;
+  latest_version: number;
+}
+
+// Закрепление документа версии роли за версией инструкции библиотеки.
+export interface RoleDocumentPin {
+  key: string;
+  version: number;
+}
+
+// Инструкция библиотеки проекта (решение 0069).
+export interface Instruction {
+  id: UUID;
+  project_id: UUID;
+  key: string;
+  name: string;
+  summary?: string;
+  created_at: string;
+  latest_version: number;
+  // По последним версиям ролей проекта.
+  pinned_roles: number;
+  lagging_roles: number;
+}
+
+export interface InstructionVersion {
+  id: UUID;
+  instruction_id: UUID;
+  version: number;
+  kind: string;
+  sha256: string;
+  size_bytes: number;
+  changelog?: string;
+  created_by_handle?: string;
+  created_at: string;
+  content?: string;
+}
+
+// «Где используется»: последняя версия роли с документом <ключ>.md;
+// pinned_version null — документ обычный.
+export interface InstructionUsage {
+  role_key: string;
+  role_name: string;
+  role_version: number;
+  pinned_version: number | null;
+  sha256: string;
+}
+
+export interface InstructionDetail {
+  instruction: Instruction;
+  versions: InstructionVersion[];
+  version: InstructionVersion;
+  previous?: InstructionVersion;
+  usage: InstructionUsage[];
+}
+
+export interface InstructionWrite {
+  instruction: Instruction;
+  version: InstructionVersion;
+  created?: boolean;
+}
+
+export interface ApplyRoleResult {
+  role: string;
+  outcome: 'created' | 'unchanged';
+  role_version: number;
+  from_version: number | null;
+  to_version: number;
+}
+
+export interface ApplyResult {
+  instruction: string;
+  version: number;
+  roles: ApplyRoleResult[];
 }
 
 // Контракт вывода роли: kind каждого пункта — то, на что ссылается гейт
@@ -746,6 +827,8 @@ export interface RoleDocument {
   sha256?: string;
   size_bytes?: number;
   content?: string;
+  // Закреплён за версией инструкции библиотеки; нет — обычный документ.
+  instruction?: RoleDocumentPin;
 }
 
 export interface RoleVersion {

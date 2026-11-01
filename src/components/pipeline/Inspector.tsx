@@ -29,6 +29,8 @@ import {
 } from './labels';
 import {FALLBACK_NOTE, MISSING_MARK, SELECTION_PREFIX, documentsCountLabel, selectionItems, stageDocuments} from './statusDocs';
 import {useRoleDocs} from '../../hooks/useRoleDocs';
+import {LibrarySection} from './InstructionLibrary';
+import {lagTitle} from './libraryRules';
 
 const toApiError = (err: unknown) => (err instanceof ApiError ? err : new ApiError('internal', String(err)));
 
@@ -94,10 +96,13 @@ export function CycleOverview({
   onRole,
   onStatus,
   onRoleCreated,
+  library,
 }: {
   projectKey: string;
   workflow?: Workflow;
   roles: Role[];
+  // Раздел «Библиотека инструкций» (CLAB-351).
+  library?: {canEdit: boolean; reloadKey?: unknown; onOpen: (key: string) => void; onNew: () => void};
   // Активные версии циклов других типов: подпись «на других циклах: N».
   otherCycles: Workflow[];
   validation?: ValidationState;
@@ -191,19 +196,36 @@ export function CycleOverview({
           </Section>
         </>
       )}
+      {library ? (
+        <LibrarySection
+          projectKey={projectKey}
+          canEdit={library.canEdit}
+          reloadKey={library.reloadKey}
+          onOpen={library.onOpen}
+          onNew={library.onNew}
+        />
+      ) : null}
       {workflow ? <Legend /> : null}
     </div>
   );
 }
 
 function RoleRow({role, caption, onClick}: {role: Role; caption: string; onClick: () => void}) {
+  // «Есть новее» — у последней версии роли закрепление ниже последней
+  // версии инструкции; у архивной не показывается: обновить её нельзя.
+  const lag = role.archived_at ? [] : (role.instruction_lag ?? []);
   return (
-    <div data-pipeline-role-row={role.key}>
+    <div data-pipeline-role-row={role.key} data-role-lag={lag.length || undefined}>
       <Row
         onClick={onClick}
         start={<UserRound className="text-muted-foreground size-4" aria-hidden />}
         end={
           <>
+            {lag.length ? (
+              <span title={lagTitle(lag)}>
+                <Token color="orange" label="есть новее" />
+              </span>
+            ) : null}
             {role.archived_at ? <Token label="в архиве" /> : null}
             {role.latest_version ? <span className="text-muted-foreground text-xs">v{role.latest_version}</span> : null}
           </>
