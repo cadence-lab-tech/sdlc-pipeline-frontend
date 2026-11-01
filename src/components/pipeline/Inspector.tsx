@@ -27,6 +27,8 @@ import {
   gateLabel,
   versionLabel,
 } from './labels';
+import {FALLBACK_NOTE, MISSING_MARK, SELECTION_PREFIX, documentsCountLabel, selectionItems, stageDocuments} from './statusDocs';
+import {useRoleDocs} from '../../hooks/useRoleDocs';
 
 const toApiError = (err: unknown) => (err instanceof ApiError ? err : new ApiError('internal', String(err)));
 
@@ -349,6 +351,7 @@ function Legend() {
 // ── статус ──────────────────────────────────────────────────────────────────
 
 export function StatusInspector({
+  projectKey,
   workflow,
   status,
   latest,
@@ -359,6 +362,7 @@ export function StatusInspector({
   onRole,
   onTransition,
 }: {
+  projectKey: string;
   workflow: Workflow;
   status: Status;
   latest: Map<string, number | undefined>;
@@ -375,6 +379,10 @@ export function StatusInspector({
   // Перестановка в пути: заняты обе кнопки — следующий порядок считается от
   // того, что на экране, а до ответа он ещё прежний.
   const [isMoving, setIsMoving] = useState(false);
+  // Что получит этап (CLAB-348): документы последней версии каждой роли
+  // статуса и отбор строки. Пока версия грузится или не загрузилась —
+  // счётчика нет, а не «0».
+  const roleDocs = useRoleDocs(projectKey, (status.roles ?? []).map((r) => r.role_key));
   const byId = new Map(workflow.statuses.map((s) => [s.id, s]));
   const index = workflow.statuses.findIndex((s) => s.id === status.id);
   const outs = workflow.transitions.filter((t) => t.from_status_id === status.id && t.kind !== 'reject');
@@ -495,6 +503,9 @@ export function StatusInspector({
               .sort((a, b) => Number(b.is_primary) - Number(a.is_primary) || a.position - b.position)
               .map((r) => {
                 const v = latest.get(r.role_key);
+                const docs = roleDocs[r.role_key];
+                const stage = docs?.state === 'ok' ? stageDocuments({documents: docs.documents, instructions: ''}, r.document_names) : undefined;
+                const items = stage ? selectionItems(r.document_names, stage) : null;
                 return (
                   <Row
                     key={r.role_key}
@@ -513,9 +524,36 @@ export function StatusInspector({
                       </>
                     }>
                     <p className="truncate font-medium">{r.role_name}</p>
-                    <p className="text-muted-foreground truncate text-xs">
+                    {/* Строка переносится, а не обрезается: счётчик документов
+                        на узкой панели иначе уходит за многоточие. */}
+                    <p className="text-muted-foreground text-xs break-words">
                       {r.is_primary ? 'исполнитель' : 'перепроверка'} · {r.role_key}
+                      {stage ? (
+                        <span className="whitespace-nowrap" data-status-docs-count={r.role_key}>
+                          {' '}
+                          · {documentsCountLabel(stage)}
+                        </span>
+                      ) : null}
                     </p>
+                    {items ? (
+                      <p className="text-muted-foreground text-xs break-words" data-status-docs-selection={r.role_key}>
+                        {SELECTION_PREFIX}{' '}
+                        {items.map((it, i) => (
+                          <span key={it.name} data-status-doc-missing={it.missing || undefined}>
+                            {i > 0 ? ', ' : ''}
+                            <span className={it.missing ? 'text-destructive font-mono' : 'font-mono'}>{it.name}</span>
+                            {it.missing ? <span className="text-destructive"> ({MISSING_MARK})</span> : null}
+                          </span>
+                        ))}
+                        {stage?.fallback ? <span className="block">{FALLBACK_NOTE}</span> : null}
+                      </p>
+                    ) : r.document_names?.length && docs?.state === 'error' ? (
+                      // Версия не загрузилась: отбор показывается как сохранён,
+                      // без сверки с документами роли.
+                      <p className="text-muted-foreground text-xs break-words" data-status-docs-selection={r.role_key}>
+                        {SELECTION_PREFIX} {r.document_names.join(', ')}
+                      </p>
+                    ) : null}
                   </Row>
                 );
               })}

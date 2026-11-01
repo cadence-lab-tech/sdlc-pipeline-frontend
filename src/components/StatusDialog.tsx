@@ -23,6 +23,17 @@ import {ApiError, api} from '../api/client';
 import type {Role, Status, UUID} from '../api/types';
 import {Failure} from './Feedback';
 import {optionalFields} from './optionalStage';
+import {StatusDocsField} from './pipeline/StatusDocsField';
+import {
+  ALL,
+  blocksSave,
+  changeCheckers,
+  changePrimary,
+  rolesBody,
+  selectionsFromStatus,
+  type StatusSelections,
+} from './pipeline/statusDocs';
+import {useRoleDocs} from '../hooks/useRoleDocs';
 
 // Категория статуса — фиксированный перечень схемы, а не выдумка проекта:
 // по ней движок и доска понимают, чем статус является.
@@ -32,6 +43,7 @@ const CATEGORIES = ['backlog', 'active', 'waiting', 'done', 'cancelled'].map((c)
 }));
 
 export function StatusDialog({
+  projectKey,
   workflowID,
   status,
   roles,
@@ -39,6 +51,7 @@ export function StatusDialog({
   onClose,
   onSaved,
 }: {
+  projectKey: string;
   workflowID: UUID;
   status?: Status;
   roles: Role[];
@@ -62,6 +75,24 @@ export function StatusDialog({
   const [checkers, setCheckers] = useState(
     (status?.roles ?? []).filter((r) => !r.is_primary).map((r) => r.role_key),
   );
+  // Отбор документов у исполнителя и у каждого проверяющего (CLAB-348).
+  // Начальное — сохранённое на статусе: отбор неизменённых ролей уходит в
+  // запросе снова, иначе правка названия стёрла бы его.
+  const [selections, setSelections] = useState<StatusSelections>(() => selectionsFromStatus(status));
+  const checkerKeys = checkers.filter((r) => r !== primaryRole);
+  const roleDocs = useRoleDocs(projectKey, [primaryRole, ...checkerKeys]);
+  const docsOf = (key: string) => {
+    const d = roleDocs[key];
+    return d?.state === 'ok' ? d.documents : undefined;
+  };
+  const choosePrimary = (next: string) => {
+    setSelections((prev) => changePrimary(prev, primaryRole, next));
+    setPrimaryRole(next);
+  };
+  const chooseCheckers = (next: string[]) => {
+    setSelections((prev) => changeCheckers(prev, next));
+    setCheckers(next);
+  };
   const [error, setError] = useState<ApiError>();
   const [busy, setBusy] = useState(false);
 
@@ -88,12 +119,8 @@ export function StatusDialog({
 
       // Роли ставятся отдельным запросом: их набор — не поле статуса, а связь,
       // и на статусе может быть один исполнитель и несколько проверяющих.
-      await api.setStatusRoles(workflowID, saved.key, [
-        ...(primaryRole ? [{role: primaryRole, is_primary: true, position: 0}] : []),
-        ...checkers
-          .filter((r) => r !== primaryRole)
-          .map((role, i) => ({role, is_primary: false, position: i + 1})),
-      ]);
+      // Запрос описывает набор целиком, с отбором документов у каждой роли.
+      await api.setStatusRoles(workflowID, saved.key, rolesBody(primaryRole, checkers, selections, docsOf));
 
       toast.success(`Статус ${saved.name} (${saved.key}) сохранён`);
       onSaved();
@@ -111,6 +138,8 @@ export function StatusDialog({
   };
 
   const options = roles.map((r) => ({value: r.key, label: r.name}));
+  const roleName = (key: string) =>
+    roles.find((r) => r.key === key)?.name ?? status?.roles?.find((r) => r.role_key === key)?.role_name ?? key;
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -137,14 +166,35 @@ export function StatusDialog({
             options={options}
             value={primaryRole}
             hasClear
-            onChange={setPrimaryRole}
+            onChange={choosePrimary}
           />
+          {primaryRole ? (
+            <StatusDocsField
+              roleKey={primaryRole}
+              roleName={roleName(primaryRole)}
+              slot="primary"
+              selection={selections.primary}
+              docs={roleDocs[primaryRole]}
+              onChange={(primary) => setSelections((prev) => ({...prev, primary}))}
+            />
+          ) : null}
           <MultiSelector
             label="Проверяющие"
             value={checkers}
-            onChange={setCheckers}
+            onChange={chooseCheckers}
             options={options}
           />
+          {checkerKeys.map((key) => (
+            <StatusDocsField
+              key={key}
+              roleKey={key}
+              roleName={roleName(key)}
+              slot="checker"
+              selection={selections.checkers[key] ?? ALL}
+              docs={roleDocs[key]}
+              onChange={(sel) => setSelections((prev) => ({...prev, checkers: {...prev.checkers, [key]: sel}}))}
+            />
+          ))}
           <NumberInput label="Лимит задач в колонке" value={wipLimit} onChange={setWipLimit} />
           <TextInput
             label="Цвет колонки"
@@ -173,7 +223,7 @@ export function StatusDialog({
           <Button variant="ghost" onClick={onClose}>
             Отмена
           </Button>
-          <Button disabled={!key || !name || busy} onClick={submit}>
+          <Button disabled={!key || !name || busy || blocksSave(primaryRole, checkers, selections)} onClick={submit}>
             Сохранить
           </Button>
         </DialogFooter>
