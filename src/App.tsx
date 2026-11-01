@@ -81,7 +81,7 @@ import { Pipeline } from "./pages/Pipeline";
 import { Projects } from "./pages/Projects";
 import { Settings } from "./pages/Settings";
 import { TaskDetail } from "./pages/TaskDetail";
-import { legacyPipelineSearch } from "./components/pipeline/params";
+import { NotFound } from "./pages/NotFound";
 
 export function App() {
   return (
@@ -168,8 +168,9 @@ export function App() {
                 </Shell>
               }
             />
-            {/* Роли и цикл — одна страница (решение 0068 §7). Старые адреса
-                ведут на неё клиентом, с replace и выбором из адреса. */}
+            {/* Роли и цикл — одна страница (решение 0068 §7). Старых адресов
+                /roles и /workflow нет: они попадают в «Страница не найдена»
+                (решение человека 2026-11-02). */}
             <Route
               path="/p/:projectKey/pipeline"
               element={
@@ -178,8 +179,6 @@ export function App() {
                 </Shell>
               }
             />
-            <Route path="/p/:projectKey/roles" element={<LegacyPipelineRedirect />} />
-            <Route path="/p/:projectKey/workflow" element={<LegacyPipelineRedirect />} />
             <Route
               path="/p/:projectKey/search"
               element={
@@ -212,24 +211,28 @@ export function App() {
                 </Shell>
               }
             />
+            {/* Любой другой адрес — «Страница не найдена» в оболочке. Под
+                проектом оболочка знает его ключ и показывает меню проекта. */}
+            <Route
+              path="/p/:projectKey/*"
+              element={
+                <Shell page="notfound">
+                  <NotFound />
+                </Shell>
+              }
+            />
+            <Route
+              path="*"
+              element={
+                <Shell page="notfound">
+                  <NotFound />
+                </Shell>
+              }
+            />
           </Routes>
         </BrowserRouter>
       </TooltipProvider>
     </ThemeProvider>
-  );
-}
-
-// Старые адреса ролей и цикла: /roles?role=X → /pipeline?role=X,
-// /workflow?workflow=<id> → /pipeline?wf=<id>; прочие параметры не теряются.
-// Перенаправление без записи в историю: «Назад» не вернёт на старый адрес.
-function LegacyPipelineRedirect() {
-  const { projectKey = "" } = useParams();
-  const location = useLocation();
-  return (
-    <Navigate
-      to={`/p/${projectKey}/pipeline${legacyPipelineSearch(location.search)}`}
-      replace
-    />
   );
 }
 
@@ -244,7 +247,8 @@ type Page =
   | "pipeline"
   | "search"
   | "metrics"
-  | "settings";
+  | "settings"
+  | "notfound";
 
 const TITLES: Record<Page, string> = {
   projects: "Проекты",
@@ -258,6 +262,7 @@ const TITLES: Record<Page, string> = {
   search: "Поиск",
   metrics: "Метрики",
   settings: "Настройки",
+  notfound: "Не найдено",
 };
 
 // Shell спрашивает бэкенд, кто мы, и в режиме токенов без действующего токена

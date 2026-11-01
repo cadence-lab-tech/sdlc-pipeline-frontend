@@ -352,13 +352,13 @@ if (created.ok) {
 }
 
 console.log('сводка не ответила — страница работает как раньше');
-// Старый адрес чужого проекта: перенаправление на «Пайплайн» не роняет оболочку.
-await s.goto(`${BASE}/p/NOSUCH/roles`);
+// Страница чужого проекта, которого нет: оболочка не падает.
+await s.goto(`${BASE}/p/NOSUCH/pipeline`);
 await sleep(1800);
 const missing = await run('return {marks: all("[data-nav-mark]").length, text: texts(), path: location.pathname, shell: Boolean(document.querySelector("[data-sidebar=menu-button]"))};');
 check('отметок нет, ошибки сводки на странице нет',
   missing.marks === 0 && !missing.text.includes('/health') && !missing.text.includes('сводк'), missing.text.slice(0, 300));
-check('/p/NOSUCH/roles ведёт на «Пайплайн», оболочка на месте',
+check('/p/NOSUCH/pipeline остаётся в адресе, оболочка на месте',
   missing.path === '/p/NOSUCH/pipeline' && missing.shell, JSON.stringify({path: missing.path, shell: missing.shell}));
 
 s.close();
