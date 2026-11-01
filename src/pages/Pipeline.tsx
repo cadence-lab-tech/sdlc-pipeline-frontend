@@ -339,6 +339,7 @@ export function Pipeline() {
     body = (
       <StatusInspector
         key={status.id}
+        projectKey={projectKey}
         workflow={wf}
         status={status}
         latest={latest}
@@ -575,6 +576,7 @@ export function Pipeline() {
 
       {wf && dialog?.kind === 'status-new' ? (
         <StatusDialog
+          projectKey={projectKey}
           workflowID={wf.id}
           roles={roleList.filter((r) => !r.archived_at)}
           isOpen
@@ -584,6 +586,7 @@ export function Pipeline() {
       ) : null}
       {wf && dialog?.kind === 'status-edit' ? (
         <StatusDialog
+          projectKey={projectKey}
           workflowID={wf.id}
           status={dialog.status}
           roles={roleList.filter((r) => !r.archived_at)}

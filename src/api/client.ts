@@ -847,7 +847,8 @@ export const api = {
   setStatusRoles: (
     id: UUID,
     key: string,
-    roles: { role: string; is_primary?: boolean; position?: number }[],
+    // Набор целиком: роль без document_names теряет отбор документов.
+    roles: { role: string; is_primary?: boolean; position?: number; document_names?: string[] }[],
   ) =>
     request<Status>(`/workflows/${id}/statuses/${key}/roles`, put({ roles })),
 

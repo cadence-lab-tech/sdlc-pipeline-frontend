@@ -332,6 +332,9 @@ export interface StatusRole {
   role_name: string;
   is_primary: boolean;
   position: number;
+  // Отбор документов роли на этом статусе (CLAB-348, решение 0068, п. 3):
+  // имена документов, которые получит этап. Нет ключа — все документы.
+  document_names?: string[];
 }
 
 export interface Status {
