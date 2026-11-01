@@ -1,4 +1,4 @@
-// Страница «Пайплайн» (CLAB-346): адрес, перенаправления старых адресов,
+// Страница «Пайплайн» (CLAB-346): адрес, старые адреса (404, CLAB-357),
 // узлы с ролями и версиями, панель роли, состояния страницы, узкий и
 // широкий экран. Данных не меняет: отказы и задержки сервера подменяются в
 // браузере ответом одной ручки, остальное сверяется с API стенда.
@@ -91,27 +91,23 @@ const labels = await run(`return all('[data-pipeline-return-label]').length;`);
 const hasReturns = taskWf.transitions.some((t) => t.kind === 'reject' && (t.from_status_id === pick.id || t.to_status_id === pick.id));
 check('у выбранного узла подписаны его возвраты', hasReturns ? labels > 0 : labels === 0, String(labels));
 
-console.log('старые адреса (AC-2)');
-await s.goto(BASE + '/p/SDLC/board');
-await pause(1500);
-const redirect = await run(`
-  const len = history.length;
-  history.pushState({}, '', '/p/SDLC/workflow?workflow=${taskWf.id}&status=${pick.key}');
-  dispatchEvent(new PopStateEvent('popstate'));
-  await sleep(2500);
-  const out = {len0: len, len: history.length, path: location.pathname, q: location.search,
-    tab: (document.querySelector('[role=tab][data-state=active]')?.innerText || '').trim()};
-  history.back();
-  await sleep(1500);
-  out.back = location.pathname;
-  return out;
-`);
-const rq = new URLSearchParams(redirect.q);
-check('/workflow?workflow=<id> → /pipeline?wf=<id>, прочие параметры на месте',
-  redirect.path === '/p/SDLC/pipeline' && rq.get('wf') === taskWf.id && rq.get('status') === pick.key && !rq.has('workflow'), JSON.stringify(redirect));
-check('тип подставлен по версии', rq.get('type') === taskWf.task_types[0] && redirect.tab === taskWf.task_types[0], JSON.stringify(redirect));
-check('перенаправление не пишет в историю (replace)', redirect.len === redirect.len0 + 1, JSON.stringify(redirect));
-check('«Назад» не возвращает на старый адрес', redirect.back === '/p/SDLC/board', redirect.back);
+console.log('старые адреса не открываются (CLAB-357, решение 0068 §7)');
+for (const path of ['/p/SDLC/roles', '/p/SDLC/workflow', '/p/SDLC/roles?role=analyst', '/p/SDLC/workflow?workflow=x', '/p/SDLC/no-such-page', '/no-such-page']) {
+  await s.goto(BASE + path);
+  await pause(2000);
+  const nf = await run(`return {path: location.pathname + location.search, notFound: Boolean(document.querySelector('[data-not-found]')),
+    text: texts(), canvas: Boolean(document.querySelector('[data-pipeline-canvas]')),
+    link: document.querySelector('[data-not-found] a')?.getAttribute('href') || '',
+    shell: Boolean(document.querySelector('[data-sidebar=menu-button]'))};`);
+  check(`${path}: «Страница не найдена» в оболочке, адрес на месте`,
+    nf.notFound && nf.text.includes('Страница не найдена') && nf.shell && nf.path === path && !nf.canvas, JSON.stringify(nf).slice(0, 300));
+  check(`${path}: ссылка на проекты`, nf.link === '/projects', nf.link);
+}
+await s.goto(BASE + '/p/SDLC/workflow');
+await pause(2000);
+const menu = await run(`return all('[data-sidebar=menu-button]').map((b) => b.innerText.trim());`);
+check('в меню один пункт «Пайплайн», «Роли» и «Цикл» нет',
+  menu.filter((x) => x === 'Пайплайн').length === 1 && !menu.includes('Роли') && !menu.includes('Цикл'), JSON.stringify(menu));
 for (const path of ['/p/SDLC/roles', '/p/SDLC/workflow']) {
   const r = await fetch(BASE + path, {headers: {Accept: 'text/html'}});
   const html = await r.text();

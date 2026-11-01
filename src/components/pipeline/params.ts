@@ -89,15 +89,3 @@ export function isViewPatch(patch: ParamPatch): boolean {
 }
 
 export const zoomParam = (z: number) => (Math.abs(z - 1) < 1e-9 ? undefined : clampZoom(z).toFixed(1));
-
-// Старые адреса (решение 0068 §7): /roles?role=X → ?role=X, /workflow?workflow=<id>
-// → ?wf=<id>; прочие параметры не теряются. Тип версии страница подставит
-// сама, когда версия загрузится.
-export function legacyPipelineSearch(search: string): string {
-  const q = new URLSearchParams(search);
-  const wf = clean(q.get('workflow'));
-  q.delete('workflow');
-  if (wf && !q.has('wf')) q.set('wf', wf);
-  const s = q.toString();
-  return s ? `?${s}` : '';
-}

@@ -24,7 +24,7 @@ registerHooks({
 
 const {layoutLayered, nodeBox, disabledIds, LAYERED_DEFAULTS, LAYERED_COMPACT} = await import('../src/components/cycle/layered.ts');
 const {boxesOverlap, pointInBox} = await import('../src/components/graph/geometry.ts');
-const {parsePipelineParams, patchParams, isViewPatch, legacyPipelineSearch, clampZoom, zoomParam} = await import(
+const {parsePipelineParams, patchParams, isViewPatch, clampZoom, zoomParam} = await import(
   '../src/components/pipeline/params.ts'
 );
 
@@ -340,12 +340,6 @@ check('doc: пустое и пробелы — без выбора', parsePipeli
 check('view и doc пишутся в историю, а не replace', !isViewPatch({view: 'diff'}) && !isViewPatch({doc: 'a.md'}) && !isViewPatch({v: '1', view: 'diff', doc: 'a.md'}));
 check('правка адреса не теряет прочих параметров',
   patchParams(q('type=task&zoom=0.8&x=1'), {status: 'a', zoom: undefined}).toString() === 'type=task&x=1&status=a');
-
-console.log('старые адреса');
-check('/roles?role=X → ?role=X', legacyPipelineSearch('?role=analyst') === '?role=analyst');
-check('/workflow?workflow=<id> → ?wf=<id>', legacyPipelineSearch('?workflow=w1') === '?wf=w1');
-check('прочие параметры не теряются', legacyPipelineSearch('?workflow=w1&status=dev&x=1') === '?status=dev&x=1&wf=w1', legacyPipelineSearch('?workflow=w1&status=dev&x=1'));
-check('без параметров — без «?»', legacyPipelineSearch('') === '');
 
 // ── без хардкода ────────────────────────────────────────────────────────────
 console.log('ключи статусов и ролей не зашиты');

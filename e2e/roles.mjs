@@ -1,5 +1,5 @@
 // Роли на странице «Пайплайн» (CLAB-346): панель роли вместо прежней страницы
-// ролей. Старый адрес /roles?role=X ведёт на /pipeline?role=X.
+// ролей. Роль выбирается адресом /pipeline?role=X.
 //
 // Документы версии (CLAB-347): своя роль с тремя документами и двумя
 // версиями, заведённая ручками API, — документы, подгрузка прежней версии и
@@ -24,7 +24,7 @@ const call = (method, path, body, actor = 'e2e') =>
     body: body ? JSON.stringify(body) : undefined,
   }).then(async (r) => ({status: r.status, body: r.status === 204 ? null : await r.json().catch(() => null)}));
 
-const s = await session(BASE + '/p/SDLC/roles?role=analyst');
+const s = await session(BASE + '/p/SDLC/pipeline?role=analyst');
 // Ожидание опоры: страница грузит версию цикла и роли несколькими запросами.
 const waitFor = `
   const waitFor = async (sel) => {
@@ -40,9 +40,9 @@ await s.resize(1440, 900);
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 await pause(2500);
 
-console.log('старый адрес ролей ведёт на «Пайплайн» с выбором');
+console.log('адрес «Пайплайна» с выбором роли');
 const where = await run('return location.pathname + location.search;');
-check('/roles?role=analyst → /pipeline?role=analyst', where === '/p/SDLC/pipeline?role=analyst', where);
+check('/pipeline?role=analyst остаётся в адресе', where === '/p/SDLC/pipeline?role=analyst', where);
 
 console.log('панель роли');
 const api = (await call('GET', '/projects/SDLC/roles/analyst')).body;
