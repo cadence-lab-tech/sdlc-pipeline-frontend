@@ -381,14 +381,17 @@ const roleRes = await api('POST', '/v1/projects/SDLC/roles', {
 const bareRes = await api('POST', '/v1/projects/SDLC/roles', {key: BARE, name: `Без версий ${stamp}`});
 check('роли сценария заведены', roleRes.ok && bareRes.ok, `${roleRes.status} ${bareRes.status}`);
 
+// Роль открывается на странице «Пайплайн» (CLAB-346): строкой в обзоре —
+// роли сценария не стоят ни на одном статусе.
 const openRole = async (name) => {
-  await s.goto(BASE + '/p/SDLC/roles');
+  await s.goto(BASE + '/p/SDLC/pipeline');
   await wait(1800);
   await run(`
-    const row = all('[role=button], button, div').find((el) => (el.innerText || '').trim().startsWith(${JSON.stringify(name)}));
+    const row = all('[data-pipeline-overview] button').find((el) => (el.innerText || '').trim().startsWith(${JSON.stringify(name)}));
     if (!row) throw new Error('роль не найдена: ' + ${JSON.stringify(name)});
     row.click();
     await sleep(1200);
+    if (!document.querySelector('[data-role-panel]')) throw new Error('панель роли не открылась: ' + ${JSON.stringify(name)});
     return true;
   `);
 };

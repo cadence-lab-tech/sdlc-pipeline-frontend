@@ -198,9 +198,4 @@ export const helpers = `
     await sleep(900);
     return true;
   };
-  const selectDraft = async () => {
-    const row = all('[class*=item], li').find((el) => (el.innerText || '').includes('черновик'));
-    if (row) { row.click(); await sleep(1200); }
-    return Boolean(row);
-  };
 `;
