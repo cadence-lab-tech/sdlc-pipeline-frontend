@@ -248,6 +248,18 @@ check('выбор открывает Sheet на всю ширину с крош�
 await run(`document.querySelector('[role=dialog] [aria-label="Закрыть панель"]').click(); await sleep(800); return true;`);
 check('«×» закрывает Sheet', await run(`return !document.querySelector('[role=dialog][data-pipeline-inspector]') && !location.search.includes('status=');`));
 
+const overviewSheet = await run(`
+  await clickExact('Обзор');
+  await sleep(900);
+  const d = document.querySelector('[role=dialog][data-pipeline-inspector]');
+  const r = {open: Boolean(d), overview: Boolean(d?.querySelector('[data-pipeline-overview]')), text: (d?.innerText || '').replace(/\\s+/g, ' ')};
+  d?.querySelector('[aria-label="Закрыть панель"]')?.click();
+  await sleep(800);
+  r.closed = !document.querySelector('[role=dialog][data-pipeline-inspector]');
+  return r;
+`);
+check('на узком экране обзор цикла — по кнопке «Обзор» в Sheet', overviewSheet.open && overviewSheet.overview && overviewSheet.text.includes('Роли на этом цикле') && overviewSheet.closed, JSON.stringify(overviewSheet).slice(0, 300));
+
 console.log('тёмная тема');
 await s.resize(1440, 900);
 await run(`localStorage.setItem('sdlc.theme', 'dark'); return true;`);

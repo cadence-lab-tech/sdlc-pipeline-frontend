@@ -228,14 +228,17 @@ export function ValidationReport({validation, onStatus}: {validation: Validation
   if (v.valid && v.warnings.length === 0) {
     return <Note tone="success" title="Цикл проходит проверку" />;
   }
-  const line = (p: Validation['problems'][number], i: number) =>
+  // Текст — как раньше: у ошибки ключ статуса в скобках, у предупреждения
+  // только сообщение сервера.
+  const line = (withKey: boolean) => (p: Validation['problems'][number], i: number) =>
     p.status ? (
       <button
         key={i}
         type="button"
         className="block text-left underline-offset-2 hover:underline"
         onClick={() => onStatus(p.status!)}>
-        {p.message} ({p.status})
+        {p.message}
+        {withKey ? ` (${p.status})` : ''}
       </button>
     ) : (
       <p key={i}>{p.message}</p>
@@ -244,12 +247,12 @@ export function ValidationReport({validation, onStatus}: {validation: Validation
     <div className="space-y-2" data-pipeline-validation>
       {v.problems.length > 0 ? (
         <Note tone="error" title="Цикл не активируется">
-          {v.problems.map(line)}
+          {v.problems.map(line(true))}
         </Note>
       ) : null}
       {v.warnings.length > 0 ? (
         <Note tone="warning" title="Предупреждения">
-          {v.warnings.map(line)}
+          {v.warnings.map(line(false))}
         </Note>
       ) : null}
     </div>

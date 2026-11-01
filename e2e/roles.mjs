@@ -17,7 +17,18 @@ const call = (method, path, body, actor = 'e2e') =>
   }).then(async (r) => ({status: r.status, body: r.status === 204 ? null : await r.json().catch(() => null)}));
 
 const s = await session(BASE + '/p/SDLC/roles?role=analyst');
-const run = (body) => s.evaluate(helpers + body);
+// Ожидание опоры: страница грузит версию цикла и роли несколькими запросами.
+const waitFor = `
+  const waitFor = async (sel) => {
+    for (let i = 0; i < 50 && !document.querySelector(sel); i++) await sleep(100);
+    const el = document.querySelector(sel);
+    if (!el) throw new Error('нет на странице: ' + sel);
+    return el;
+  };
+`;
+const run = (body) => s.evaluate(helpers + waitFor + body);
+// Широкий экран: обзор цикла — в боковой панели (на узком он за кнопкой «Обзор»).
+await s.resize(1440, 900);
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 await pause(2500);
 
@@ -29,7 +40,7 @@ console.log('панель роли');
 const api = (await call('GET', '/projects/SDLC/roles/analyst')).body;
 let t = await run('return texts();');
 const panel = await run(`
-  const p = document.querySelector('[data-role-panel="analyst"]');
+  const p = await waitFor('[data-role-panel="analyst"]').catch(() => null);
   return p ? p.innerText.replace(/\\s+/g, ' ') : '';
 `);
 check('панель роли открыта', panel.includes('Аналитик') && panel.includes('analyst'), panel.slice(0, 200));
@@ -82,7 +93,7 @@ console.log('версия на узле обновилась');
 await s.goto(BASE + '/p/SDLC/pipeline?type=task');
 await pause(2000);
 const node = await run(`
-  const b = document.querySelector('[data-pipeline-role="analyst"]');
+  const b = await waitFor('[data-pipeline-role="analyst"]').catch(() => null);
   return b ? b.getAttribute('data-pipeline-role-version') : null;
 `);
 check('узел показывает v2', node === '2', String(node));
@@ -121,7 +132,7 @@ check('место отказа выбирает статус', picked === 'analy
 console.log('обзор: роли на цикле, остальные, архивные');
 await s.goto(BASE + '/p/SDLC/pipeline?type=task');
 await pause(2000);
-t = await run(`return document.querySelector('[data-pipeline-overview]').innerText.replace(/\\s+/g, ' ');`);
+t = await run(`return (await waitFor('[data-pipeline-overview]')).innerText.replace(/\\s+/g, ' ');`);
 check('роли перечислены', t.includes('Роли на этом цикле') && t.includes('Аналитик') && t.includes('Ревьюер'), t.slice(0, 300));
 check('остальные роли — своим разделом', t.includes('Остальные роли проекта') && t.includes('Не стоят ни на одном статусе этого цикла'), t.slice(0, 500));
 const stamp = Date.now().toString(36);

@@ -130,6 +130,8 @@ export function Pipeline() {
   const [activation, setActivation] = useState<{id: UUID; result: ActivationResult}>();
   const [isBusy, setIsBusy] = useState(false);
   const [confirmActivate, setConfirmActivate] = useState(false);
+  // Узкий экран: обзор цикла (проверка, роли) открывается кнопкой в Sheet.
+  const [overviewOpen, setOverviewOpen] = useState(false);
 
   const refresh = () => {
     workflow.reload();
@@ -360,8 +362,6 @@ export function Pipeline() {
     );
   }
 
-  // На узком экране без правки и необязательных этапов тулбару нечего показать.
-  const toolbar = !mobile || editable || Boolean(wf?.statuses.some((x) => x.is_optional));
   const otherActive = types.map((t) => activeOf(t)).find((w): w is WorkflowHead => Boolean(w));
 
   return (
@@ -431,8 +431,12 @@ export function Pipeline() {
         <div className="relative min-w-0 flex-1">
           {wf && layout ? (
             <>
-              {toolbar ? (
               <div className="bg-background/95 absolute inset-x-0 top-0 z-10 flex h-11 items-center gap-3 border-b px-4">
+                {mobile ? (
+                  <Button size="sm" variant="outline" onClick={() => setOverviewOpen(true)}>
+                    Обзор
+                  </Button>
+                ) : null}
                 {editable ? (
                   <Button size="sm" variant="secondary" onClick={() => setDialog({kind: 'status-new'})}>
                     Добавить статус
@@ -454,11 +458,7 @@ export function Pipeline() {
                   )}
                 </div>
               </div>
-              ) : null}
-              <div
-                ref={scroller}
-                className={cn('absolute inset-0 overflow-auto p-4', toolbar && 'top-11')}
-                data-pipeline-scroller>
+              <div ref={scroller} className="absolute inset-0 top-11 overflow-auto p-4" data-pipeline-scroller>
                 {wf.statuses.length === 0 ? (
                   <EmptyState
                     title="Статусов нет"
@@ -517,19 +517,34 @@ export function Pipeline() {
                   </Button>
                 </div>
               ) : null}
+              {/* На узком экране панели нет: роли проекта — под пустым состоянием. */}
+              {mobile && !hasSelection ? <div className="-mx-4 mt-4">{body}</div> : null}
             </div>
           )}
         </div>
 
         {mobile ? (
-          <Sheet open={hasSelection} onOpenChange={(o) => (o ? undefined : closePanel())}>
+          <Sheet
+            open={hasSelection || overviewOpen}
+            onOpenChange={(o) => {
+              if (o) return;
+              setOverviewOpen(false);
+              if (hasSelection) closePanel();
+            }}>
             <SheetContent
               side="right"
               className="w-full gap-0 overflow-y-auto p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-none"
               showCloseButton={false}
               data-pipeline-inspector>
               <SheetTitle className="sr-only">{crumbs[crumbs.length - 1]}</SheetTitle>
-              <InspectorHeader crumbs={crumbs.slice(1)} onBack={back} onClose={closePanel} />
+              <InspectorHeader
+                crumbs={hasSelection ? crumbs.slice(1) : crumbs}
+                onBack={back}
+                onClose={() => {
+                  setOverviewOpen(false);
+                  if (hasSelection) closePanel();
+                }}
+              />
               {body}
             </SheetContent>
           </Sheet>

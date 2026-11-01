@@ -384,6 +384,7 @@ check('роли сценария заведены', roleRes.ok && bareRes.ok, `$
 // Роль открывается на странице «Пайплайн» (CLAB-346): строкой в обзоре —
 // роли сценария не стоят ни на одном статусе.
 const openRole = async (name) => {
+  await s.resize(1440, 900);
   await s.goto(BASE + '/p/SDLC/pipeline');
   await wait(1800);
   await run(`
