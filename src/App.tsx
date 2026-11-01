@@ -77,11 +77,11 @@ import { useInstance } from "./hooks/useInstance";
 import { INVITE_PATH, Invite } from "./pages/Invite";
 import { Knowledge } from "./pages/Knowledge";
 import { Metrics } from "./pages/Metrics";
+import { Pipeline } from "./pages/Pipeline";
 import { Projects } from "./pages/Projects";
-import { Roles } from "./pages/Roles";
 import { Settings } from "./pages/Settings";
 import { TaskDetail } from "./pages/TaskDetail";
-import { WorkflowEditor } from "./pages/WorkflowEditor";
+import { legacyPipelineSearch } from "./components/pipeline/params";
 
 export function App() {
   return (
@@ -168,22 +168,18 @@ export function App() {
                 </Shell>
               }
             />
+            {/* Роли и цикл — одна страница (решение 0068 §7). Старые адреса
+                ведут на неё клиентом, с replace и выбором из адреса. */}
             <Route
-              path="/p/:projectKey/roles"
+              path="/p/:projectKey/pipeline"
               element={
-                <Shell page="roles">
-                  <Roles />
+                <Shell page="pipeline">
+                  <Pipeline />
                 </Shell>
               }
             />
-            <Route
-              path="/p/:projectKey/workflow"
-              element={
-                <Shell page="workflow">
-                  <WorkflowEditor />
-                </Shell>
-              }
-            />
+            <Route path="/p/:projectKey/roles" element={<LegacyPipelineRedirect />} />
+            <Route path="/p/:projectKey/workflow" element={<LegacyPipelineRedirect />} />
             <Route
               path="/p/:projectKey/search"
               element={
@@ -223,6 +219,20 @@ export function App() {
   );
 }
 
+// Старые адреса ролей и цикла: /roles?role=X → /pipeline?role=X,
+// /workflow?workflow=<id> → /pipeline?wf=<id>; прочие параметры не теряются.
+// Перенаправление без записи в историю: «Назад» не вернёт на старый адрес.
+function LegacyPipelineRedirect() {
+  const { projectKey = "" } = useParams();
+  const location = useLocation();
+  return (
+    <Navigate
+      to={`/p/${projectKey}/pipeline${legacyPipelineSearch(location.search)}`}
+      replace
+    />
+  );
+}
+
 type Page =
   | "projects"
   | "teams"
@@ -231,8 +241,7 @@ type Page =
   | "docs"
   | "github"
   | "board"
-  | "roles"
-  | "workflow"
+  | "pipeline"
   | "search"
   | "metrics"
   | "settings";
@@ -245,8 +254,7 @@ const TITLES: Record<Page, string> = {
   docs: "Подключение",
   github: "Подключение GitHub",
   board: "Доска",
-  roles: "Роли",
-  workflow: "Цикл",
+  pipeline: "Пайплайн",
   search: "Поиск",
   metrics: "Метрики",
   settings: "Настройки",
@@ -472,16 +480,10 @@ function Nav({
           href: `/p/${projectKey}/board`,
         },
         {
-          page: "roles",
-          label: "Роли",
-          icon: UserSquare,
-          href: `/p/${projectKey}/roles`,
-        },
-        {
-          page: "workflow",
-          label: "Цикл",
+          page: "pipeline",
+          label: "Пайплайн",
           icon: Workflow,
-          href: `/p/${projectKey}/workflow`,
+          href: `/p/${projectKey}/pipeline`,
         },
         {
           page: "search",

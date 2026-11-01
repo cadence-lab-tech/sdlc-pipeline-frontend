@@ -30,6 +30,7 @@ export function TransitionDialog({
   workflowID,
   transition,
   statuses,
+  defaultFrom,
   isOpen,
   onClose,
   onSaved,
@@ -37,13 +38,15 @@ export function TransitionDialog({
   workflowID: UUID;
   transition?: Transition;
   statuses: Status[];
+  // Ключ статуса «Откуда» у нового перехода: «Переход отсюда» с узла схемы.
+  defaultFrom?: string;
   isOpen: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const fromKey = transition
     ? (statuses.find((s) => s.id === transition.from_status_id)?.key ?? ANY_STATUS)
-    : ANY_STATUS;
+    : (defaultFrom ?? ANY_STATUS);
 
   const [key, setKey] = useState(transition?.key ?? '');
   const [name, setName] = useState(transition?.name ?? '');

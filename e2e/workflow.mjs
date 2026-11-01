@@ -1,75 +1,77 @@
+// Редактор цикла на странице «Пайплайн» (CLAB-346): черновик, статусы,
+// перестановка, переходы, гейты, необязательные этапы, проверка и активация.
+// Сценарии и проверки прежнего редактора сохранены, DOM — холст и панели:
+// статус выбирается узлом, правка и удаление — в его панели.
 import {session, helpers} from './driver.mjs';
 
 const BASE = process.env.SDLC_UI_URL ?? 'http://localhost:5173';
+const API = process.env.SDLC_API_URL ?? 'http://localhost:8088';
 let ok = 0, fail = 0;
 const check = (name, cond, extra = '') => {
   if (cond) { ok++; console.log('  ✓', name); }
   else { fail++; console.log('  ✗', name, extra); }
 };
+const call = (method, path, body) =>
+  fetch(API + '/v1' + path, {
+    method,
+    headers: {'X-SDLC-Actor': 'e2e', 'Content-Type': 'application/json'},
+    body: body ? JSON.stringify(body) : undefined,
+  }).then(async (r) => ({status: r.status, body: r.status === 204 ? null : await r.json()}));
+const keysOf = async (id) => (await call('GET', `/workflows/${id}`)).body.statuses
+  .sort((a, b) => a.position - b.position)
+  .map((x) => x.key);
 
-const s = await session(BASE + '/p/SDLC/workflow');
-const run = (body) => s.evaluate(helpers + body);
+const PAGE = BASE + '/p/SDLC/pipeline?type=task';
+const s = await session(PAGE);
+const run = (body) => s.evaluate(helpers + pipe + body);
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+await s.resize(1440, 900);
 
-// Необязательные этапы (CLAB-317, решение 0066): диалог статуса, бейджи строки
-// и перехват тел запросов к статусам. Переключатель находится по подписи, а его
-// состояние читается из aria-checked.
-const optionalHelpers = `
-  const dialog = () => document.querySelector('[role=dialog]');
-  const sw = (label) => {
-    const l = dialog() && Array.from(dialog().querySelectorAll('label')).find((x) => x.innerText.trim().startsWith(label));
-    return l ? document.getElementById(l.getAttribute('for')) : null;
+// Холст и панель: узел выбирается кнопкой узла, действия — кнопками панели.
+// Переключатели диалога статуса находятся по подписи, состояние — aria-checked.
+const pipe = `
+  const node = (key) => document.querySelector('[data-pipeline-status="' + key + '"]');
+  const nodeText = (key) => (node(key)?.innerText || '').replace(/\\s+/g, ' ');
+  const selectStatus = async (key) => {
+    const n = node(key)?.querySelector('[role=button]');
+    if (!n) throw new Error('узла нет: ' + key);
+    n.click();
+    await sleep(900);
   };
-  const rowOf = (key) => statusRows().find((li) => (li.querySelectorAll('p')[1]?.innerText || '').split('·')[0].trim() === key);
-  const editStatus = async (key) => {
-    Array.from(rowOf(key).querySelectorAll('button')).find((b) => (b.innerText || '').trim() === 'Править').click();
-    await sleep(700);
+  const panel = () => document.querySelector('[data-pipeline-inspector]');
+  const panelText = () => (panel()?.innerText || '').replace(/\\s+/g, ' ');
+  const panelButton = (text) => Array.from(panel().querySelectorAll('button')).find((b) => (b.innerText || '').trim() === text);
+  const clickPanel = async (text) => {
+    const b = panelButton(text);
+    if (!b) throw new Error('в панели нет кнопки: ' + text);
+    b.click();
+    await sleep(800);
   };
-  const toggle = async (label) => { sw(label).click(); await sleep(300); };
-  const saveDialog = async () => {
-    Array.from(dialog().querySelectorAll('button')).find((b) => (b.innerText || '').trim() === 'Сохранить').click();
-    await sleep(1800);
+  const closePanel = async () => {
+    const b = panel()?.querySelector('[aria-label="Закрыть панель"]');
+    if (b) { b.click(); await sleep(900); }
   };
-  const closeDialog = async () => {
-    Array.from(dialog().querySelectorAll('button')).find((b) => (b.innerText || '').trim() === 'Отмена').click();
-    await sleep(600);
+  const overviewText = () => (document.querySelector('[data-pipeline-overview]')?.innerText || '').replace(/\\s+/g, ' ');
+  const arrow = (kind) => Array.from(panel().querySelectorAll('button')).find((b) =>
+    (b.getAttribute('aria-label') || '').startsWith(kind === 'up' ? 'Поднять' : 'Опустить'));
+  const currentWf = () => document.querySelector('[data-pipeline-version]')?.getAttribute('data-pipeline-version');
+  // Версия выбирается в меню версий: Radix открывает его по pointerdown.
+  const pickVersion = async (id) => {
+    const trigger = document.querySelector('[data-pipeline-version]');
+    trigger.dispatchEvent(new PointerEvent('pointerdown', {bubbles: true, button: 0, pointerType: 'mouse'}));
+    await sleep(400);
+    const item = document.querySelector('[data-pipeline-version-item="' + id + '"]');
+    if (!item) throw new Error('версии нет в меню: ' + id);
+    item.click();
+    await sleep(1600);
   };
-  // Тела запросов к статусам: PATCH и POST. Запрос уходит настоящий.
-  const spyStatuses = () => {
-    window.__bodies = [];
-    const orig = window.fetch;
-    window.__origFetch = orig;
-    window.fetch = async (input, init) => {
-      const url = typeof input === 'string' ? input : input.url;
-      const method = (init?.method || 'GET').toUpperCase();
-      if (['PATCH', 'POST'].includes(method) && /\\/statuses(\\/[a-z_]+)?$/.test(url)) {
-        window.__bodies.push(JSON.parse(init.body));
-      }
-      return orig(input, init);
-    };
-  };
-  const unspy = () => { if (window.__origFetch) window.fetch = window.__origFetch; };
-`;
-
-// Строки секции «Статусы» и стрелки перестановки в них. Стрелка ищется по
-// aria-label, а не по позиции: подпись — часть проверяемого поведения.
-const statusHelpers = `
-  const statusRows = () => {
-    const section = all('section').find((e) => (e.querySelector('h2')?.innerText || '').trim() === 'Статусы');
-    if (!section) throw new Error('секции «Статусы» на экране нет');
-    return Array.from(section.querySelectorAll('ul > li'));
-  };
-  const statusKeys = () => statusRows().map((li) => (li.querySelectorAll('p')[1]?.innerText || '').split('·')[0].trim());
-  const arrow = (li, kind) =>
-    Array.from(li.querySelectorAll('button')).find((b) =>
-      (b.getAttribute('aria-label') || '').startsWith(kind === 'up' ? 'Поднять' : 'Опустить'));
-  // Версия выбирается кнопкой строки в панели версий и только ею: слово
-  // «черновик» есть и в кнопке «Пустой черновик» над списком, а она заводит
-  // новую версию вместо того, чтобы открыть существующую.
-  const pickVersion = async (text) => {
-    const row = Array.from(document.querySelectorAll('aside li button')).find((b) => (b.innerText || '').includes(text));
-    if (!row) throw new Error('версии нет в панели: ' + text);
-    row.click();
+  const menuItem = async (text) => {
+    const trigger = document.querySelector('[data-pipeline-version]');
+    trigger.dispatchEvent(new PointerEvent('pointerdown', {bubbles: true, button: 0, pointerType: 'mouse'}));
+    await sleep(400);
+    const item = all('[role=menuitem]').find((x) => (x.innerText || '').trim() === text);
+    if (!item) throw new Error('пункта нет в меню: ' + text);
+    item.click();
     await sleep(1600);
   };
   // Подсказка выключенной кнопки: события указателя до неё не доходят, их
@@ -84,122 +86,162 @@ const statusHelpers = `
     const tip = document.querySelector('[data-slot=tooltip-content]');
     return {disabled: btn.disabled, text: tip ? tip.innerText.replace(/\\s+/g, ' ').trim() : ''};
   };
+  const dialog = () => document.querySelector('[role=dialog]');
+  const sw = (label) => {
+    const l = dialog() && Array.from(dialog().querySelectorAll('label')).find((x) => x.innerText.trim().startsWith(label));
+    return l ? document.getElementById(l.getAttribute('for')) : null;
+  };
+  const editStatus = async (key) => {
+    await selectStatus(key);
+    await clickPanel('Править статус');
+  };
+  const toggle = async (label) => { sw(label).click(); await sleep(300); };
+  const saveDialog = async () => {
+    Array.from(dialog().querySelectorAll('button')).find((b) => (b.innerText || '').trim() === 'Сохранить').click();
+    await sleep(1800);
+  };
+  const closeDialog = async () => {
+    Array.from(dialog().querySelectorAll('button')).find((b) => (b.innerText || '').trim() === 'Отмена').click();
+    await sleep(600);
+  };
+  // Перехват запросов правки: метод, путь и тело. Запрос уходит настоящий.
+  const spy = (pattern) => {
+    window.__calls = [];
+    const orig = window.fetch;
+    window.__origFetch = orig;
+    window.fetch = async (input, init) => {
+      const url = typeof input === 'string' ? input : input.url;
+      const method = (init?.method || 'GET').toUpperCase();
+      if (method !== 'GET' && pattern.test(url)) {
+        window.__calls.push({method, path: url.replace(/^.*\\/v1/, ''), body: init?.body ? JSON.parse(init.body) : null});
+      }
+      return orig(input, init);
+    };
+  };
+  const unspy = () => { if (window.__origFetch) window.fetch = window.__origFetch; };
 `;
-await new Promise((r) => setTimeout(r, 2000));
+await pause(2000);
 
 console.log('редактор цикла: активная версия');
+const active = (await call('GET', '/projects/SDLC/workflow?type=task')).body;
 let t = await run('return texts();');
-check('активная версия помечена как неправимая', t.includes('Эта версия не редактируется'));
+check('активная версия — только чтение: в шапке «Черновик копией этой версии»',
+  t.includes('работает') && t.includes('Черновик копией этой версии') && !t.includes('Добавить статус'), t.slice(0, 300));
 check('статусы цикла показаны', t.includes('Analysis') && t.includes('Code Review'));
-check('гейты перехода показаны', t.includes('Апрув человеком'));
-// Стрелки перестановки — правка, и на активной версии их быть не должно, как
-// и «Править» с «Удалить»: по ней идут задачи.
-const activeEditable = await run(statusHelpers + `
-  return statusRows().some((li) =>
-    arrow(li, 'up') || arrow(li, 'down') ||
-    Array.from(li.querySelectorAll('button')).some((b) => ['Править', 'Удалить'].includes((b.innerText || '').trim())));
+const human = active.transitions.find((x) => (x.gates ?? []).some((g) => g.type === 'human_approval'));
+await run(`document.querySelector('[data-pipeline-checkpoint="${human.key}"]').click(); await sleep(900); return true;`);
+t = await run('return panelText();');
+check('гейты перехода показаны', t.includes('Апрув человеком') && t.includes(`Гейты: ${human.gates.length}`), t.slice(0, 300));
+check('у активной версии кнопок правки перехода нет', !t.includes('Править переход') && !t.includes('Добавить гейт') && !t.includes('Удалить'), t.slice(0, 300));
+await run(`await selectStatus('analysis'); return true;`);
+const activeEditable = await run(`
+  return Boolean(arrow('up') || arrow('down') || panelButton('Править статус') || panelButton('Удалить') || panelButton('Переход отсюда'))
+    || all('[aria-label^="Добавить переход из"]').length > 0;
 `);
 check('у активной версии кнопок правки статусов нет', !activeEditable, String(activeEditable));
 
 console.log('черновик копией активного');
-await run('return click("Черновик копией активного");');
-await new Promise((r) => setTimeout(r, 1500));
-t = await run('return texts();');
-check('создан черновик v2', t.includes('v2') && t.includes('черновик'), t.slice(0, 200));
-check('черновик редактируется', t.includes('Добавить статус'));
-check('в черновике те же статусы', t.includes('Code Review'));
-check('активация доступна', !t.includes('Цикл не активируется'));
+const created = await run(`
+  spy(/\\/workflows(\\/|$)/);
+  await clickExact('Черновик копией этой версии');
+  await sleep(1500);
+  unspy();
+  return {calls: window.__calls, wf: currentWf(), text: texts(), url: location.search};
+`);
+const draftId = created.wf;
+check('тот же запрос, что у прежнего редактора: копия активной под тип',
+  created.calls.length === 1 && created.calls[0].method === 'POST' && created.calls[0].path === '/projects/SDLC/workflows' &&
+    created.calls[0].body.from === 'active' && JSON.stringify(created.calls[0].body.task_types) === '["task"]',
+  JSON.stringify(created.calls));
+check('создан черновик v2, он открыт', created.text.includes('v2 · черновик') && created.url.includes(`wf=${draftId}`), created.text.slice(0, 200));
+check('черновик редактируется', created.text.includes('Добавить статус'));
+check('в черновике те же статусы', created.text.includes('Code Review'));
+await pause(1000);
+t = await run('return overviewText();');
+check('активация доступна', !t.includes('Цикл не активируется'), t.slice(0, 300));
 
 console.log('стрелки перестановки статусов');
-const arrows = await run(statusHelpers + `
-  const rows = statusRows();
-  return {
-    glyphs: rows.some((li) => Array.from(li.querySelectorAll('button')).some((b) => /[↑↓]/.test(b.innerText || ''))),
-    rows: rows.map((li) => {
-      const up = arrow(li, 'up');
-      const down = arrow(li, 'down');
-      return {
-        name: (li.querySelectorAll('p')[0]?.innerText || '').trim(),
-        key: (li.querySelectorAll('p')[1]?.innerText || '').split('·')[0].trim(),
-        up: up?.getAttribute('aria-label') || '',
-        down: down?.getAttribute('aria-label') || '',
-        upOff: Boolean(up?.disabled),
-        downOff: Boolean(down?.disabled),
-        icons: Boolean(up?.querySelector('svg') && down?.querySelector('svg')),
-      };
-    }),
-  };
-`);
-const rows = arrows.rows;
-const order = rows.map((r) => r.key);
-check('статусов в черновике больше двух', rows.length > 2, String(rows.length));
+const order = await keysOf(draftId);
+const names = new Map((await call('GET', `/workflows/${draftId}`)).body.statuses.map((x) => [x.key, x.name]));
+check('статусов в черновике больше двух', order.length > 2, String(order.length));
+const arrows = [];
+for (const key of [order[0], order[1], order[order.length - 1]]) {
+  arrows.push(await run(`
+    await selectStatus('${key}');
+    const up = arrow('up');
+    const down = arrow('down');
+    return {key: '${key}', up: up?.getAttribute('aria-label') || '', down: down?.getAttribute('aria-label') || '',
+      upOff: Boolean(up?.disabled), downOff: Boolean(down?.disabled),
+      icons: Boolean(up?.querySelector('svg') && down?.querySelector('svg')),
+      glyphs: /[↑↓]/.test((up?.innerText || '') + (down?.innerText || '')),
+      words: (up?.innerText || '').trim() === 'Выше' && (down?.innerText || '').trim() === 'Ниже'};
+  `));
+}
 check('стрелки названы действием и статусом',
-  rows.every((r) => r.up.includes(r.name) && r.up.includes('выше') && r.down.includes(r.name) && r.down.includes('ниже')),
-  JSON.stringify(rows[0]));
-check('стрелки — иконки, а не глифы ↑ ↓', !arrows.glyphs && rows.every((r) => r.icons));
-check('на краях списка стрелка выключена',
-  rows[0].upOff && !rows[0].downOff && rows[rows.length - 1].downOff && !rows[rows.length - 1].upOff,
-  JSON.stringify(rows.map((r) => [r.upOff, r.downOff])));
+  arrows.every((r) => r.up.includes(names.get(r.key)) && r.up.includes('выше') && r.down.includes(names.get(r.key)) && r.down.includes('ниже')),
+  JSON.stringify(arrows[1]));
+check('кнопки «Выше»/«Ниже» с иконками, без глифов ↑ ↓', arrows.every((r) => r.icons && !r.glyphs && r.words), JSON.stringify(arrows[0]));
+check('на краях списка кнопка выключена',
+  arrows[0].upOff && !arrows[0].downOff && arrows[2].downOff && !arrows[2].upOff && !arrows[1].upOff && !arrows[1].downOff,
+  JSON.stringify(arrows.map((r) => [r.upOff, r.downOff])));
 
 console.log('удаление статуса называет, что уйдёт вместе с ним');
 // Переходы ссылаются на статус с ON DELETE CASCADE: вместе со статусом
 // пропадают и они, и гейты на них. Диалог обязан назвать это до подтверждения.
-const cascade = await run(statusHelpers + `
-  const row = statusRows()[1];
-  const name = (row.querySelectorAll('p')[0].innerText || '').trim();
-  Array.from(row.querySelectorAll('button')).find((b) => (b.innerText || '').trim() === 'Удалить').click();
-  await sleep(700);
+const cascade = await run(`
+  await selectStatus('${order[1]}');
+  await clickPanel('Удалить');
   const d = document.querySelector('[role=alertdialog]');
   const text = d ? d.innerText.replace(/\\s+/g, ' ') : '';
   await confirm('Отмена');
-  const section = all('section').find((e) => (e.querySelector('h2')?.innerText || '').trim() === 'Переходы');
-  return {name, text, transitions: (section?.innerText || '').replace(/\\s+/g, ' ')};
+  return {text};
 `);
-// В списке переходов на экране стоят их названия, ключи — только в диалоге:
-// сверяются названия, ключ остаётся при них для точности.
+const draftNow = (await call('GET', `/workflows/${draftId}`)).body;
 const named = (cascade.text.split('ведут: ')[1] || '').split(', а с ними')[0].split(', ');
-const names = named.map((x) => x.replace(/\s*\([a-z0-9_]+\)\s*\.?$/, '').trim());
+const tNames = named.map((x) => x.replace(/\s*\([a-z0-9_]+\)\s*\.?$/, '').trim());
 check('диалог удаления называет переходы и гейты, которые уйдут каскадом',
-  cascade.text.includes(cascade.name) && cascade.text.includes('пропадут переходы') &&
+  cascade.text.includes(names.get(order[1])) && cascade.text.includes('пропадут переходы') &&
     /гейты на этих переходах: [1-9]/.test(cascade.text), cascade.text);
 check('названные переходы есть в цикле',
-  names.length > 0 && names.every((n) => n && cascade.transitions.includes(n)), names.join(' | '));
+  tNames.length > 0 && tNames.every((n) => n && draftNow.transitions.some((x) => x.name === n)), tNames.join(' | '));
 
 console.log('перестановка статусов проходит');
-// Ответ бэкенда задержан подменённым fetch: занятость кнопок иначе не поймать,
-// запрос к локальному сервису отвечает быстрее, чем проверка успевает смотреть.
-const moved = await run(statusHelpers + `
-  const orig = window.fetch;
+// Ответ бэкенда задержан подменённым fetch: занятость кнопок иначе не поймать.
+const moved = await run(`
+  spy(/\\/statuses$/);
+  const spied = window.fetch;
   window.fetch = async (input, init) => {
     const url = typeof input === 'string' ? input : input.url;
     if ((init?.method || '').toUpperCase() === 'PUT' && /\\/statuses$/.test(url)) await sleep(1500);
-    return orig(input, init);
+    return spied(input, init);
   };
-  arrow(statusRows()[1], 'down').click();
+  await selectStatus('${order[1]}');
+  arrow('down').click();
   await sleep(500);
-  const row = statusRows()[1];
-  const busy = [arrow(row, 'up').disabled, arrow(row, 'down').disabled];
+  const busy = [arrow('up').disabled, arrow('down').disabled];
   await sleep(2500);
-  window.fetch = orig;
-  const free = statusRows().map((li) => [arrow(li, 'up').disabled, arrow(li, 'down').disabled]);
-  return {busy, free, keys: statusKeys(), page: texts()};
+  unspy();
+  return {busy, free: [arrow('up').disabled, arrow('down').disabled], calls: window.__calls, page: texts(), panel: panelText()};
 `);
-check('пока перестановка в пути, обе стрелки строки заняты', moved.busy[0] && moved.busy[1], JSON.stringify(moved.busy));
-check('после ответа занятость снята',
-  moved.free.slice(1, -1).every(([u, d]) => !u && !d), JSON.stringify(moved.free));
-check('порядок статусов изменился',
-  moved.keys[1] === order[2] && moved.keys[2] === order[1], moved.keys.join(','));
+const afterMove = await keysOf(draftId);
+check('пока перестановка в пути, обе кнопки заняты', moved.busy[0] && moved.busy[1], JSON.stringify(moved.busy));
+check('после ответа занятость снята', !moved.free[0] && !moved.free[1], JSON.stringify(moved.free));
+const swapped = [...order];
+[swapped[1], swapped[2]] = [swapped[2], swapped[1]];
+check('тот же PUT …/statuses с порядком целиком',
+  moved.calls.length === 1 && moved.calls[0].method === 'PUT' && JSON.stringify(moved.calls[0].body) === JSON.stringify({order: swapped}),
+  JSON.stringify(moved.calls));
+check('порядок статусов изменился', afterMove[1] === order[2] && afterMove[2] === order[1], afterMove.join(','));
+check('панель называет новое место', moved.panel.includes(`Колонка доски 3 из ${order.length}`), moved.panel.slice(0, 300));
 check('удачная перестановка не показывает ошибку', !moved.page.includes('Порядок статусов не изменён'), moved.page.slice(0, 300));
 
-await s.goto(BASE + '/p/SDLC/workflow');
+await s.goto(`${BASE}/p/SDLC/pipeline?type=task&wf=${draftId}&status=${order[1]}`);
 await pause(2000);
-const reloaded = await run(statusHelpers + 'return statusKeys();');
-check('порядок сохранён после перезагрузки', reloaded.join(',') === moved.keys.join(','), reloaded.join(','));
+t = await run('return panelText();');
+check('порядок сохранён после перезагрузки', (await keysOf(draftId)).join() === afterMove.join() && t.includes(`Колонка доски 3 из ${order.length}`), t.slice(0, 200));
 
 console.log('отказ на перестановку виден');
-// Отказ бэкенда на PUT статусов: на экране остаётся прежний порядок, причина
-// названа сообщением бэкенда, необработанных отказов промиса нет.
-const refused = await run(statusHelpers + `
+const refused = await run(`
   window.__unhandled = [];
   window.addEventListener('unhandledrejection', (e) => window.__unhandled.push(String(e.reason)));
   const orig = window.fetch;
@@ -211,50 +253,45 @@ const refused = await run(statusHelpers + `
     }
     return orig(input, init);
   };
-  const before = statusKeys();
-  arrow(statusRows()[1], 'down').click();
+  arrow('down').click();
   await sleep(1500);
   window.fetch = orig;
-  return {before, after: statusKeys(), unhandled: window.__unhandled, page: texts()};
+  return {unhandled: window.__unhandled, panel: panelText()};
 `);
-check('отказ перестановки показан баннером с сообщением бэкенда',
-  refused.page.includes('Порядок статусов не изменён') && refused.page.includes('статуса нет в этой версии цикла'),
-  refused.page.slice(0, 400));
-check('при отказе порядок статусов не изменился', refused.after.join(',') === refused.before.join(','), refused.after.join(','));
+check('отказ перестановки показан в панели с сообщением бэкенда',
+  refused.panel.includes('Порядок статусов не изменён') && refused.panel.includes('статуса нет в этой версии цикла'), refused.panel.slice(0, 400));
+check('при отказе порядок статусов не изменился', (await keysOf(draftId)).join() === afterMove.join());
 check('необработанного отказа промиса нет', refused.unhandled.length === 0, refused.unhandled.join(' | '));
 
-const restored = await run(statusHelpers + `
-  arrow(statusRows()[2], 'up').click();
-  await sleep(1800);
-  return {keys: statusKeys(), page: texts()};
-`);
-check('повторный клик проходит и возвращает порядок', restored.keys.join(',') === order.join(','), restored.keys.join(','));
-check('баннер отказа снят удачной перестановкой', !restored.page.includes('Порядок статусов не изменён'), restored.page.slice(0, 300));
+const restored = await run(`arrow('up').click(); await sleep(1800); return {panel: panelText()};`);
+check('повторный клик проходит и возвращает порядок', (await keysOf(draftId)).join() === order.join());
+check('отказ снят удачной перестановкой', !restored.panel.includes('Порядок статусов не изменён'), restored.panel.slice(0, 300));
 
 console.log('проверка цикла ещё не ответила');
 // Ответ проверки задержан: до него «Активировать» выключена, и подсказка
 // обязана говорить именно про идущую проверку, а не про непройденную.
-const pending = await run(statusHelpers + `
+const pending = await run(`
+  await closePanel();
   const orig = window.fetch;
   window.fetch = async (input, init) => {
     const url = typeof input === 'string' ? input : input.url;
     if (/\\/validation$/.test(url)) await sleep(4000);
     return orig(input, init);
   };
-  await pickVersion('Default SDLC · v1');
-  await pickVersion('Default SDLC · v2');
+  await pickVersion('${active.id}');
+  await pickVersion('${draftId}');
   const tip = await tipOf('Активировать');
+  const text = overviewText();
   await sleep(4500);
   window.fetch = orig;
-  return tip;
+  return {...tip, overview: text};
 `);
 check('пока проверка не ответила, подсказка называет её',
-  pending.disabled && pending.text.includes('Идёт проверка цикла'), JSON.stringify(pending));
+  pending.disabled && pending.text.includes('Идёт проверка цикла'), JSON.stringify(pending).slice(0, 300));
+check('обзор говорит «Проверяем цикл»', pending.overview.includes('Проверяем цикл'), pending.overview.slice(0, 200));
 
 console.log('проверка цикла отказала');
-// Версия перевыбирается в панели: проверка запрашивается на монтировании
-// редактора, и подменённый fetch пережил бы не перезагрузку, а только это.
-const broken = await run(statusHelpers + `
+const broken = await run(`
   const orig = window.fetch;
   window.__restoreFetch = () => { window.fetch = orig; };
   window.fetch = async (input, init) => {
@@ -265,19 +302,17 @@ const broken = await run(statusHelpers + `
     }
     return orig(input, init);
   };
-  await pickVersion('Default SDLC · v1');
-  await pickVersion('Default SDLC · v2');
+  await pickVersion('${active.id}');
+  await pickVersion('${draftId}');
   await sleep(600);
   return texts();
 `);
 check('отказ проверки цикла виден на экране',
   broken.includes('Проверка цикла не выполнена') && broken.includes('проверка недоступна'), broken.slice(0, 400));
-const tipBroken = await run(statusHelpers + "return tipOf('Активировать');");
+const tipBroken = await run("return tipOf('Активировать');");
 check('«Активировать» выключена, подсказка называет невыполненную проверку',
   tipBroken.disabled && tipBroken.text.includes('Проверку не удалось выполнить'), JSON.stringify(tipBroken));
-// Та же подсказка одной клавиатурой: указателя не касаемся вовсе. Выключенная
-// кнопка событий указателя не получает, и если бы фокус обёртки подсказку не
-// открывал, причина недоступности осталась бы доступна только мыши.
+// Та же подсказка одной клавиатурой: указателя не касаемся вовсе.
 const tipKeys = await run(`
   const btn = all('button').find((b) => (b.innerText || '').trim() === 'Активировать');
   const wrap = btn.parentElement;
@@ -292,8 +327,7 @@ const tipKeys = await run(`
     text: tip ? tip.innerText.replace(/\\s+/g, ' ').trim() : ''};
 `);
 check('подсказка недоступной активации открывается одним фокусом, без указателя',
-  tipKeys.closed && tipKeys.focused && tipKeys.text.includes('Проверку не удалось выполнить'),
-  JSON.stringify(tipKeys));
+  tipKeys.closed && tipKeys.focused && tipKeys.text.includes('Проверку не удалось выполнить'), JSON.stringify(tipKeys));
 const recovered = await run(`
   window.__restoreFetch();
   const again = all('button').find((b) => (b.innerText || '').trim() === 'Повторить');
@@ -306,179 +340,212 @@ check('«Повторить» возвращает проверку',
   !recovered.includes('Проверка цикла не выполнена') && recovered.includes('Цикл проходит проверку'), recovered.slice(0, 300));
 
 console.log('добавление статуса в черновик');
-await run('return click("Добавить статус");');
-await run('return fill("Ключ", "security_review");');
-await run('return fill("Название", "Security review");');
-await run('return click("Сохранить");');
-await new Promise((r) => setTimeout(r, 1500));
-t = await run('return texts();');
-check('статус добавлен', t.includes('security_review'), t.slice(0, 300));
-check('проверка нашла недостижимый статус', t.includes('Цикл не активируется'), t.slice(0, 400));
-const tipInvalid = await run(statusHelpers + "return tipOf('Активировать');");
+const added = await run(`
+  spy(/\\/statuses/);
+  await clickExact('Добавить статус');
+  await fill('Ключ', 'security_review');
+  await fill('Название', 'Security review');
+  await click('Сохранить', '[role=dialog] button');
+  await sleep(1500);
+  unspy();
+  return {calls: window.__calls, node: Boolean(node('security_review')), problem: node('security_review')?.querySelector('[data-pipeline-problem]')?.getAttribute('data-pipeline-problem'),
+    orphanBand: Boolean(document.querySelector('[data-pipeline-band=orphan]')), overview: overviewText()};
+`);
+check('статус добавлен тем же POST …/statuses', added.node && added.calls[0]?.method === 'POST' && added.calls[0].body.key === 'security_review', JSON.stringify(added.calls));
+check('проверка нашла недостижимый статус', added.overview.includes('Цикл не активируется'), added.overview.slice(0, 400));
+check('узел с ошибкой проверки помечен ⚠, статус — в полосе «Не связаны с циклом»', added.problem === 'error' && added.orphanBand, JSON.stringify(added));
+const tipInvalid = await run("return tipOf('Активировать');");
 check('у непроходящего проверку черновика подсказка называет причину',
   tipInvalid.disabled && tipInvalid.text.includes('Цикл не проходит проверку'), JSON.stringify(tipInvalid));
+const fromReport = await run(`
+  const b = all('[data-pipeline-validation] button').find((x) => (x.innerText || '').includes('security_review'));
+  if (!b) return 'нет кнопки';
+  b.click();
+  await sleep(900);
+  return new URLSearchParams(location.search).get('status');
+`);
+check('статус в отчёте проверки выбирает узел', fromReport === 'security_review', String(fromReport));
 
 console.log('удаление статуса возвращает цикл в рабочее состояние');
-await run(`
-  const rows = all('[class*=item], li').filter(el => (el.innerText||'').includes('security_review'));
-  const row = rows[rows.length - 1];
-  const btn = Array.from(row.querySelectorAll('button')).find(b => b.innerText.includes('Удалить'));
-  btn.click();
-  await sleep(700);
-  return true;
-`);
+await run(`await clickPanel('Удалить'); return true;`);
 // Удаление необратимо: запрос уходит только после подтверждения в диалоге, и
 // в тексте диалога назван удаляемый статус.
-let dialog = await run(`
+let dialogText = await run(`
   const d = document.querySelector('[role=alertdialog]');
   return d ? d.innerText.replace(/\\s+/g, ' ') : '';
 `);
 check('удаление статуса просит подтверждения с именем статуса',
-  dialog.includes('Удалить статус?') && dialog.includes('security_review'), dialog);
-check('у статуса без переходов диалог так и говорит',
-  dialog.includes('Переходов, которые его касаются, в цикле нет'), dialog);
-t = await run('return texts();');
-check('до подтверждения статус на месте', t.includes('security_review'), t.slice(0, 300));
+  dialogText.includes('Удалить статус?') && dialogText.includes('security_review'), dialogText);
+check('у статуса без переходов диалог так и говорит', dialogText.includes('Переходов, которые его касаются, в цикле нет'), dialogText);
+check('до подтверждения статус на месте', await run(`return Boolean(node('security_review'));`));
 await run('return confirm("Отмена");');
-t = await run('return texts();');
 check('«Отмена» закрывает диалог, статус на месте',
-  t.includes('security_review') && !(await run('return Boolean(document.querySelector("[role=alertdialog]"));')), t.slice(0, 300));
-await run(`
-  const rows = all('[class*=item], li').filter(el => (el.innerText||'').includes('security_review'));
-  const row = rows[rows.length - 1];
-  const btn = Array.from(row.querySelectorAll('button')).find(b => b.innerText.includes('Удалить'));
-  btn.click();
-  await sleep(700);
-  return confirm('Удалить');
-`);
-t = await run('return texts();');
-check('статус удалён', !t.includes('security_review'), t.slice(0, 300));
-const toastAfterDelete = await run('return toasts();');
-check('об удалении сообщил тост с именем статуса',
-  toastAfterDelete.some((x) => x.includes('удалён') && x.includes('security_review')), toastAfterDelete.join(' | '));
-check('проблема ушла вместе со статусом', !t.includes('Цикл не активируется'), t.slice(0, 400));
+  await run(`return Boolean(node('security_review')) && !document.querySelector('[role=alertdialog]');`));
+await run(`spy(/\\/statuses/); await clickPanel('Удалить'); await confirm('Удалить'); unspy(); return true;`);
+const removed = await run(`return {node: Boolean(node('security_review')), calls: window.__calls, overview: overviewText(), toasts: toasts(), url: location.search};`);
+check('статус удалён тем же DELETE', !removed.node && removed.calls.length === 1 && removed.calls[0].method === 'DELETE' && removed.calls[0].path.endsWith('/statuses/security_review'), JSON.stringify(removed.calls));
+check('об удалении сообщил тост с именем статуса', removed.toasts.some((x) => x.includes('удалён') && x.includes('security_review')), removed.toasts.join(' | '));
+check('выбор снят — панель вернулась к обзору', !removed.url.includes('status='), removed.url);
+check('проблема ушла вместе со статусом', !removed.overview.includes('Цикл не активируется'), removed.overview.slice(0, 400));
 // Все десять типов гейтов реализованы: у демонстрационного цикла ни ошибок, ни предупреждений.
-check('проверка проходит без предупреждений', t.includes('Цикл проходит проверку') && !t.includes('Предупреждения'), t.slice(0, 400));
+check('проверка проходит без предупреждений', removed.overview.includes('Цикл проходит проверку') && !removed.overview.includes('Предупреждения'), removed.overview.slice(0, 400));
+
+console.log('переход отсюда и гейт: те же запросы');
+const tr = await run(`
+  spy(/\\/transitions/);
+  await selectStatus('qa');
+  await clickPanel('Переход отсюда');
+  const from = dialog().innerText.replace(/\\s+/g, ' ');
+  await fill('Ключ', 'e2e_skip');
+  await fill('Название', 'Пропустить ревью');
+  return {from};
+`);
+check('«Переход отсюда» заполняет «Откуда» выбранным статусом', tr.from.includes('QA'), tr.from.slice(0, 300));
+const trSaved = await run(`
+  // «Куда» — последний выпадающий список диалога.
+  const triggers = Array.from(dialog().querySelectorAll('button[role=combobox]'));
+  triggers[1].click();
+  await sleep(500);
+  const option = all('[role=option]').find((o) => o.innerText.trim().startsWith('Done'));
+  if (!option) throw new Error('статуса Done нет в списке');
+  option.click();
+  await sleep(400);
+  await click('Сохранить', '[role=dialog] button');
+  await sleep(1500);
+  return {calls: window.__calls, checkpoint: Boolean(document.querySelector('[data-pipeline-checkpoint="e2e_skip"]'))};
+`);
+check('переход создан тем же POST …/transitions из выбранного статуса',
+  trSaved.calls.length === 1 && trSaved.calls[0].method === 'POST' && trSaved.calls[0].body.key === 'e2e_skip' && trSaved.calls[0].body.from_status === 'qa' && trSaved.calls[0].body.to_status === 'done',
+  JSON.stringify(trSaved.calls));
+check('на холсте появилась контрольная точка перехода', trSaved.checkpoint);
+const gate = await run(`
+  document.querySelector('[data-pipeline-checkpoint="e2e_skip"]').click();
+  await sleep(900);
+  await clickPanel('Добавить гейт');
+  await fill('Ключ', 'e2e_gate');
+  await fill('Название', 'Проверка e2e');
+  await click('Сохранить', '[role=dialog] button');
+  await sleep(1500);
+  return {calls: window.__calls, panel: panelText()};
+`);
+check('гейт добавлен тем же POST …/gates', gate.calls.some((c) => c.method === 'POST' && c.path.endsWith('/transitions/e2e_skip/gates') && c.body.key === 'e2e_gate'), JSON.stringify(gate.calls));
+check('панель перехода показывает гейт', gate.panel.includes('Гейты: 1') && gate.panel.includes('Проверка e2e'), gate.panel.slice(0, 300));
+await run(`await clickIn('Проверка e2e', 'Удалить'); await confirm('Удалить'); return true;`);
+await run(`await clickPanel('Удалить'); await confirm('Удалить'); unspy(); return true;`);
+const trGone = await run(`return {calls: window.__calls, checkpoint: Boolean(document.querySelector('[data-pipeline-checkpoint="e2e_skip"]'))};`);
+check('гейт и переход удалены теми же DELETE',
+  trGone.calls.some((c) => c.method === 'DELETE' && c.path.endsWith('/gates/e2e_gate')) &&
+    trGone.calls.some((c) => c.method === 'DELETE' && c.path.endsWith('/transitions/e2e_skip')) && !trGone.checkpoint,
+  JSON.stringify(trGone.calls));
 
 console.log('необязательный этап: диалог статуса');
 // Обязательный статус: переключатель умолчания скрыт, пока отметки нет.
-await run(statusHelpers + optionalHelpers + "await editStatus('architecture'); return true;");
-const dlg0 = await run(optionalHelpers + `
-  return {
-    optional: sw('Необязательный')?.getAttribute('aria-checked'),
-    hasDefault: Boolean(sw('Включён по умолчанию')),
-  };
-`);
+await run("await editStatus('architecture'); return true;");
+const dlg0 = await run(`return {optional: sw('Необязательный')?.getAttribute('aria-checked'), hasDefault: Boolean(sw('Включён по умолчанию'))};`);
 check('у обязательного статуса «Необязательный» выключен', dlg0.optional === 'false', JSON.stringify(dlg0));
 check('умолчание скрыто, пока отметки нет', !dlg0.hasDefault, JSON.stringify(dlg0));
-const dlg1 = await run(optionalHelpers + `
+const dlg1 = await run(`
   await toggle('Необязательный');
-  return {
-    optional: sw('Необязательный')?.getAttribute('aria-checked'),
-    def: sw('Включён по умолчанию')?.getAttribute('aria-checked') ?? null,
-  };
+  return {optional: sw('Необязательный')?.getAttribute('aria-checked'), def: sw('Включён по умолчанию')?.getAttribute('aria-checked') ?? null};
 `);
-check('с отметкой появляется «Включён по умолчанию», он включён',
-  dlg1.optional === 'true' && dlg1.def === 'true', JSON.stringify(dlg1));
-await run(optionalHelpers + "await closeDialog(); return true;");
+check('с отметкой появляется «Включён по умолчанию», он включён', dlg1.optional === 'true' && dlg1.def === 'true', JSON.stringify(dlg1));
+await run('await closeDialog(); return true;');
 
-console.log('необязательный этап: сохранение отметки и умолчания (AC-1, AC-5)');
-const marked = await run(statusHelpers + optionalHelpers + `
-  spyStatuses();
+console.log('необязательный этап: сохранение отметки и умолчания');
+const marked = await run(`
+  spy(/\\/statuses\\/[a-z_]+$/);
   await editStatus('architecture');
   await toggle('Необязательный');
   await toggle('Включён по умолчанию');
   await saveDialog();
   unspy();
-  const row = rowOf('architecture');
-  return {bodies: window.__bodies, row: row.innerText.replace(/\\s+/g, ' '), page: texts(),
+  return {calls: window.__calls, node: nodeText('architecture'), panel: panelText(),
+    problem: node('architecture')?.querySelector('[data-pipeline-problem]')?.getAttribute('data-pipeline-problem'),
     dialogOpen: Boolean(dialog()), toast: toasts()};
 `);
 check('тело запроса несёт отметку и умолчание «выключен»',
-  marked.bodies.length === 1 && marked.bodies[0].is_optional === true && marked.bodies[0].enabled_by_default === false,
-  JSON.stringify(marked.bodies));
+  marked.calls.length === 1 && marked.calls[0].method === 'PATCH' && marked.calls[0].body.is_optional === true && marked.calls[0].body.enabled_by_default === false,
+  JSON.stringify(marked.calls));
 check('диалог закрыт, тост называет статус',
   !marked.dialogOpen && marked.toast.some((x) => x.includes('architecture') && x.includes('сохранён')), JSON.stringify(marked.toast));
-check('строка статуса показывает «необязательный» и «выключен по умолчанию»',
-  marked.row.includes('необязательный') && marked.row.includes('выключен по умолчанию'), marked.row);
-check('ключ статуса по-прежнему во втором <p> строки',
-  (await run(statusHelpers + 'return statusKeys();')).includes('architecture'));
+check('узел показывает «выключен по умолчанию», панель — оба жетона',
+  marked.node.includes('выключен по умолчанию') && marked.panel.includes('необязательный') && marked.panel.includes('выключен по умолчанию'), marked.node);
+check('предупреждение проверки помечено на узле', marked.problem === 'warning', String(marked.problem));
+const warn = await run('await closePanel(); return overviewText();');
 // Проверка пересчитана без перехода по адресу: у необязательного этапа
 // сервер предупреждает об обходных переходах и не держит активацию.
-check('предупреждения сервера видны без перезагрузки',
-  marked.page.includes('Предупреждения') && marked.page.includes('"architecture"'), marked.page.slice(0, 600));
+check('предупреждения сервера видны без перезагрузки', warn.includes('Предупреждения') && warn.includes('"architecture"'), warn.slice(0, 600));
 check('предупреждение активацию не держит',
-  !marked.page.includes('Цикл не активируется') && !(await run(statusHelpers + "return tipOf('Активировать');")).disabled);
+  !warn.includes('Цикл не активируется') && !(await run("return tipOf('Активировать');")).disabled);
 
-await s.goto(BASE + '/p/SDLC/workflow');
+await s.goto(`${BASE}/p/SDLC/pipeline?type=task&wf=${draftId}`);
 await pause(2000);
-await run(statusHelpers + "await pickVersion('Default SDLC · v2'); return true;");
-const afterReload = await run(statusHelpers + optionalHelpers + `
-  return {row: rowOf('architecture').innerText.replace(/\\s+/g, ' '), other: rowOf('analysis').innerText.replace(/\\s+/g, ' ')};
-`);
-check('после перезагрузки отметка и умолчание на месте',
-  afterReload.row.includes('необязательный') && afterReload.row.includes('выключен по умолчанию'), afterReload.row);
-check('у обычного статуса бейджей отметки нет', !afterReload.other.includes('необязательный'), afterReload.other);
+const afterReload = await run(`return {arch: nodeText('architecture'), other: nodeText('analysis')};`);
+check('после перезагрузки отметка и умолчание на месте', afterReload.arch.includes('выключен по умолчанию'), afterReload.arch);
+check('у обычного статуса жетонов отметки нет', !afterReload.other.includes('необязательный') && !afterReload.other.includes('выключен'), afterReload.other);
 
 console.log('необязательный этап: диалог показывает сохранённое');
-const reopened = await run(statusHelpers + optionalHelpers + `
+const reopened = await run(`
   await editStatus('architecture');
   const r = {optional: sw('Необязательный')?.getAttribute('aria-checked'), def: sw('Включён по умолчанию')?.getAttribute('aria-checked')};
   await closeDialog();
   return r;
 `);
-check('в диалоге те же значения, что в списке', reopened.optional === 'true' && reopened.def === 'false', JSON.stringify(reopened));
+check('в диалоге те же значения, что на узле', reopened.optional === 'true' && reopened.def === 'false', JSON.stringify(reopened));
 
-console.log('необязательный этап: проблема держит активацию (AC-4, AC-5)');
-const problem = await run(statusHelpers + optionalHelpers + `
+console.log('необязательный этап: проблема держит активацию');
+const problem = await run(`
   await editStatus('new');
   await toggle('Необязательный');
   await saveDialog();
-  return texts();
+  const mark = node('new')?.querySelector('[data-pipeline-problem]')?.getAttribute('data-pipeline-problem');
+  await closePanel();
+  return {text: overviewText(), mark};
 `);
 check('блок «Цикл не активируется» называет начальный статус текстом сервера',
-  problem.includes('Цикл не активируется') && problem.includes('"new"') && problem.includes('начальный статус'), problem.slice(0, 600));
-const tipProblem = await run(statusHelpers + "return tipOf('Активировать');");
-check('«Активировать» выключена с подсказкой о проверке',
-  tipProblem.disabled && tipProblem.text.includes('Цикл не проходит проверку'), JSON.stringify(tipProblem));
-check('коды optional_* на экран не выводятся', !problem.includes('optional_'), problem.slice(0, 300));
+  problem.text.includes('Цикл не активируется') && problem.text.includes('"new"') && problem.text.includes('начальный статус'), problem.text.slice(0, 600));
+check('узел начального статуса помечен ошибкой', problem.mark === 'error', String(problem.mark));
+const tipProblem = await run("return tipOf('Активировать');");
+check('«Активировать» выключена с подсказкой о проверке', tipProblem.disabled && tipProblem.text.includes('Цикл не проходит проверку'), JSON.stringify(tipProblem));
+check('коды optional_* на экран не выводятся', !problem.text.includes('optional_'), problem.text.slice(0, 300));
 
-console.log('необязательный этап: снятие отметки (AC-2)');
-const cleared = await run(statusHelpers + optionalHelpers + `
-  spyStatuses();
+console.log('необязательный этап: снятие отметки');
+const cleared = await run(`
+  spy(/\\/statuses\\/[a-z_]+$/);
   await editStatus('new');
   await toggle('Необязательный');
   const hidden = !sw('Включён по умолчанию');
   await saveDialog();
   unspy();
-  return {hidden, bodies: window.__bodies, dialogOpen: Boolean(dialog()), page: texts(),
-    row: rowOf('new').innerText.replace(/\\s+/g, ' ')};
+  const r = {hidden, calls: window.__calls, dialogOpen: Boolean(dialog()), node: nodeText('new'), panel: panelText()};
+  await closePanel();
+  r.overview = overviewText();
+  return r;
 `);
 check('при снятии отметки умолчание скрыто', cleared.hidden);
 check('запрос несёт is_optional:false и enabled_by_default:true',
-  cleared.bodies.length === 1 && cleared.bodies[0].is_optional === false && cleared.bodies[0].enabled_by_default === true,
-  JSON.stringify(cleared.bodies));
-check('сервер принял пару: диалог закрыт, бейджей нет',
-  !cleared.dialogOpen && !cleared.row.includes('необязательный'), cleared.row);
-check('проблема ушла без перезагрузки', !cleared.page.includes('Цикл не активируется'), cleared.page.slice(0, 400));
+  cleared.calls.length === 1 && cleared.calls[0].body.is_optional === false && cleared.calls[0].body.enabled_by_default === true, JSON.stringify(cleared.calls));
+check('сервер принял пару: диалог закрыт, жетонов нет',
+  !cleared.dialogOpen && !cleared.node.includes('необязательный') && !cleared.panel.includes('необязательный'), cleared.node);
+check('проблема ушла без перезагрузки', !cleared.overview.includes('Цикл не активируется'), cleared.overview.slice(0, 400));
 
 // Снятие отметки у статуса, который был «выключен по умолчанию»: пару сводит
 // интерфейс, иначе сервер ответил бы 400.
-const cleared2 = await run(statusHelpers + optionalHelpers + `
-  spyStatuses();
+const cleared2 = await run(`
+  spy(/\\/statuses\\/[a-z_]+$/);
   await editStatus('architecture');
   await toggle('Необязательный');
   await saveDialog();
   unspy();
-  return {bodies: window.__bodies, dialogOpen: Boolean(dialog()), row: rowOf('architecture').innerText.replace(/\\s+/g, ' ')};
+  return {calls: window.__calls, dialogOpen: Boolean(dialog()), node: nodeText('architecture')};
 `);
 check('снятие у «выключен по умолчанию» уходит с умолчанием «включён» и проходит',
-  cleared2.bodies.length === 1 && cleared2.bodies[0].is_optional === false && cleared2.bodies[0].enabled_by_default === true &&
-    !cleared2.dialogOpen && !cleared2.row.includes('необязательный') && !cleared2.row.includes('выключен'),
+  cleared2.calls.length === 1 && cleared2.calls[0].body.is_optional === false && cleared2.calls[0].body.enabled_by_default === true &&
+    !cleared2.dialogOpen && !cleared2.node.includes('необязательный') && !cleared2.node.includes('выключен'),
   JSON.stringify(cleared2));
 
-console.log('необязательный этап: отказ сервера виден в диалоге (AC-3)');
-const refusedSave = await run(statusHelpers + optionalHelpers + `
+console.log('необязательный этап: отказ сервера виден в диалоге');
+const refusedSave = await run(`
   const orig = window.fetch;
   window.fetch = async (input, init) => {
     const url = typeof input === 'string' ? input : input.url;
@@ -488,7 +555,7 @@ const refusedSave = await run(statusHelpers + optionalHelpers + `
     }
     return orig(input, init);
   };
-  const before = statusRows().map((li) => li.innerText.replace(/\\s+/g, ' '));
+  const before = nodeText('architecture');
   await editStatus('architecture');
   await toggle('Необязательный');
   await toggle('Включён по умолчанию');
@@ -496,20 +563,16 @@ const refusedSave = await run(statusHelpers + optionalHelpers + `
   window.fetch = orig;
   return {dialogOpen: Boolean(dialog()), text: dialog() ? dialog().innerText.replace(/\\s+/g, ' ') : '',
     optional: sw('Необязательный')?.getAttribute('aria-checked'), def: sw('Включён по умолчанию')?.getAttribute('aria-checked'),
-    same: statusRows().map((li) => li.innerText.replace(/\\s+/g, ' ')).join('|') === before.join('|'),
-    toasts: toasts()};
+    same: nodeText('architecture') === before, toasts: toasts()};
 `);
 check('диалог остался открытым с текстом ответа',
-  refusedSave.dialogOpen && refusedSave.text.includes('Статус не сохранён') && refusedSave.text.includes('версия цикла уже активна'),
-  refusedSave.text.slice(0, 300));
-check('введённое не потеряно', refusedSave.optional === 'true' && refusedSave.def === 'false',
-  JSON.stringify([refusedSave.optional, refusedSave.def]));
-check('список статусов не изменился, тоста об ошибке нет',
-  refusedSave.same && !refusedSave.toasts.some((x) => x.includes('сохранён')), JSON.stringify(refusedSave.toasts));
-await run(optionalHelpers + "await closeDialog(); return true;");
+  refusedSave.dialogOpen && refusedSave.text.includes('Статус не сохранён') && refusedSave.text.includes('версия цикла уже активна'), refusedSave.text.slice(0, 300));
+check('введённое не потеряно', refusedSave.optional === 'true' && refusedSave.def === 'false', JSON.stringify([refusedSave.optional, refusedSave.def]));
+check('узел не изменился, тоста об ошибке нет', refusedSave.same && !refusedSave.toasts.some((x) => x.includes('сохранён')), JSON.stringify(refusedSave.toasts));
+await run('await closeDialog(); return true;');
 
-console.log('необязательный этап: статус сохранён, роли нет (BR-8)');
-const partial = await run(statusHelpers + optionalHelpers + `
+console.log('необязательный этап: статус сохранён, роли нет');
+const partial = await run(`
   const orig = window.fetch;
   window.fetch = async (input, init) => {
     const url = typeof input === 'string' ? input : input.url;
@@ -523,25 +586,29 @@ const partial = await run(statusHelpers + optionalHelpers + `
   await toggle('Необязательный');
   await saveDialog();
   window.fetch = orig;
-  return {dialogOpen: Boolean(dialog()), text: dialog() ? dialog().innerText.replace(/\\s+/g, ' ') : '',
-    row: rowOf('architecture').innerText.replace(/\\s+/g, ' ')};
+  return {dialogOpen: Boolean(dialog()), text: dialog() ? dialog().innerText.replace(/\\s+/g, ' ') : '', node: nodeText('architecture')};
 `);
 check('ошибка ролей остаётся в диалоге', partial.dialogOpen && partial.text.includes('роли не сохранены'), partial.text.slice(0, 300));
-check('сохранённая отметка видна в списке без перезагрузки', partial.row.includes('необязательный'), partial.row);
-await run(optionalHelpers + "await closeDialog(); return true;");
-// Возвращаем статус обязательным: дальше сценарий идёт по прежнему циклу.
+check('сохранённая отметка видна на узле без перезагрузки', partial.node.includes('необязательный'), partial.node);
+await run('await closeDialog(); return true;');
 // Оставляем отметку у architecture до активации, чтобы проверить активную версию.
-const restoreMark = await run(statusHelpers + optionalHelpers + `
+const restoreMark = await run(`
   await editStatus('architecture');
   if (sw('Необязательный').getAttribute('aria-checked') !== 'true') await toggle('Необязательный');
   await toggle('Включён по умолчанию');
   await saveDialog();
-  return rowOf('architecture').innerText.replace(/\\s+/g, ' ');
+  return {node: nodeText('architecture'), panel: panelText()};
 `);
 check('перед активацией architecture — необязательный, выключен по умолчанию',
-  restoreMark.includes('необязательный') && restoreMark.includes('выключен по умолчанию'), restoreMark);
+  restoreMark.node.includes('выключен по умолчанию') && restoreMark.panel.includes('необязательный'), restoreMark.node);
 
 console.log('активация черновика');
+await run('await closePanel(); return true;');
+await run(`all('button').find((b) => (b.innerText || '').trim() === 'Активировать').click(); await sleep(700); return true;`);
+const confirmText = await run(`return (document.querySelector('[role=alertdialog]')?.innerText || '').replace(/\\s+/g, ' ');`);
+check('активация просит подтверждения с названием версии и последствиями',
+  confirmText.includes('Активировать Default SDLC · v2?') && confirmText.includes('Версия станет рабочей для типа task, прежняя активная — выведенной') &&
+    confirmText.includes('Вернуть прежнюю версию можно только новым черновиком'), confirmText);
 // Второй клик по «Активировать», пока идёт первый, второй активации не шлёт:
 // ответ задержан подменённым fetch, запросы считаются в нём же.
 const activating = await run(`
@@ -552,78 +619,62 @@ const activating = await run(`
     if (/\\/activate$/.test(url)) { window.__activate++; await sleep(1500); }
     return orig(input, init);
   };
-  const button = () => all('button').find((b) => (b.innerText || '').trim() === 'Активировать');
-  button().click();
+  const action = () => Array.from(document.querySelectorAll('[role=alertdialog] button')).find((b) => (b.innerText || '').trim() === 'Активировать');
+  action().click();
   await sleep(500);
-  const busy = button().disabled;
-  button().click();
+  const busy = action().disabled && all('button').some((b) => (b.innerText || '').trim() === 'Активируем…' && b.disabled);
+  action().click();
   await sleep(2500);
   window.fetch = orig;
-  return {busy, calls: window.__activate};
+  return {busy, calls: window.__activate, open: Boolean(document.querySelector('[role=alertdialog]'))};
 `);
-check('пока активация идёт, кнопка занята', activating.busy, String(activating.busy));
+check('пока активация идёт, кнопки заняты', activating.busy, String(activating.busy));
 check('второй клик второй активации не отправляет', activating.calls === 1, String(activating.calls));
-await new Promise((r) => setTimeout(r, 2000));
+check('после ответа подтверждение закрыто', !activating.open);
+await pause(2000);
 t = await run('return texts();');
-check('активация подтверждена', t.includes('активирована'), t.slice(0, 300));
+check('активация подтверждена отчётом', t.includes('Версия 2 активирована'), t.slice(0, 300));
 check('показаны задачи, оставшиеся на прежней версии', t.includes('SDLC-1'), t.slice(0, 500));
+check('версия стала рабочей и только читается', t.includes('v2 · работает') && !t.includes('Добавить статус'), t.slice(0, 300));
 
 console.log('доска после смены версии цикла');
 await s.goto(BASE + '/p/SDLC/board');
-await new Promise((r) => setTimeout(r, 1500));
+await pause(1500);
 t = await run('return texts();');
 check('доска на новой версии цикла', t.includes('v2'), t.slice(0, 200));
 check('задачи не пропали с доски', t.includes('SDLC-1') && t.includes('SDLC-3'), t.slice(0, 600));
 check('задача с прежней версии помечена', t.includes('прежняя версия цикла'), t.slice(0, 600));
 
-console.log('активная версия: отметки видны, правки нет (AC-6)');
-await s.goto(BASE + '/p/SDLC/workflow');
+console.log('активная версия: отметки видны, правки нет');
+await s.goto(PAGE);
 await pause(2000);
-await run(statusHelpers + "await pickVersion('Default SDLC · v2'); return true;");
-const readonlyRows = await run(statusHelpers + optionalHelpers + `
-  const edit = statusRows().some((li) =>
-    arrow(li, 'up') || arrow(li, 'down') ||
-    Array.from(li.querySelectorAll('button')).some((b) => ['Править', 'Удалить'].includes((b.innerText || '').trim())));
-  return {
-    text: texts(),
-    edit,
-    addButton: all('button').some((b) => (b.innerText || '').trim() === 'Добавить статус'),
-    row: rowOf('architecture').innerText.replace(/\\s+/g, ' '),
-    plain: rowOf('analysis').innerText.replace(/\\s+/g, ' '),
-  };
+const readonly = await run(`
+  const r = {text: texts(), arch: nodeText('architecture'), plain: nodeText('analysis'),
+    add: all('button').some((b) => (b.innerText || '').trim() === 'Добавить статус'),
+    plus: all('[aria-label^="Добавить переход из"]').length};
+  await selectStatus('architecture');
+  r.panel = panelText();
+  r.edit = Boolean(arrow('up') || arrow('down') || panelButton('Править статус') || panelButton('Удалить'));
+  return r;
 `);
-check('активная версия помечена как неправимая', readonlyRows.text.includes('Эта версия не редактируется'), readonlyRows.text.slice(0, 200));
-check('у активной версии отметка и умолчание видны',
-  readonlyRows.row.includes('необязательный') && readonlyRows.row.includes('выключен по умолчанию'), readonlyRows.row);
-check('у обычного статуса бейджей нет', !readonlyRows.plain.includes('необязательный'), readonlyRows.plain);
-check('у активной версии нет ни правки, ни порядка, ни удаления, ни «Добавить статус»',
-  !readonlyRows.edit && !readonlyRows.addButton, JSON.stringify(readonlyRows));
+check('у активной версии в шапке «Черновик копией этой версии»', readonly.text.includes('v2 · работает') && readonly.text.includes('Черновик копией этой версии'), readonly.text.slice(0, 200));
+check('у активной версии отметка и умолчание видны', readonly.arch.includes('выключен по умолчанию') && readonly.panel.includes('необязательный'), readonly.arch);
+check('у обычного статуса жетонов нет', !readonly.plain.includes('необязательный'), readonly.plain);
+check('у активной версии нет ни правки, ни порядка, ни удаления, ни «Добавить статус», ни «+»',
+  !readonly.edit && !readonly.add && readonly.plus === 0, JSON.stringify({edit: readonly.edit, add: readonly.add, plus: readonly.plus}));
 
-console.log('отметки переезжают с копией и связкой (AC-7)');
-const API = process.env.SDLC_API_URL ?? 'http://localhost:8088';
-const call = (method, path, body) =>
-  fetch(API + '/v1' + path, {
-    method,
-    headers: {'X-SDLC-Actor': 'e2e', 'Content-Type': 'application/json'},
-    body: body ? JSON.stringify(body) : undefined,
-  }).then(async (r) => ({status: r.status, body: r.status === 204 ? null : await r.json()}));
+console.log('отметки переезжают с копией и связкой');
 const drafts = [];
-await run('return click("Черновик копией активного");');
-await pause(1800);
-const copied = await run(statusHelpers + optionalHelpers + `
-  return {text: texts(), row: rowOf('architecture').innerText.replace(/\\s+/g, ' '),
-    plain: rowOf('analysis').innerText.replace(/\\s+/g, ' ')};
-`);
-check('черновик копией активного — правимый', copied.text.includes('Добавить статус') && !copied.text.includes('Эта версия не редактируется'), copied.text.slice(0, 200));
-check('копия несёт те же отметку и умолчание',
-  copied.row.includes('необязательный') && copied.row.includes('выключен по умолчанию') && !copied.plain.includes('необязательный'),
-  copied.row);
-const list = await call('GET', '/projects/SDLC/workflows');
-const copyDraft = list.body.workflows.find((w) => w.state === 'draft' && w.task_types.includes('task'));
-if (copyDraft) drafts.push(copyDraft.id);
+await run(`await closePanel(); await clickExact('Черновик копией этой версии'); await sleep(1500); return true;`);
+const copied = await run(`return {text: texts(), wf: currentWf(), arch: nodeText('architecture'), plain: nodeText('analysis')};`);
+drafts.push(copied.wf);
+check('черновик копией активной — правимый', copied.text.includes('Добавить статус') && copied.text.includes('· черновик'), copied.text.slice(0, 200));
+check('копия несёт те же отметку и умолчание', copied.arch.includes('выключен по умолчанию') && !copied.plain.includes('необязательный'), copied.arch);
+const draftHint = await run(`await pickVersion('${active.id}'); return texts();`);
+check('у выведенной версии в шапке «есть черновик vN — открыть»', draftHint.includes('выведена') && /есть черновик v\d+ — открыть/.test(draftHint), draftHint.slice(0, 300));
 
-// Связка: статус qa отмечен необязательным с умолчанием «включён», прочие метки
-// остаются. Импорт заводит черновик, интерфейс показывает его так же.
+// Связка: статус qa отмечен необязательным с умолчанием «включён». Импорт
+// заводит черновик, интерфейс показывает его так же.
 const bundle = (await call('GET', '/projects/SDLC/export')).body;
 const wfIn = bundle.workflows.find((w) => w.name === 'Default SDLC');
 const st = (key) => wfIn.statuses.find((x) => x.key === key);
@@ -636,18 +687,18 @@ check('импорт связки с отметками прошёл', imported.s
 const afterImport = (await call('GET', '/projects/SDLC/workflows')).body.workflows;
 const importDraft = afterImport.find((w) => w.state === 'draft' && !drafts.includes(w.id) && w.task_types.includes('task'));
 if (importDraft) drafts.push(importDraft.id);
-await s.goto(BASE + '/p/SDLC/workflow');
+await s.goto(`${BASE}/p/SDLC/pipeline?type=task&wf=${importDraft?.id}`);
 await pause(2000);
-await run(statusHelpers + `await pickVersion('Default SDLC · v${importDraft ? importDraft.version : 4}'); return true;`);
-const fromBundle = await run(statusHelpers + optionalHelpers + `
-  return {arch: rowOf('architecture').innerText.replace(/\\s+/g, ' '), qa: rowOf('qa').innerText.replace(/\\s+/g, ' '),
-    plain: rowOf('analysis').innerText.replace(/\\s+/g, ' ')};
+const fromBundle = await run(`
+  const r = {arch: nodeText('architecture'), qa: nodeText('qa'), plain: nodeText('analysis')};
+  await selectStatus('qa');
+  r.qaPanel = panelText();
+  return r;
 `);
-check('черновик из связки: architecture — необязательный, выключен по умолчанию',
-  fromBundle.arch.includes('необязательный') && fromBundle.arch.includes('выключен по умолчанию'), fromBundle.arch);
+check('черновик из связки: architecture — выключен по умолчанию', fromBundle.arch.includes('выключен по умолчанию'), fromBundle.arch);
 check('черновик из связки: qa — необязательный, включён по умолчанию',
-  fromBundle.qa.includes('необязательный') && !fromBundle.qa.includes('выключен'), fromBundle.qa);
-check('черновик из связки: обычный статус без бейджей', !fromBundle.plain.includes('необязательный'), fromBundle.plain);
+  fromBundle.qa.includes('необязательный') && !fromBundle.qa.includes('выключен') && fromBundle.qaPanel.includes('необязательный'), fromBundle.qa);
+check('черновик из связки: обычный статус без жетонов', !fromBundle.plain.includes('необязательный'), fromBundle.plain);
 
 // Связка без полей (прежняя версия сервиса): все статусы обязательные.
 for (const x of wfIn.statuses) { delete x.is_optional; delete x.enabled_by_default; }
@@ -657,11 +708,10 @@ const legacyDraft = afterLegacy.find((w) => w.state === 'draft' && !drafts.inclu
 if (legacyDraft) drafts.push(legacyDraft.id);
 check('импорт связки без полей прошёл', legacy.status === 200, JSON.stringify(legacy).slice(0, 300));
 if (legacyDraft) {
-  await s.goto(BASE + '/p/SDLC/workflow');
+  await s.goto(`${BASE}/p/SDLC/pipeline?type=task&wf=${legacyDraft.id}`);
   await pause(2000);
-  await run(statusHelpers + `await pickVersion('Default SDLC · v${legacyDraft.version}'); return true;`);
-  const noFields = await run(statusHelpers + 'return statusRows().map((li) => li.innerText.replace(/\\s+/g, " ")).join("|");');
-  check('черновик из связки без полей: бейджей отметки нет', !noFields.includes('необязательный'), noFields.slice(0, 300));
+  const noFields = await run(`return all('[data-pipeline-status]').map((n) => n.innerText.replace(/\\s+/g, ' ')).join('|');`);
+  check('черновик из связки без полей: жетонов отметки нет', !noFields.includes('необязательный') && !noFields.includes('выключен'), noFields.slice(0, 300));
 } else {
   check('черновик из связки без полей заведён', false, JSON.stringify(afterLegacy.map((w) => [w.version, w.state])));
 }
@@ -669,26 +719,22 @@ if (legacyDraft) {
 for (const id of drafts) await call('DELETE', '/workflows/' + id);
 
 console.log('пустой черновик под другой тип задач');
-await s.goto(BASE + '/p/SDLC/workflow');
-await new Promise((r) => setTimeout(r, 1800));
+await s.goto(BASE + '/p/SDLC/pipeline?type=epic');
+await pause(1800);
 // Циклов в проекте столько, сколько типов задач (решение 0024): черновик
 // заводится под выбранный тип, а не под единственный.
-await run(`
-  const trigger = all('button').find((b) => (b.innerText || '').trim() === 'task');
-  if (!trigger) throw new Error('переключателя типа задач нет');
-  trigger.click();
-  await sleep(600);
-  const option = all('[role=option], li, button').find((e) => (e.innerText || '').trim() === 'epic');
-  if (!option) throw new Error('типа epic нет в списке');
-  option.click();
-  await sleep(600);
-  return true;
+const emptyCalls = await run(`
+  spy(/\\/workflows$/);
+  await menuItem('Пустой черновик');
+  unspy();
+  return window.__calls;
 `);
-await run('return click("Пустой черновик");');
-await new Promise((r) => setTimeout(r, 1800));
+check('пустой черновик — тот же запрос под тип epic',
+  emptyCalls.length === 1 && emptyCalls[0].body.from === 'empty' && JSON.stringify(emptyCalls[0].body.task_types) === '["epic"]', JSON.stringify(emptyCalls));
 t = await run('return texts();');
-check('пустой черновик открывается без падения', t.includes('Статусы') && t.includes('Добавить статус'), t.slice(0, 300));
-check('черновик заведён под тип epic', t.includes('черновик · epic'), t.slice(0, 400));
+const emptyId = await run('return currentWf();');
+check('пустой черновик открывается без падения', t.includes('Статусов нет') && t.includes('Добавить статус'), t.slice(0, 300));
+check('черновик заведён под тип epic', (await call('GET', `/workflows/${emptyId}`)).body.task_types.join() === 'epic');
 check('пустой цикл не активируется', t.includes('Цикл не активируется'), t.slice(0, 400));
 check('названа причина', t.includes('начальн') || t.includes('стату'), t.slice(0, 500));
 
@@ -696,9 +742,9 @@ console.log('правка названия и типов черновика');
 await run('return click("Название и типы");');
 await run('return fill("Название", "Черновик под эпики");');
 // Один цикл может вести несколько типов задач. Список типов в диалоге —
-// последний на странице: такой же переключатель стоит в панели версий.
+// последний на странице: вкладки типов тоже подписаны «epic».
 await run(`
-  const triggers = all('button').filter((b) => (b.innerText || '').trim() === 'epic');
+  const triggers = all('[role=dialog] button').filter((b) => (b.innerText || '').trim() === 'epic');
   triggers[triggers.length - 1].click();
   await sleep(700);
   const option = all('[role=option]').filter((o) => o.innerText.trim() === 'task').pop();
@@ -707,23 +753,23 @@ await run(`
   await sleep(500);
   return true;
 `);
-await run('return click("Сохранить");');
-await new Promise((r) => setTimeout(r, 1500));
+await run(`return click('Сохранить', '[role=dialog] button');`);
+await pause(1500);
 t = await run('return texts();');
 check('название черновика изменилось', t.includes('Черновик под эпики'), t.slice(0, 400));
-check('черновик ведёт оба типа задач', t.includes('черновик · epic, task'), t.slice(0, 500));
+check('черновик ведёт оба типа задач', (await call('GET', `/workflows/${emptyId}`)).body.task_types.sort().join() === 'epic,task');
 
 await run('return click("Удалить черновик");');
-dialog = await run(`
+dialogText = await run(`
   const d = document.querySelector('[role=alertdialog]');
   return d ? d.innerText.replace(/\\s+/g, ' ') : '';
 `);
-check('удаление черновика просит подтверждения с его названием',
-  dialog.includes('Удалить черновик?') && dialog.includes('Черновик под эпики'), dialog);
+check('удаление черновика просит подтверждения с его названием', dialogText.includes('Удалить черновик?') && dialogText.includes('Черновик под эпики'), dialogText);
 await run('return confirm("Удалить черновик");');
-await new Promise((r) => setTimeout(r, 1000));
+await pause(1000);
 t = await run('return texts();');
-check('черновик удалён', !t.includes('Черновик под эпики'), t.slice(0, 300));
+check('черновик удалён', !t.includes('Черновик под эпики') && (await call('GET', `/workflows/${emptyId}`)).status === 404, t.slice(0, 300));
+check('после удаления открыта активная версия типа', t.includes('работает'), t.slice(0, 300));
 
 s.close();
 console.log(`\n${ok} ok, ${fail} fail`);

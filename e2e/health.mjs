@@ -93,7 +93,13 @@ check('точка отметки видна на иконке', m.dots === true)
 check('доска отрисована, не дожидаясь сводки', (await run('return texts();')).includes('Доска'));
 
 console.log('отметки на каждой странице проекта');
-for (const page of ['board', 'tasks/SDLC-1', 'roles', 'workflow', 'search', 'metrics', 'settings']) {
+// «Роли» и «Цикл» — одна страница «Пайплайн» (CLAB-346): пункт меню один,
+// старых пунктов нет.
+const menuLabels = await run(`return all('[data-sidebar=menu-button]').map((a) => (a.innerText || '').trim().split('\\n')[0]);`);
+check('в меню проекта один пункт «Пайплайн», «Роли» и «Цикл» нет',
+  menuLabels.filter((x) => x === 'Пайплайн').length === 1 && !menuLabels.includes('Роли') && !menuLabels.includes('Цикл'),
+  JSON.stringify(menuLabels));
+for (const page of ['board', 'tasks/SDLC-1', 'pipeline', 'search', 'metrics', 'settings']) {
   await open(page)();
   seen = await menuMatches(open(page));
   check(`${page}: меню сходится со сводкой`, seen.ok, JSON.stringify({m: seen.m, want}));
@@ -115,7 +121,7 @@ const before = await run('return healthRequests();');
 await sleep(5000);
 check('страница стоит — новых запросов сводки нет', (await run('return healthRequests();')) === before, String(before));
 await run(`
-  all('[data-sidebar=menu-button]').find((a) => (a.innerText || '').includes('Роли')).click();
+  all('[data-sidebar=menu-button]').find((a) => (a.innerText || '').includes('Пайплайн')).click();
   await sleep(1500);
   return true;
 `);
@@ -336,7 +342,7 @@ if (created.ok) {
   await sleep(1500);
   // Переход внутри приложения, без перезагрузки: прежняя сводка осталась бы
   // в оболочке, если бы та не помнила, чей это ответ.
-  await run(`history.pushState({}, '', '/p/${KEY}/roles'); dispatchEvent(new PopStateEvent('popstate')); await sleep(1800); return true;`);
+  await run(`history.pushState({}, '', '/p/${KEY}/pipeline'); dispatchEvent(new PopStateEvent('popstate')); await sleep(1800); return true;`);
   m = await run('return menuMarks();');
   check('в проекте без репозиториев отметки у «Поиска» нет', other.unreadable_repositories === 0 && m.search === null, JSON.stringify({m, other}));
   check('отметки второго проекта — по его сводке', m.settings === wantOther.settings && m.search === wantOther.search, JSON.stringify({m, wantOther}));
@@ -346,11 +352,14 @@ if (created.ok) {
 }
 
 console.log('сводка не ответила — страница работает как раньше');
+// Старый адрес чужого проекта: перенаправление на «Пайплайн» не роняет оболочку.
 await s.goto(`${BASE}/p/NOSUCH/roles`);
 await sleep(1800);
-const missing = await run('return {marks: all("[data-nav-mark]").length, text: texts()};');
+const missing = await run('return {marks: all("[data-nav-mark]").length, text: texts(), path: location.pathname, shell: Boolean(document.querySelector("[data-sidebar=menu-button]"))};');
 check('отметок нет, ошибки сводки на странице нет',
   missing.marks === 0 && !missing.text.includes('/health') && !missing.text.includes('сводк'), missing.text.slice(0, 300));
+check('/p/NOSUCH/roles ведёт на «Пайплайн», оболочка на месте',
+  missing.path === '/p/NOSUCH/pipeline' && missing.shell, JSON.stringify({path: missing.path, shell: missing.shell}));
 
 s.close();
 console.log(`\n${ok} ok, ${fail} fail`);
