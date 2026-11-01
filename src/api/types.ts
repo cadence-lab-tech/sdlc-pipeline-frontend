@@ -731,11 +731,29 @@ export interface OutputContractItem {
   schema?: unknown;
 }
 
+// Документ версии роли (решение 0068): имя файла, тип, место в порядке отдачи
+// агенту. sha256 и размер — свойства байтов; content есть у одной версии
+// (GET …/versions/:n, latest_version), в списке версий его нет. Ответ
+// прежнего backend без documents клиент превращает в один main.md без
+// sha256 (components/pipeline/roleDocs.ts, versionDocuments).
+export interface RoleDocument {
+  name: string;
+  kind: string;
+  position: number;
+  sha256?: string;
+  size_bytes?: number;
+  content?: string;
+}
+
 export interface RoleVersion {
   id: UUID;
   role_id: UUID;
   version: number;
+  // Склейка документов; у версии из одного документа — его текст байт в байт.
   instructions: string;
+  // Документы по position. Клиент заполняет поле всегда: ответ без
+  // documents — один main.md из instructions.
+  documents?: RoleDocument[];
   input_kinds: string[];
   output_contract: OutputContractItem[];
   tool_policy: Record<string, unknown>;

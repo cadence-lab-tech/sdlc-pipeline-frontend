@@ -38,7 +38,7 @@ function Field({
 }: {
   id: string;
   label?: string;
-  description?: string;
+  description?: React.ReactNode;
   isRequired?: boolean;
   isLabelHidden?: boolean;
   children: React.ReactNode;
@@ -70,9 +70,12 @@ export function TextInput({
   isRequired,
   isDisabled,
   isLabelHidden,
+  isInvalid,
+  id: fixedId,
+  className,
 }: {
   label?: string;
-  description?: string;
+  description?: React.ReactNode;
   value: string;
   onChange: (value: string) => void;
   onEnter?: () => void;
@@ -81,8 +84,14 @@ export function TextInput({
   isRequired?: boolean;
   isDisabled?: boolean;
   isLabelHidden?: boolean;
+  // Поле названо в отказе сервера: aria-invalid и красная рамка.
+  isInvalid?: boolean;
+  // Постоянный id — опора сценариев (#role-doc-name); по умолчанию useId.
+  id?: string;
+  className?: string;
 }) {
-  const id = useId();
+  const autoId = useId();
+  const id = fixedId ?? autoId;
   return (
     <Field id={id} label={label} description={description} isRequired={isRequired} isLabelHidden={isLabelHidden}>
       <Input
@@ -91,6 +100,8 @@ export function TextInput({
         value={value}
         placeholder={placeholder}
         disabled={isDisabled}
+        aria-invalid={isInvalid || undefined}
+        className={className}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={onEnter ? (e) => e.key === 'Enter' && onEnter() : undefined}
       />
@@ -106,6 +117,8 @@ export function TextArea({
   rows = 4,
   placeholder,
   isRequired,
+  id: fixedId,
+  className,
 }: {
   label?: string;
   description?: string;
@@ -114,13 +127,17 @@ export function TextArea({
   rows?: number;
   placeholder?: string;
   isRequired?: boolean;
+  id?: string;
+  className?: string;
 }) {
-  const id = useId();
+  const autoId = useId();
+  const id = fixedId ?? autoId;
   return (
     <Field id={id} label={label} description={description} isRequired={isRequired}>
       <Textarea
         id={id}
         rows={rows}
+        className={className}
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}

@@ -65,6 +65,7 @@ import type {
   Instance,
 } from "./types";
 import { UPLOAD_ABORTED } from "../components/task/attachmentRules";
+import { normalizeRoleVersion } from "../components/pipeline/roleDocs";
 
 const BASE = import.meta.env.VITE_API_URL ?? "/v1";
 
@@ -897,10 +898,21 @@ export const api = {
     request<RoleWithVersions>(`/projects/${projectKey}/roles/${roleKey}`).then(
       (r) => ({
         ...r,
-        versions: r.versions ?? [],
+        // Документы у каждой версии: ответ прежнего backend без documents —
+        // один main.md из instructions (CLAB-347).
+        versions: (r.versions ?? []).map(normalizeRoleVersion),
+        latest_version: r.latest_version
+          ? normalizeRoleVersion(r.latest_version)
+          : undefined,
         used_on: r.used_on ?? [],
       }),
     ),
+
+  // Одна версия с текстом документов: в списке версий его нет.
+  getRoleVersion: (projectKey: string, roleKey: string, version: number) =>
+    request<RoleVersion>(
+      `/projects/${projectKey}/roles/${roleKey}/versions/${version}`,
+    ).then(normalizeRoleVersion),
 
   createRole: (projectKey: string, body: Record<string, unknown>) =>
     request<RoleWithVersions>(`/projects/${projectKey}/roles`, post(body)),
@@ -920,7 +932,7 @@ export const api = {
   listRoleVersions: (projectKey: string, roleKey: string) =>
     request<{ versions: RoleVersion[] }>(
       `/projects/${projectKey}/roles/${roleKey}/versions`,
-    ).then((r) => r.versions ?? []),
+    ).then((r) => (r.versions ?? []).map(normalizeRoleVersion)),
 
   // Правка инструкции — новая версия, а не изменение существующей.
   createRoleVersion: (
@@ -931,7 +943,7 @@ export const api = {
     request<RoleVersion>(
       `/projects/${projectKey}/roles/${roleKey}/versions`,
       post(body),
-    ),
+    ).then(normalizeRoleVersion),
 
   // ── задачи ────────────────────────────────────────────────────────────────
   listTasks: (

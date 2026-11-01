@@ -1,34 +1,36 @@
 // Панель роли «Пайплайна» (CLAB-346): то, что раньше было страницей ролей, —
 // шапка с архивом, «Стоит на статусах», версии (последняя раскрыта, прежние
-// строкой и по клику) и «Новая версия». Правка инструкции — новая версия, а
-// не изменение прежней: пройденные этапы ссылаются на ту версию, по которой
+// строкой и по клику) и «Новая версия». Правка роли — новая версия, а не
+// изменение прежней: пройденные этапы ссылаются на ту версию, по которой
 // работали (решение 0016).
 //
-// Граница с CLAB-347: панель собрана из RoleHeader, RoleVersionCard и
-// NewVersionForm; 347 заменит два последних документами и диффом, не трогая
-// холст, адрес и обзор.
-import {useState} from 'react';
-import {ChevronRight} from 'lucide-react';
+// Версия — набор документов (CLAB-347, решение 0068): карточка версии
+// показывает документы и дифф против предыдущей (RoleVersionCard.tsx), форма
+// новой версии — редактор документов (RoleVersionForm). Текст документов
+// прежних версий подгружается по раскрытию и держится, пока открыта панель.
+import {useCallback, useEffect, useRef, useState} from 'react';
 import {toast} from 'sonner';
 
-import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
-import {Card} from '@/components/ui/card';
 import {Separator} from '@/components/ui/separator';
-import {ConfirmButton, EmptyState, Markdown, Note, Timestamp, Token} from '@/components/kit';
+import {ConfirmButton, EmptyState, Note, Token} from '@/components/kit';
 
 import {ApiError, api} from '../../api/client';
 import type {Role, RoleUsage, RoleVersion, Workflow} from '../../api/types';
 import {useResource} from '../../api/useResource';
 import {Failure, Loading} from '../Feedback';
 import {RoleVersionForm} from '../RoleVersionForm';
-import {modelLevelLabel} from '../modelLevel';
+import type {RoleVersionView} from './params';
+import {RoleVersionCard, VersionRow, type VersionContent} from './RoleVersionCard';
+import {hasContent, versionDocuments} from './roleDocs';
 
 export function RolePanel({
   projectKey,
   roleKey,
   workflow,
   expanded,
+  view = 'docs',
+  doc,
   onVersion,
   onStatus,
   onChanged,
@@ -39,7 +41,11 @@ export function RolePanel({
   workflow?: Workflow;
   // Раскрытая версия из адреса (?v=); нет — последняя.
   expanded?: number;
-  onVersion: (v?: number) => void;
+  // Режим карточки и выбранный документ из адреса (?view=, ?doc=).
+  view?: RoleVersionView;
+  doc?: string;
+  // Выбор версии, режима и документа — одной записью в историю.
+  onVersion: (v?: number, view?: RoleVersionView, doc?: string) => void;
   onStatus: (key: string) => void;
   onChanged: () => void;
   // Форма новой версии открыта: панель шире.
@@ -48,13 +54,31 @@ export function RolePanel({
   const role = useResource(() => api.getRole(projectKey, roleKey), [projectKey, roleKey]);
   const [error, setError] = useState<ApiError>();
   const [adding, setAdding] = useState(false);
+  const [justCreated, setJustCreated] = useState<number>();
+  const contents = useVersionContents(projectKey, roleKey);
+
+  const versions = role.data?.versions ?? [];
+  const latest = versions[0];
+  const open = versions.find((v) => v.version === expanded) ?? latest;
+  const openIndex = open ? versions.indexOf(open) : -1;
+  const prev = openIndex >= 0 ? versions[openIndex + 1] : undefined;
+  const latestFull = role.data?.latest_version;
+  const diffMode = view === 'diff' && Boolean(prev);
+
+  // Текст раскрытой версии, а в режиме «Изменения» — и предыдущей.
+  const contentOf = (v?: RoleVersion) => (v ? contents.get(v, latestFull) : undefined);
+  const openContent = contentOf(open);
+  const prevContent = diffMode ? contentOf(prev) : undefined;
+  const {ensure} = contents;
+  useEffect(() => {
+    if (open) ensure(open, latestFull);
+    if (diffMode && prev) ensure(prev, latestFull);
+  }, [open, prev, diffMode, latestFull, ensure]);
 
   if (role.error) return <div className="p-4"><Failure error={role.error} reload={role.reload} /></div>;
   if (!role.data) return <Loading />;
 
-  const {role: head, versions = [], used_on: usedOn} = role.data;
-  const latest = versions[0];
-  const open = versions.find((v) => v.version === expanded) ?? latest;
+  const {role: head, used_on: usedOn} = role.data;
 
   const archive = async (archived: boolean) => {
     setError(undefined);
@@ -73,6 +97,9 @@ export function RolePanel({
     onForm(value);
   };
 
+  // Версия в адресе — только не последняя: последняя раскрыта и без v.
+  const vParam = (v: RoleVersion) => (v.id === latest?.id ? undefined : v.version);
+
   return (
     <div className="space-y-5 p-4" data-role-panel={head.key}>
       <RoleHeader
@@ -89,14 +116,16 @@ export function RolePanel({
         <NewVersionForm
           projectKey={projectKey}
           roleKey={roleKey}
-          base={latest}
+          base={latestFull ?? latest}
           onCancel={() => setForm(false)}
-          onCreated={() => {
+          onCreated={(created) => {
             setForm(false);
+            setJustCreated(created?.version);
             role.reload();
             onChanged();
-            // После сохранения раскрыта новая, последняя версия.
-            onVersion(undefined);
+            // После сохранения раскрыта новая, последняя версия в режиме
+            // «Изменения» против той, копией которой была форма.
+            onVersion(undefined, 'diff');
           }}
         />
       ) : null}
@@ -104,18 +133,32 @@ export function RolePanel({
       <Separator />
 
       {versions.length === 0 ? (
-        <EmptyState title="Версий нет" description="Инструкция роли задаётся версией: «Новая версия»" />
+        <EmptyState title="Версий нет" description="Документы роли задаются версией: «Новая версия»" />
       ) : (
         <div className="space-y-2">
           {versions.map((v) =>
-            v.id === open?.id ? (
-              <RoleVersionCard key={v.id} version={v} isLatest={v.id === latest?.id} />
+            v.id === open?.id && openContent ? (
+              <RoleVersionCard
+                key={v.id}
+                version={v}
+                prev={prev}
+                isLatest={v.id === latest?.id}
+                content={openContent}
+                prevContent={prevContent}
+                view={diffMode ? 'diff' : 'docs'}
+                doc={doc}
+                focusHeading={justCreated === v.version}
+                onView={(next) => onVersion(vParam(v), next, undefined)}
+                onDoc={(name) => onVersion(vParam(v), diffMode ? 'diff' : 'docs', name)}
+                onRetry={() => contents.retry(v)}
+                onRetryPrev={() => prev && contents.retry(prev)}
+              />
             ) : (
               <VersionRow
                 key={v.id}
                 version={v}
                 isLatest={v.id === latest?.id}
-                onOpen={() => onVersion(v.id === latest?.id ? undefined : v.version)}
+                onOpen={() => onVersion(vParam(v), undefined, undefined)}
               />
             ),
           )}
@@ -123,6 +166,62 @@ export function RolePanel({
       )}
     </div>
   );
+}
+
+// Текст документов версии без запроса: из самой версии (ответ прежнего
+// backend, где один main.md несёт instructions) или из latest_version.
+function knownContent(v: RoleVersion, latest?: RoleVersion) {
+  const docs = versionDocuments(v);
+  if (hasContent(docs)) return docs;
+  if (latest && latest.version === v.version) {
+    const full = versionDocuments(latest);
+    if (hasContent(full)) return full;
+  }
+  return undefined;
+}
+
+// Текст документов версий роли. Чего нет в ответе роли, подгружается GET
+// …/versions/:n по требованию и держится в пределах панели: версия
+// иммутабельна, её текст не меняется.
+function useVersionContents(projectKey: string, roleKey: string) {
+  const [loaded, setLoaded] = useState<Record<number, VersionContent>>({});
+  const requested = useRef(new Set<number>());
+
+  const load = useCallback(
+    (n: number) => {
+      requested.current.add(n);
+      setLoaded((m) => ({...m, [n]: {state: 'loading'}}));
+      api
+        .getRoleVersion(projectKey, roleKey, n)
+        .then((v) => setLoaded((m) => ({...m, [n]: {state: 'ready', docs: versionDocuments(v)}})))
+        .catch((err) =>
+          setLoaded((m) => ({
+            ...m,
+            [n]: {state: 'error', error: err instanceof ApiError ? err : new ApiError('internal', String(err))},
+          })),
+        );
+    },
+    [projectKey, roleKey],
+  );
+
+  const get = (v: RoleVersion, latest?: RoleVersion): VersionContent => {
+    const docs = knownContent(v, latest);
+    if (docs) return {state: 'ready', docs};
+    return loaded[v.version] ?? {state: 'loading'};
+  };
+
+  // Запросить, если текста нет и запрос ещё не уходил.
+  const ensure = useCallback(
+    (v: RoleVersion, latest?: RoleVersion) => {
+      if (knownContent(v, latest) || requested.current.has(v.version)) return;
+      load(v.version);
+    },
+    [load],
+  );
+
+  const retry = (v: RoleVersion) => load(v.version);
+
+  return {get, ensure, retry};
 }
 
 export function RoleHeader({
@@ -172,8 +271,8 @@ export function RoleHeader({
   );
 }
 
-// Новая версия — нынешняя форма версии роли как есть. CLAB-347 заменит её
-// формой с документами.
+// Новая версия — форма с документами копией последней версии. Свойства не
+// меняются: CLAB-307 подставит сюда своё сохранение.
 export function NewVersionForm({
   projectKey,
   roleKey,
@@ -185,11 +284,17 @@ export function NewVersionForm({
   roleKey: string;
   base?: RoleVersion;
   onCancel: () => void;
-  onCreated: () => void;
+  onCreated: (created?: RoleVersion) => void;
 }) {
   return (
     <div data-new-version>
-      <RoleVersionForm projectKey={projectKey} roleKey={roleKey} base={base} onCancel={onCancel} onCreated={onCreated} />
+      <RoleVersionForm
+        projectKey={projectKey}
+        roleKey={roleKey}
+        base={base}
+        onCancel={onCancel}
+        onCreated={(_, created) => onCreated(created)}
+      />
     </div>
   );
 }
@@ -266,75 +371,5 @@ function Usage({
         })}
       </div>
     </div>
-  );
-}
-
-// Уровень показывается, только если задан: «авто» у версии — это отсутствие
-// уровня, а не ещё одна метка.
-function LevelToken({version}: {version: RoleVersion}) {
-  return version.model_level ? (
-    <span data-version-model-level={version.model_level}>
-      <Token label={`уровень ${modelLevelLabel(version.model_level)}`} />
-    </span>
-  ) : null;
-}
-
-function VersionRow({version, isLatest, onOpen}: {version: RoleVersion; isLatest: boolean; onOpen: () => void}) {
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      aria-expanded={false}
-      data-role-version-row={version.version}
-      className="hover:bg-accent/60 flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm">
-      <ChevronRight className="text-muted-foreground size-4 shrink-0" aria-hidden />
-      <span className="font-medium whitespace-nowrap">Версия {version.version}</span>
-      {isLatest ? <Badge>актуальная</Badge> : null}
-      <LevelToken version={version} />
-      <span className="text-muted-foreground min-w-0 flex-1 truncate text-xs">{version.changelog ?? ''}</span>
-      <Timestamp value={version.created_at} format="relative" className="shrink-0 text-xs" />
-    </button>
-  );
-}
-
-export function RoleVersionCard({version, isLatest}: {version: RoleVersion; isLatest: boolean}) {
-  return (
-    <Card className="gap-3 p-4" data-role-version={version.version}>
-      <div className="flex flex-wrap items-center gap-2">
-        <h3 className="text-base font-semibold whitespace-nowrap">Версия {version.version}</h3>
-        {isLatest ? <Badge>актуальная</Badge> : null}
-        <LevelToken version={version} />
-        <Timestamp value={version.created_at} format="relative" className="ml-auto text-xs" />
-      </div>
-      {version.changelog ? <p className="text-muted-foreground text-sm">{version.changelog}</p> : null}
-
-      {/* Инструкция роли — разметка: её пишут списками и заголовками, а читает
-          человек, сверяя с тем, что сдал агент. */}
-      <Markdown>{version.instructions}</Markdown>
-
-      <div className="space-y-1">
-        <p className="text-muted-foreground text-xs">Контракт вывода</p>
-        <div className="flex flex-wrap gap-1">
-          {(version.output_contract ?? []).length ? (
-            (version.output_contract ?? []).map((item) => (
-              <Token key={item.kind} color={item.required ? 'blue' : 'default'} label={item.kind} />
-            ))
-          ) : (
-            <span className="text-muted-foreground text-xs">—</span>
-          )}
-        </div>
-      </div>
-
-      {(version.input_kinds ?? []).length > 0 ? (
-        <div className="space-y-1">
-          <p className="text-muted-foreground text-xs">Что читает на входе</p>
-          <div className="flex flex-wrap gap-1">
-            {(version.input_kinds ?? []).map((kind) => (
-              <Token key={kind} label={kind} />
-            ))}
-          </div>
-        </div>
-      ) : null}
-    </Card>
   );
 }
