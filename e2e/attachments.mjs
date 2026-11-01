@@ -826,6 +826,126 @@ const poll = await run(`
 check('живой опрос: карточка перезапрошена минимум дважды, модалка открыта, содержимое не перезапрошено',
   poll.after.cards - poll.before.cards >= 2 && poll.after.open && poll.after.calls === poll.before.calls && poll.before.calls === 1, JSON.stringify(poll));
 
+// ── вложения при живом опросе (CLAB-355, AC-1–AC-5) ─────────────────────────
+// Раздел «Вложения» обновляется знаком карточки, но обновляется на месте:
+// плитки не исчезают, модалка вложения (не только артефакта этапа) остаётся
+// открытой, высота раздела не прыгает. Задача `flow` — с живой арендой агента.
+console.log('вложения при живом опросе');
+const attachApi = async (taskKey, spec) => {
+  const fd = new FormData();
+  fd.append('title', spec.name);
+  fd.append('file', new Blob([Buffer.from(spec.b64, 'base64')], {type: spec.type}), spec.name);
+  const r = await fetch(`${API}/v1/tasks/${taskKey}/attachments`, {method: 'POST', headers: {'X-SDLC-Actor': 'e2e'}, body: fd});
+  if (!r.ok) throw new Error('вложение не приложено: ' + (await r.text()));
+  return r.json();
+};
+const live1 = file('Живой макет.png', 'image/png', PNG);
+const live2 = file('Живая заметка.md', 'text/markdown', MD);
+const live3 = file('Позже приложенное.png', 'image/png', PNG2);
+const liveA = await attachApi(flow.key, live1);
+const liveB = await attachApi(flow.key, live2);
+
+await open(flow.key);
+await run(`await waitFor(() => card(${JSON.stringify(live1.name)}) && card(${JSON.stringify(live2.name)})); return true;`);
+// StrictMode дев-сервера запускает эффект загрузки дважды, поэтому первое
+// открытие — не больше двух запросов списка; в сборке он один. Главное — что
+// перезапроса по знаку карточки на монтировании нет (AC-4).
+const firstList = await run(`return net().filter((n) => /\\/v1\\/tasks\\/${flow.key}\\/attachments(\\?|$)/.test(n.url || '')).length;`);
+check('первое открытие карточки: список вложений запрошен без лишних перезапросов', firstList >= 1 && firstList <= 2, String(firstList));
+
+// Наблюдатель за DOM: каждое состояние, которое увидел бы человек.
+const WATCH = `
+  window.__att = {minTiles: Infinity, loading: 0, heights: [], stale: 0, samples: 0};
+  const obs = new MutationObserver(() => {
+    const sec = document.querySelector('[data-attachments]');
+    if (!sec) return;
+    const a = window.__att;
+    a.samples++;
+    if (sec.innerText.includes('Загрузка вложений')) a.loading++;
+    a.minTiles = Math.min(a.minTiles, sec.querySelectorAll('[data-attachment]').length);
+    const h = sec.getBoundingClientRect().height;
+    if (!a.heights.includes(h)) a.heights.push(h);
+  });
+  obs.observe(document.body, {childList: true, subtree: true, characterData: true});
+  window.__attObs = obs;
+`;
+await run(WATCH + `return true;`);
+const counters = `({
+  cards: net().filter((n) => /\\/v1\\/tasks\\/[^/?]+$/.test(n.url || '')).length,
+  lists: net().filter((n) => /\\/v1\\/tasks\\/${flow.key}\\/attachments(\\?|$)/.test(n.url || '')).length,
+  content: contentCalls(${JSON.stringify(liveA.id)}),
+  tiles: document.querySelectorAll('[data-attachment]').length,
+})`;
+const opened = await run(`
+  await openTile(card(${JSON.stringify(live1.name)}));
+  window.__att.minTiles = Infinity; window.__att.loading = 0; window.__att.heights = [];
+  return {before: ${counters}, open: Boolean(dlg()), text: dlgText().slice(0, 120)};
+`);
+check('модалка вложения открыта (плитка [data-attachment], не артефакт этапа)', opened.open && opened.text.includes(live1.name), JSON.stringify(opened));
+check('открытие модалки — ровно один запрос содержимого вложения', opened.before.content === 1, JSON.stringify(opened));
+
+// Фаза A: список не меняется, проходят ≥ 2 опросов карточки.
+const phaseA = await run(`
+  await sleep(23000);
+  return {before: ${JSON.stringify(opened.before)}, after: ${counters}, open: Boolean(dlg()), att: window.__att};
+`);
+check('опрос аренды: карточка перезапрошена минимум дважды, список вложений — минимум дважды',
+  phaseA.after.cards - phaseA.before.cards >= 2 && phaseA.after.lists - phaseA.before.lists >= 2, JSON.stringify(phaseA));
+check('модалка вложения за это время не закрылась, содержимое не перезапрошено',
+  phaseA.open && phaseA.after.content === phaseA.before.content, JSON.stringify(phaseA));
+check('при перезапросе списка нет «Загрузка вложений», плитки не пропадают',
+  phaseA.att.samples > 0 && phaseA.att.loading === 0 && phaseA.att.minTiles >= 2 && phaseA.after.tiles === phaseA.before.tiles, JSON.stringify(phaseA));
+check('высота раздела при неизменном списке не меняется', phaseA.att.heights.length <= 1, JSON.stringify(phaseA.att));
+
+// Фаза Б: вложение, приложенное через API при открытой модалке, появляется
+// плиткой после ближайшего опроса; модалка остаётся.
+const later = await attachApi(flow.key, live3);
+const phaseB = await run(`
+  const appeared = await waitFor(() => card(${JSON.stringify(live3.name)}), 25000);
+  await sleep(500);
+  return {appeared: Boolean(appeared), open: Boolean(dlg()), text: dlgText().slice(0, 120), att: window.__att, content: contentCalls(${JSON.stringify(liveA.id)})};
+`);
+check('вложение, приложенное при открытой модалке, появилось плиткой после опроса', phaseB.appeared, JSON.stringify(phaseB));
+check('модалка осталась открытой на том же файле, «Загрузка вложений» не мелькала',
+  phaseB.open && phaseB.text.includes(live1.name) && phaseB.att.loading === 0 && phaseB.content === 1, JSON.stringify(phaseB));
+await run(`await closeDlg(); return true;`);
+
+// Действие на карточке (прикрепление файла в интерфейсе) тоже не схлопывает список.
+await run(`window.__att.loading = 0; window.__att.minTiles = Infinity; return true;`);
+const viaUi = file('Из интерфейса.png', 'image/png', PNG);
+await attach(viaUi);
+const afterUi = await run(`
+  const el = await waitFor(() => card(${JSON.stringify(viaUi.name)}));
+  await sleep(800);
+  return {appeared: Boolean(el), att: window.__att, tiles: document.querySelectorAll('[data-attachment]').length};
+`);
+check('прикрепление в интерфейсе: плитка появилась, список не схлопывался в «Загрузка вложений»',
+  afterUi.appeared && afterUi.att.loading === 0 && afterUi.att.minTiles >= 3, JSON.stringify(afterUi));
+
+// Другая задача: плиток прежней не показываем, до ответа — «Загрузка вложений» (AC-5).
+const otherBefore = await listed(KEY);
+check('у задачи для перехода есть свои вложения', otherBefore.length > 0, String(otherBefore.length));
+const nav = await run(`
+  const old = Array.from(document.querySelectorAll('[data-attachment]')).map((e) => e.getAttribute('data-attachment'));
+  window.__nav = {leaked: 0, loading: 0, tiles: 0};
+  window.__attObs.disconnect();
+  const obs = new MutationObserver(() => {
+    const sec = document.querySelector('[data-attachments]');
+    if (!sec) return;
+    if (old.some((id) => sec.querySelector('[data-attachment="' + id + '"]'))) window.__nav.leaked++;
+    if (sec.innerText.includes('Загрузка вложений')) window.__nav.loading++;
+  });
+  obs.observe(document.body, {childList: true, subtree: true, characterData: true});
+  history.pushState({}, '', '/p/SDLC/tasks/${KEY}');
+  window.dispatchEvent(new PopStateEvent('popstate'));
+  await waitFor(() => document.querySelector('[data-attachment]') && !document.querySelector('[data-attachment="' + old[0] + '"]'), 15000);
+  await sleep(500);
+  obs.disconnect();
+  return {old: old.length, nav: window.__nav, now: Array.from(document.querySelectorAll('[data-attachment]')).map((e) => e.getAttribute('data-attachment')), where: location.pathname};
+`);
+check('переход на другую задачу: плитки прежней не показываются, вложения новой пришли',
+  nav.where.endsWith(KEY) && nav.nav.leaked === 0 && nav.now.length > 0 && !nav.now.includes(liveA.id), JSON.stringify(nav).slice(0, 400));
+
 await s.removeInitScript(initId);
 s.close();
 console.log(`\nвложения: ${ok} ✓, ${fail} ✗`);

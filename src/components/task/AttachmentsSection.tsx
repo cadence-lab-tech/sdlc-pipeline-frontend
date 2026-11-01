@@ -1,4 +1,4 @@
-import {useId, useMemo, useState} from 'react';
+import {useEffect, useId, useMemo, useRef, useState} from 'react';
 import {Upload} from 'lucide-react';
 import {toast} from 'sonner';
 
@@ -33,7 +33,19 @@ interface Progress {
 export function Attachments({taskKey, refreshToken}: {taskKey: string; refreshToken: number}) {
   // Знак перезапроса приходит от карточки: действие на ней и опрос живой
   // аренды обновляют список вместе с остальным, своего таймера у раздела нет.
-  const list = useResource(() => api.listAttachments(taskKey, true), [taskKey, refreshToken]);
+  // В зависимости ресурса знак не кладём: смена зависимостей — «другой
+  // ресурс», хук убрал бы прежний список, плитки размонтировались бы и
+  // открытая модалка файла закрылась (CLAB-355). Перезапрос — через reload():
+  // прежний список остаётся на экране до прихода нового.
+  const list = useResource(() => api.listAttachments(taskKey, true), [taskKey]);
+  const seen = useRef(refreshToken);
+  const {reload} = list;
+  useEffect(() => {
+    // Первый рендер не считается — список только что запрошен.
+    if (refreshToken === seen.current) return;
+    seen.current = refreshToken;
+    reload();
+  }, [refreshToken, reload]);
   const instance = useInstance();
   const pickId = useId();
   const [dragging, setDragging] = useState(false);
