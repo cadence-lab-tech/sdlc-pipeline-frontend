@@ -124,7 +124,8 @@ export function Pipeline() {
 
   const [dialog, setDialog] = useState<PipelineDialog>();
   const [showArchived, setShowArchived] = useState(false);
-  const [wideForm, setWideForm] = useState(false);
+  // Форма новой версии открыта у этой роли: панель шире.
+  const [wideFor, setWideFor] = useState<string>();
   const [headError, setHeadError] = useState<{title: string; error: ApiError}>();
   const [activation, setActivation] = useState<{id: UUID; result: ActivationResult}>();
   const [isBusy, setIsBusy] = useState(false);
@@ -298,7 +299,7 @@ export function Pipeline() {
           roles.reload();
           others.reload();
         }}
-        onForm={setWideForm}
+        onForm={(open) => setWideFor(open ? role.key : undefined)}
       />
     );
   } else if (wf && transition) {
@@ -536,7 +537,7 @@ export function Pipeline() {
           <aside
             className={cn(
               'bg-background shrink-0 overflow-y-auto border-l transition-[width]',
-              role && wideForm ? 'w-[780px] max-w-[60vw]' : 'w-[440px]',
+              role && wideFor === role.key ? 'w-[780px] max-w-[60vw]' : 'w-[440px]',
             )}
             aria-label="Панель пайплайна"
             data-pipeline-inspector>
