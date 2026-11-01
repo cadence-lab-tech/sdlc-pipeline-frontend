@@ -35,6 +35,11 @@ import type {
   ProjectMember,
   ProjectDetail,
   Role,
+  Instruction,
+  InstructionDetail,
+  InstructionVersion,
+  InstructionWrite,
+  ApplyResult,
   RoleVersion,
   RoleWithVersions,
   Plan,
@@ -175,6 +180,25 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     raise(res, body);
   }
   return body as T;
+}
+
+// Первая версия сервера с библиотекой инструкций: её называет отказ сервера
+// прежней версии.
+export const LIBRARY_MIN_VERSION = "0.21.0";
+
+// Ответ ручки библиотеки, который не разобрался как JSON, — 404 маршрута
+// сервера без библиотеки («404 page not found»): он становится not_found с
+// понятным текстом, а не падением разбора.
+function library<T>(p: Promise<T>): Promise<T> {
+  return p.catch((err: unknown) => {
+    if (err instanceof ApiError) throw err;
+    throw new ApiError(
+      "not_found",
+      `сервер не знает библиотеку инструкций (нужна версия ≥ ${LIBRARY_MIN_VERSION})`,
+      { library: false },
+      404,
+    );
+  });
 }
 
 async function requestText(path: string): Promise<string> {
@@ -945,6 +969,91 @@ export const api = {
       `/projects/${projectKey}/roles/${roleKey}/versions`,
       post(body),
     ).then(normalizeRoleVersion),
+
+  // ── библиотека инструкций (решение 0069) ──────────────────────────────────
+  // Сервер без библиотеки отвечает на её ручки 404 маршрута — текстом, а не
+  // конвертом ошибки; такой ответ становится ApiError с понятным текстом.
+  listInstructions: (projectKey: string) =>
+    library(
+      request<{ instructions?: Instruction[] }>(
+        `/projects/${projectKey}/instructions`,
+      ).then((r) => r.instructions ?? []),
+    ),
+
+  getInstruction: (projectKey: string, key: string, version?: number) =>
+    library(
+      request<InstructionDetail>(
+        `/projects/${projectKey}/instructions/${encodeURIComponent(key)}${version ? `?version=${version}` : ""}`,
+      ).then((r) => ({
+        ...r,
+        versions: r.versions ?? [],
+        usage: r.usage ?? [],
+      })),
+    ),
+
+  getInstructionVersion: (projectKey: string, key: string, version: number) =>
+    library(
+      request<InstructionVersion>(
+        `/projects/${projectKey}/instructions/${encodeURIComponent(key)}/versions/${version}`,
+      ),
+    ),
+
+  createInstruction: (
+    projectKey: string,
+    body: {
+      key: string;
+      name: string;
+      summary?: string;
+      kind?: string;
+      content: string;
+    },
+  ) =>
+    library(
+      request<InstructionWrite>(
+        `/projects/${projectKey}/instructions`,
+        post(body),
+      ),
+    ),
+
+  createInstructionVersion: (
+    projectKey: string,
+    key: string,
+    body: { kind?: string; content: string; changelog?: string },
+  ) =>
+    library(
+      request<InstructionWrite>(
+        `/projects/${projectKey}/instructions/${encodeURIComponent(key)}/versions`,
+        post(body),
+      ),
+    ),
+
+  updateInstruction: (
+    projectKey: string,
+    key: string,
+    body: { name?: string; summary?: string },
+  ) =>
+    library(
+      request<Instruction>(
+        `/projects/${projectKey}/instructions/${encodeURIComponent(key)}`,
+        patch(body),
+      ),
+    ),
+
+  applyInstruction: (
+    projectKey: string,
+    key: string,
+    body: {
+      version?: number;
+      roles: { key: string; from_version?: number }[];
+      changelog?: string;
+    },
+  ) =>
+    library(
+      request<ApplyResult>(
+        `/projects/${projectKey}/instructions/${encodeURIComponent(key)}/apply`,
+        post(body),
+      ).then((r) => ({ ...r, roles: r.roles ?? [] })),
+    ),
 
   // ── задачи ────────────────────────────────────────────────────────────────
   listTasks: (

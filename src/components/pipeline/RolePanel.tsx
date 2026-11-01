@@ -16,12 +16,14 @@ import {Separator} from '@/components/ui/separator';
 import {ConfirmButton, EmptyState, Note, Token} from '@/components/kit';
 
 import {ApiError, api} from '../../api/client';
-import type {Role, RoleUsage, RoleVersion, Workflow} from '../../api/types';
+import type {Role, RoleDocument, RoleUsage, RoleVersion, Workflow} from '../../api/types';
 import {useResource} from '../../api/useResource';
 import {Failure, Loading} from '../Feedback';
 import {RoleVersionForm} from '../RoleVersionForm';
 import type {RoleVersionView} from './params';
 import {RoleVersionCard, VersionRow, type VersionContent} from './RoleVersionCard';
+import {useLibraryLatest} from '../../hooks/useLibraryLatest';
+import {lagLine} from './libraryRules';
 import {hasContent, versionDocuments} from './roleDocs';
 
 export function RolePanel({
@@ -35,10 +37,23 @@ export function RolePanel({
   onStatus,
   onChanged,
   onForm,
+  canEdit = true,
+  reloadKey,
+  onInstruction,
+  onApply,
+  onToLibrary,
 }: {
   projectKey: string;
   roleKey: string;
   workflow?: Workflow;
+  // Библиотека (CLAB-351): право правки (знает, что maintainer нет, —
+  // кнопок нет), знак перечитать после действий библиотеки, переход к
+  // инструкции, «Обновить…» из плашки и «В библиотеку» у документа.
+  canEdit?: boolean;
+  reloadKey?: unknown;
+  onInstruction?: (key: string, version?: number) => void;
+  onApply?: (key: string, roles: string[]) => void;
+  onToLibrary?: (roleKey: string, doc: RoleDocument) => void;
   // Раскрытая версия из адреса (?v=); нет — последняя.
   expanded?: number;
   // Режим карточки и выбранный документ из адреса (?view=, ?doc=).
@@ -51,7 +66,8 @@ export function RolePanel({
   // Форма новой версии открыта: панель шире.
   onForm: (open: boolean) => void;
 }) {
-  const role = useResource(() => api.getRole(projectKey, roleKey), [projectKey, roleKey]);
+  const role = useResource(() => api.getRole(projectKey, roleKey), [projectKey, roleKey, reloadKey]);
+  const libraryLatest = useLibraryLatest(projectKey, reloadKey);
   const [error, setError] = useState<ApiError>();
   const [adding, setAdding] = useState(false);
   const [justCreated, setJustCreated] = useState<number>();
@@ -110,6 +126,31 @@ export function RolePanel({
       />
       {error ? <ArchiveError error={error} workflow={workflow} onStatus={onStatus} /> : null}
 
+      {(head.instruction_lag ?? []).length && !head.archived_at ? (
+        <div data-role-lag-banner>
+          <Note tone="warning" title="В библиотеке есть новее">
+            <ul className="space-y-1.5">
+              {(head.instruction_lag ?? []).map((l) => (
+                <li key={l.key} className="flex flex-wrap items-center gap-2" data-lag-row={l.key}>
+                  <span className="font-mono text-xs">{l.key}</span>
+                  <span className="text-xs opacity-90">{lagLine(l)}</span>
+                  {onInstruction ? (
+                    <Button size="xs" variant="secondary" className="ml-auto" onClick={() => onInstruction(l.key)}>
+                      Открыть инструкцию
+                    </Button>
+                  ) : null}
+                  {canEdit && onApply ? (
+                    <Button size="xs" onClick={() => onApply(l.key, [head.key])} data-lag-apply>
+                      Обновить…
+                    </Button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </Note>
+        </div>
+      ) : null}
+
       <Usage usage={usedOn} workflow={workflow} onStatus={onStatus} />
 
       {adding ? (
@@ -117,6 +158,7 @@ export function RolePanel({
           projectKey={projectKey}
           roleKey={roleKey}
           base={latestFull ?? latest}
+          library={{latest: libraryLatest, onOpenInstruction: onInstruction ? (k, v) => onInstruction(k, v) : undefined}}
           onCancel={() => setForm(false)}
           onCreated={(created) => {
             setForm(false);
@@ -152,6 +194,15 @@ export function RolePanel({
                 onDoc={(name) => onVersion(vParam(v), diffMode ? 'diff' : 'docs', name)}
                 onRetry={() => contents.retry(v)}
                 onRetryPrev={() => prev && contents.retry(prev)}
+                library={
+                  onInstruction
+                    ? {
+                        latest: libraryLatest,
+                        onOpenInstruction: (k, n) => onInstruction(k, n),
+                        onToLibrary: canEdit && onToLibrary ? (d) => onToLibrary(head.key, d) : undefined,
+                      }
+                    : undefined
+                }
               />
             ) : (
               <VersionRow
@@ -277,12 +328,14 @@ export function NewVersionForm({
   projectKey,
   roleKey,
   base,
+  library,
   onCancel,
   onCreated,
 }: {
   projectKey: string;
   roleKey: string;
   base?: RoleVersion;
+  library?: {latest: Map<string, number>; onOpenInstruction?: (key: string, version: number) => void};
   onCancel: () => void;
   onCreated: (created?: RoleVersion) => void;
 }) {
@@ -292,6 +345,7 @@ export function NewVersionForm({
         projectKey={projectKey}
         roleKey={roleKey}
         base={base}
+        library={library}
         onCancel={onCancel}
         onCreated={(_, created) => onCreated(created)}
       />

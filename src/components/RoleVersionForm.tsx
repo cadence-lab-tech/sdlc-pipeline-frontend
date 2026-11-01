@@ -18,6 +18,7 @@ import {
   draftFromVersion,
   failedDocumentId,
   newRoleDraft,
+  pinnedCount,
   versionBody,
 } from './pipeline/roleDocs';
 
@@ -39,9 +40,12 @@ export function RoleVersionForm({
   base,
   onCreated,
   onCancel,
+  library,
 }: {
   projectKey: string;
   roleKey?: string;
+  // Библиотека инструкций для редактора документов (CLAB-351).
+  library?: {latest: Map<string, number>; onOpenInstruction?: (key: string, version: number) => void};
   // Версия, копией которой строится форма; нужна с текстом документов.
   base?: RoleVersion;
   onCreated: (roleKey: string, created?: RoleVersion) => void;
@@ -112,7 +116,7 @@ export function RoleVersionForm({
         </h3>
         {isNewRole ? null : (
           <p className="text-muted-foreground text-xs" aria-live="polite" data-form-counter>
-            {countsLabel(counts)}
+            {countsLabel(counts, pinnedCount(draft.docs))}
           </p>
         )}
       </div>
@@ -145,6 +149,7 @@ export function RoleVersionForm({
         onFlagCleared={() => setFlagged(undefined)}
         baseVersion={base?.version}
         focusFirst={!isNewRole}
+        library={library ? {projectKey, ...library} : undefined}
       />
 
       <div className="grid gap-4 @[600px]:grid-cols-2">

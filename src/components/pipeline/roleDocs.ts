@@ -8,7 +8,7 @@
 // повторяются: решает сервер, его сообщение показывается дословно. Модуль
 // делает только то, чего сервер знать не может, — сравнивает версии, считает
 // правки формы и находит документ, названный в отказе.
-import type {ModelLevel, OutputContractItem, RoleDocument, RoleVersion} from '../../api/types';
+import type {ModelLevel, OutputContractItem, RoleDocument, RoleDocumentPin, RoleVersion} from '../../api/types';
 
 // ── нормализация ─────────────────────────────────────────────────────────────
 
@@ -147,6 +147,19 @@ export interface DocDiff {
   // Отметки same: тип сменился; документ сдвинулся относительно остальных.
   kindChange?: {from: string; to: string};
   moved: boolean;
+  // Привязка к библиотеке изменилась (CLAB-351): документ закреплён,
+  // перезакреплён или отвязан. Привязка — не текст: сводку не меняет.
+  pinChange?: {from?: RoleDocumentPin; to?: RoleDocumentPin};
+}
+
+export const samePin = (a?: RoleDocumentPin, b?: RoleDocumentPin) =>
+  (a?.key ?? '') === (b?.key ?? '') && (a?.version ?? 0) === (b?.version ?? 0);
+
+// Подпись смены привязки в диффе версий роли.
+export function pinChangeLabel(c: {from?: RoleDocumentPin; to?: RoleDocumentPin}): string {
+  if (c.from && c.to && c.from.key === c.to.key) return `библиотека: ${c.to.key} v${c.from.version} → v${c.to.version}`;
+  if (c.to) return `закреплён: ${c.to.key} v${c.to.version}`;
+  return `отвязан от ${c.from?.key} v${c.from?.version}`;
 }
 
 export interface VersionDiff {
@@ -228,12 +241,13 @@ export function diffVersions(prev: RoleDocument[], next: RoleDocument[], options
       continue;
     }
     const kindChange = p.kind !== d.kind ? {from: p.kind, to: d.kind} : undefined;
+    const pinChange = samePin(p.instruction, d.instruction) ? undefined : {from: p.instruction, to: d.instruction};
     if (sameBytes(p, d) && !(options.kindIsChange && kindChange)) {
-      docs.push({name: d.name, change: 'same', kind: d.kind, plus: 0, minus: 0, tooBig: false, kindChange, moved: !stay.has(d.name)});
+      docs.push({name: d.name, change: 'same', kind: d.kind, plus: 0, minus: 0, tooBig: false, kindChange, moved: !stay.has(d.name), pinChange});
       continue;
     }
     const r = lineDiff(p.content ?? '', d.content ?? '', options.limit);
-    docs.push({name: d.name, change: 'changed', kind: d.kind, ...r, kindChange, moved: false});
+    docs.push({name: d.name, change: 'changed', kind: d.kind, ...r, kindChange, moved: false, pinChange});
   }
   for (const p of prev) {
     if (nextNames.has(p.name)) continue;
@@ -253,7 +267,8 @@ export function diffVersions(prev: RoleDocument[], next: RoleDocument[], options
   const sorted = docs.map((d, i) => ({d, i})).sort((a, b) => rank(a.d.change) - rank(b.d.change) || a.i - b.i).map((x) => x.d);
   const counts = {changed: 0, added: 0, removed: 0, same: 0};
   for (const d of sorted) counts[d.change]++;
-  const unchanged = counts.changed + counts.added + counts.removed === 0 && sorted.every((d) => !d.kindChange && !d.moved);
+  const unchanged =
+    counts.changed + counts.added + counts.removed === 0 && sorted.every((d) => !d.kindChange && !d.moved && !d.pinChange);
   return {docs: sorted, counts, unchanged};
 }
 
@@ -320,8 +335,15 @@ export interface DraftDoc {
   name: string;
   kind: string;
   content: string;
-  base?: {name: string; kind: string; content: string};
+  base?: {name: string; kind: string; content: string; pin?: RoleDocumentPin};
   removed?: boolean;
+  // Закреплён за версией инструкции (CLAB-351): только читается и уходит
+  // ссылкой. wasPin — снято «Отвязать»: можно вернуть до сохранения.
+  pin?: RoleDocumentPin;
+  wasPin?: RoleDocumentPin;
+  // Текст и тип версии инструкции на момент «Отвязать»: «Вернуть
+  // закрепление» возвращает их без похода в сеть.
+  wasText?: {content: string; kind: string};
 }
 
 export type DraftMark = 'same' | 'changed' | 'added' | 'removed' | 'renamed';
@@ -342,7 +364,14 @@ export function draftFromVersion(v?: RoleVersion): RoleDraft {
   return {
     docs: versionDocuments(v).map((d) => {
       const content = d.content ?? '';
-      return {id: draftId(), name: d.name, kind: d.kind, content, base: {name: d.name, kind: d.kind, content}};
+      return {
+        id: draftId(),
+        name: d.name,
+        kind: d.kind,
+        content,
+        base: {name: d.name, kind: d.kind, content, pin: d.instruction},
+        pin: d.instruction,
+      };
     }),
     changelog: '',
     inputKinds: (v.input_kinds ?? []).join(', '),
@@ -366,7 +395,7 @@ export function draftMark(d: DraftDoc): DraftMark {
   if (d.removed) return 'removed';
   if (!d.base) return 'added';
   if (d.name !== d.base.name) return 'renamed';
-  return d.content !== d.base.content || d.kind !== d.base.kind ? 'changed' : 'same';
+  return d.content !== d.base.content || d.kind !== d.base.kind || !samePin(d.pin, d.base.pin) ? 'changed' : 'same';
 }
 
 // То, что уйдёт в запрос: строки по порядку без убранных.
@@ -394,10 +423,45 @@ export function draftCounts(docs: DraftDoc[]): DraftCounts {
   const next: RoleDocument[] = sentDocs(docs).map((d, i) => ({name: d.name, kind: d.kind, content: d.content, position: i}));
   // Только счёт: построчный дифф здесь не нужен, предел ноль его не строит.
   const {counts} = diffVersions(base, next, {kindIsChange: true, limit: 0});
-  return {changed: counts.changed, added: counts.added, removed: counts.removed};
+  // Смена привязки при тех же байтах — тоже правка документа (CLAB-351).
+  const pinOnly = sentDocs(docs).filter(
+    (d) => d.base && d.name === d.base.name && d.content === d.base.content && d.kind === d.base.kind && !samePin(d.pin, d.base.pin),
+  ).length;
+  return {changed: counts.changed + pinOnly, added: counts.added, removed: counts.removed};
 }
 
-export const countsLabel = (c: DraftCounts) => `Изменено ${c.changed} · добавлено ${c.added} · убрано ${c.removed}`;
+// Закреплённых документов среди отправляемых: «из библиотеки N».
+export const pinnedCount = (docs: DraftDoc[]) => sentDocs(docs).filter((d) => d.pin).length;
+
+export const countsLabel = (c: DraftCounts, pinned = 0) =>
+  `Изменено ${c.changed} · добавлено ${c.added} · убрано ${c.removed}${pinned ? ` · из библиотеки ${pinned}` : ''}`;
+
+// Документ из библиотеки в форму: имя <ключ>.md, тип и текст версии.
+export function addPinnedDoc(docs: DraftDoc[], pin: RoleDocumentPin, kind: string, content: string): {docs: DraftDoc[]; id: number} {
+  const id = draftId();
+  return {docs: [...docs, {id, name: `${pin.key}.md`, kind, content, pin}], id};
+}
+
+// «Отвязать»: документ становится обычным, привязку можно вернуть до
+// сохранения.
+export function unpinDoc(docs: DraftDoc[], id: number): DraftDoc[] {
+  return docs.map((d) =>
+    d.id === id && d.pin ? {...d, wasPin: d.pin, wasText: {content: d.content, kind: d.kind}, pin: undefined} : d,
+  );
+}
+
+// Текст отвязанного документа правили: возврат закрепления их сотрёт.
+export const repinNeedsConfirm = (d: DraftDoc) =>
+  Boolean(d.wasText) && (d.content !== d.wasText!.content || d.kind !== d.wasText!.kind || d.name !== `${d.wasPin?.key}.md`);
+
+// «Вернуть закрепление»: текст, тип и имя снова — версии инструкции.
+export function repinDoc(docs: DraftDoc[], id: number): DraftDoc[] {
+  return docs.map((d) =>
+    d.id === id && d.wasPin && d.wasText
+      ? {...d, pin: d.wasPin, wasPin: undefined, wasText: undefined, content: d.wasText.content, kind: d.wasText.kind, name: `${d.wasPin.key}.md`}
+      : d,
+  );
+}
 
 export function editDoc(docs: DraftDoc[], id: number, patch: Partial<Pick<DraftDoc, 'name' | 'kind' | 'content'>>): DraftDoc[] {
   return docs.map((d) => (d.id === id ? {...d, ...patch} : d));
@@ -479,7 +543,14 @@ function splitList(value: string): string[] {
 // без убранных, без instructions; прочее базовой версии — как было.
 export function versionBody(draft: RoleDraft, base?: RoleVersion): Record<string, unknown> {
   const body: Record<string, unknown> = {
-    documents: sentDocs(draft.docs).map((d) => ({name: d.name, kind: d.kind, content: d.content})),
+    // Закреплённый уходит ссылкой, без текста (решение 0069); отвязанный —
+    // содержимым с unpin: иначе сервер перенёс бы закрепление по тому же
+    // тексту.
+    documents: sentDocs(draft.docs).map((d) =>
+      d.pin
+        ? {instruction: {key: d.pin.key, version: d.pin.version}}
+        : {name: d.name, kind: d.kind, content: d.content, ...(d.wasPin || d.base?.pin ? {unpin: true} : {})},
+    ),
     input_kinds: splitList(draft.inputKinds),
     output_contract: draft.contract,
     tool_policy: base?.tool_policy ?? {},

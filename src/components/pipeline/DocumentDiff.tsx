@@ -20,6 +20,7 @@ import {
   foldLines,
   formatCount,
   kindChangeLabel,
+  pinChangeLabel,
 } from './roleDocs';
 
 const CHANGE_COLOR: Record<DocChange, 'default' | 'green' | 'orange' | 'red'> = {
@@ -45,15 +46,26 @@ export function DocumentDiff({
         {diffSummary(diff.counts)}
       </p>
       {diff.unchanged ? <p className="text-muted-foreground text-sm">Изменений в документах нет</p> : null}
-      {diff.docs.map((d) =>
-        d.change === 'same' ? (
-          <SameDoc key={`same:${d.name}`} d={d} />
-        ) : (
-          <ChangedDoc key={`${d.change}:${d.name}`} d={d} selected={doc === d.name} onDoc={onDoc} />
-        ),
-      )}
+      {diff.docs.map((d) => (
+        <DiffEntry key={`${d.change}:${d.name}`} d={d} selected={doc === d.name} onDoc={onDoc} />
+      ))}
     </div>
   );
+}
+
+// Один документ диффа — его же берёт панель инструкции библиотеки
+// (CLAB-351): дифф версий инструкции — тот же компонент на один документ.
+export function DiffEntry({d, selected = false, onDoc}: {d: DocDiff; selected?: boolean; onDoc?: (name?: string) => void}) {
+  return d.change === 'same' ? <SameDoc d={d} /> : <ChangedDoc d={d} selected={selected} onDoc={onDoc ?? (() => undefined)} />;
+}
+
+// Смена привязки к библиотеке — синяя метка; привязка не текст.
+function PinMark({d}: {d: DocDiff}) {
+  return d.pinChange ? (
+    <span data-diff-mark="pin">
+      <Token color="blue" label={pinChangeLabel(d.pinChange)} />
+    </span>
+  ) : null;
 }
 
 function SameDoc({d}: {d: DocDiff}) {
@@ -77,6 +89,7 @@ function SameDoc({d}: {d: DocDiff}) {
             <Token color="blue" label={MOVED_LABEL} />
           </span>
         ) : null}
+        <PinMark d={d} />
         <Token label={DOC_CHANGE_LABEL.same} />
       </span>
     </div>
@@ -112,6 +125,7 @@ function ChangedDoc({d, selected, onDoc}: {d: DocDiff; selected: boolean; onDoc:
         </span>
         <Token color={CHANGE_COLOR[d.change]} label={DOC_CHANGE_LABEL[d.change]} />
         {d.kindChange ? <Token color="blue" label={kindChangeLabel(d.kindChange)} /> : null}
+        <PinMark d={d} />
         {d.tooBig ? (
           <span data-diff-too-big>
             <Token color="orange" label="слишком велик для построчного сравнения" />
