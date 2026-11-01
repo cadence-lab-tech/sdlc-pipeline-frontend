@@ -331,6 +331,13 @@ check('масштаб 50–150 % с шагом 10 %',
   clampZoom(0.2) === 0.5 && clampZoom(3) === 1.5 && clampZoom(0.84) === 0.8 && zoomParam(1) === undefined && zoomParam(0.7) === '0.7');
 check('вид холста — replace, выбор — в историю',
   isViewPatch({zoom: '0.8'}) && isViewPatch({returns: '0', off: 'a'}) && !isViewPatch({status: 'x'}) && !isViewPatch({zoom: '1', role: 'r'}));
+// Режим карточки версии роли и документ (CLAB-347): view=diff — «Изменения»,
+// любое иное и отсутствие — «Документы»; пустой doc — без выбора.
+const withDoc = parsePipelineParams(q('role=r&v=1&view=diff&doc=a-rules.md'));
+check('view=diff и doc разбираются вместе с v', withDoc.view === 'diff' && withDoc.doc === 'a-rules.md' && withDoc.v === 1 && withDoc.role === 'r');
+check('view: иное значение и отсутствие — docs', parsePipelineParams(q('view=bogus')).view === 'docs' && parsePipelineParams(q('')).view === 'docs' && parsePipelineParams(q('view=docs')).view === 'docs');
+check('doc: пустое и пробелы — без выбора', parsePipelineParams(q('doc=')).doc === undefined && parsePipelineParams(q('doc=%20%20')).doc === undefined && bare.doc === undefined);
+check('view и doc пишутся в историю, а не replace', !isViewPatch({view: 'diff'}) && !isViewPatch({doc: 'a.md'}) && !isViewPatch({v: '1', view: 'diff', doc: 'a.md'}));
 check('правка адреса не теряет прочих параметров',
   patchParams(q('type=task&zoom=0.8&x=1'), {status: 'a', zoom: undefined}).toString() === 'type=task&x=1&status=a');
 

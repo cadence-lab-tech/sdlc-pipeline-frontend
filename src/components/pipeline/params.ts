@@ -2,8 +2,8 @@
 // React, чтобы правила разбора и перенаправления старых адресов проверялись
 // без браузера (e2e/pipeline-layout.mjs).
 //
-// Выбор (статус, переход, роль, раскрытая версия роли), тип задач и версия
-// цикла пишутся в историю: «Назад» возвращает прежний выбор. Вид холста
+// Выбор (статус, переход, роль, раскрытая версия роли, её режим «Документы» |
+// «Изменения» и документ — CLAB-347), тип задач и версия цикла пишутся в историю: «Назад» возвращает прежний выбор. Вид холста
 // (возвраты, просмотр пути, масштаб, мини-карта) — с replace: листать вид
 // кнопкой «Назад» никто не хочет.
 
@@ -14,11 +14,18 @@ export interface PipelineParams {
   transition?: string;
   role?: string;
   v?: number;
+  // Режим карточки версии роли: view=diff — «Изменения против vN-1», любое
+  // иное значение и отсутствие — «Документы».
+  view: RoleVersionView;
+  // Выбранный документ версии; пустое — без выбора.
+  doc?: string;
   showReturns: boolean;
   off: Set<string>;
   zoom: number;
   minimap: boolean;
 }
+
+export type RoleVersionView = 'docs' | 'diff';
 
 export const ZOOM_MIN = 0.5;
 export const ZOOM_MAX = 1.5;
@@ -46,6 +53,8 @@ export function parsePipelineParams(q: URLSearchParams): PipelineParams {
     transition: clean(q.get('transition')),
     role: clean(q.get('role')),
     v: Number.isInteger(v) && v > 0 ? v : undefined,
+    view: q.get('view') === 'diff' ? 'diff' : 'docs',
+    doc: clean(q.get('doc')),
     showReturns: q.get('returns') !== '0',
     off: new Set((q.get('off') ?? '').split(',').map((k) => k.trim()).filter(Boolean)),
     zoom: zoom ? clampZoom(Number(zoom)) : 1,

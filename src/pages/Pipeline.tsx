@@ -77,7 +77,14 @@ const toApiError = (err: unknown) => (err instanceof ApiError ? err : new ApiErr
 
 const STATE_DOT = {draft: 'accent', active: 'success', retired: 'neutral'} as const;
 
-const NO_SELECTION: ParamPatch = {status: undefined, transition: undefined, role: undefined, v: undefined};
+const NO_SELECTION: ParamPatch = {
+  status: undefined,
+  transition: undefined,
+  role: undefined,
+  v: undefined,
+  view: undefined,
+  doc: undefined,
+};
 
 export function Pipeline() {
   const {projectKey = ''} = useParams();
@@ -287,7 +294,7 @@ export function Pipeline() {
   let back: (() => void) | undefined;
   if (role) {
     crumbs = [...crumbs, ...(status ? [status.name] : []), role.name];
-    back = () => set({role: undefined, v: undefined});
+    back = () => set({role: undefined, v: undefined, view: undefined, doc: undefined});
     body = (
       <RolePanel
         key={role.key}
@@ -295,7 +302,11 @@ export function Pipeline() {
         roleKey={role.key}
         workflow={wf}
         expanded={p.v}
-        onVersion={(v) => set({v: v ? String(v) : undefined})}
+        view={p.view}
+        doc={p.doc}
+        onVersion={(v, view, doc) =>
+          set({v: v ? String(v) : undefined, view: view === 'diff' ? 'diff' : undefined, doc: doc || undefined})
+        }
         onStatus={(key) => set({...NO_SELECTION, status: key})}
         onChanged={() => {
           roles.reload();
@@ -338,7 +349,7 @@ export function Pipeline() {
           set({status: undefined});
         }}
         onDialog={setDialog}
-        onRole={(key) => set({role: key, v: undefined})}
+        onRole={(key) => set({role: key, v: undefined, view: undefined, doc: undefined})}
         onTransition={selectTransition}
       />
     );
