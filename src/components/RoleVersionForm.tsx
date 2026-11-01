@@ -12,6 +12,10 @@ import {ModelLevelToggle} from './ModelLevelToggle';
 
 // Новая версия роли заводится копией предыдущей: правка — это почти всегда
 // «то же самое, но точнее», а не текст с нуля.
+//
+// Без roleKey форма заводит роль целиком (CLAB-346, «Завести роль»): ключ,
+// название и описание плюс первая версия теми же полями — одним запросом
+// POST …/roles.
 export function RoleVersionForm({
   projectKey,
   roleKey,
@@ -20,11 +24,15 @@ export function RoleVersionForm({
   onCancel,
 }: {
   projectKey: string;
-  roleKey: string;
+  roleKey?: string;
   base?: RoleVersion;
-  onCreated: () => void;
+  onCreated: (roleKey: string) => void;
   onCancel: () => void;
 }) {
+  const isNewRole = !roleKey;
+  const [newKey, setNewKey] = useState('');
+  const [newName, setNewName] = useState('');
+  const [newSummary, setNewSummary] = useState('');
   const [instructions, setInstructions] = useState(base?.instructions ?? '');
   const [changelog, setChangelog] = useState('');
   const [inputKinds, setInputKinds] = useState((base?.input_kinds ?? []).join(', '));
@@ -38,7 +46,7 @@ export function RoleVersionForm({
     setBusy(true);
     setError(undefined);
     try {
-      const created = await api.createRoleVersion(projectKey, roleKey, {
+      const version = {
         instructions,
         changelog: changelog || undefined,
         input_kinds: splitList(inputKinds),
@@ -52,9 +60,22 @@ export function RoleVersionForm({
         model_hint: base?.model_hint,
         // «Авто» — версия без уровня: поле не уходит вовсе.
         model_level: modelLevel ?? undefined,
-      });
-      toast.success(`Версия ${created.version} роли ${roleKey} создана`);
-      onCreated();
+      };
+      if (roleKey) {
+        const created = await api.createRoleVersion(projectKey, roleKey, version);
+        toast.success(`Версия ${created.version} роли ${roleKey} создана`);
+        onCreated(roleKey);
+      } else {
+        const key = newKey.trim();
+        await api.createRole(projectKey, {
+          key,
+          name: newName.trim(),
+          summary: newSummary.trim() || undefined,
+          version,
+        });
+        toast.success(`Роль ${key} создана`);
+        onCreated(key);
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err : new ApiError('internal', String(err)));
     } finally {
@@ -64,9 +85,24 @@ export function RoleVersionForm({
 
   return (
     <Card className="gap-4 p-4">
-      <h3 className="text-base font-semibold">Новая версия {base ? `после v${base.version}` : ''}</h3>
-      {error ? <Failure error={error} title="Версия не создана" /> : null}
+      <h3 className="text-base font-semibold">
+        {isNewRole ? 'Новая роль' : `Новая версия ${base ? `после v${base.version}` : ''}`}
+      </h3>
+      {error ? <Failure error={error} title={isNewRole ? 'Роль не заведена' : 'Версия не создана'} /> : null}
       <FormLayout>
+        {isNewRole ? (
+          <>
+            <TextInput
+              label="Ключ"
+              description="Латиницей: по нему роль стоит на статусах и приходит в связке"
+              value={newKey}
+              onChange={setNewKey}
+              isRequired
+            />
+            <TextInput label="Название" value={newName} onChange={setNewName} isRequired />
+            <TextInput label="Описание" value={newSummary} onChange={setNewSummary} />
+          </>
+        ) : null}
         <TextArea
           label="Инструкция"
           description="Что делает роль и по каким правилам"
@@ -99,8 +135,10 @@ export function RoleVersionForm({
         <Button variant="ghost" onClick={onCancel}>
           Отмена
         </Button>
-        <Button disabled={!instructions || busy} onClick={submit}>
-          Сохранить версию
+        <Button
+          disabled={!instructions || busy || (isNewRole && (!newKey.trim() || !newName.trim()))}
+          onClick={submit}>
+          {isNewRole ? 'Завести роль' : 'Сохранить версию'}
         </Button>
       </div>
     </Card>
