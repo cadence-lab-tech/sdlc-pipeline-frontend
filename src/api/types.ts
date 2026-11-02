@@ -447,6 +447,62 @@ export interface Task {
   closed_at?: string;
 }
 
+// ── строка списка задач («Обзор», CLAB-364) ─────────────────────────────────
+// Поля, которые список задач отдаёт сверх задачи (CLAB-375, решение 0070).
+// Сервер старше поля не отдаёт: `normalizeTaskRow` в api/client.ts подставляет
+// умолчания, и строка без сигналов не падает.
+
+// Причина внимания: код и момент, с которого она действует, дальше поля по
+// коду (гейты, хэндл, предел, попытка). Набор кодов расширяется на сервере,
+// поэтому тип открытый: незнакомый код строка показывает нейтрально.
+export interface Attention {
+  code: string;
+  since: string | null;
+  [field: string]: unknown;
+}
+
+// Прогон, в котором сейчас можно работать: открытая перепроверка, иначе
+// текущая попытка этапа.
+export interface TaskCurrentRun {
+  id: UUID;
+  kind: string;
+  state: string;
+  attempt: number;
+  status_key: string;
+  role_key: string | null;
+  role_name: string | null;
+  claimed_by_handle: string | null;
+  lease_alive: boolean;
+  entered_at: string;
+  claimable: boolean;
+}
+
+// Стоимость задачи по её собственным прогонам; null вместо объекта — учёта
+// нет, а не «бесплатно».
+export interface TaskRowCost {
+  cost_usd: number;
+  api_cost_usd: number;
+  subscription_cost_usd: number;
+  reports: number;
+}
+
+export interface TaskRow extends Task {
+  status_category?: string;
+  awaiting_approval: boolean;
+  // Задачи-блокирующие, которые ещё не закрыты (ключи).
+  blocked_by: string[];
+  last_moved_at: string | null;
+  current_run: TaskCurrentRun | null;
+  attention: Attention[];
+  cost: TaskRowCost | null;
+  // Дети по категориям статуса: backlog, active, waiting, done, cancelled.
+  // Пусто — детей нет (или сервер старше).
+  child_counts: Record<string, number>;
+  // Только у задач с детьми: движение и стоимость поддерева вместе с задачей.
+  subtree_last_moved_at: string | null;
+  subtree_cost_usd: number | null;
+}
+
 // Уровень модели — перечень сервера (решение 0060), а не данные проекта;
 // подписи к нему — components/modelLevel.ts.
 export type ModelLevel = "low" | "medium" | "high";
