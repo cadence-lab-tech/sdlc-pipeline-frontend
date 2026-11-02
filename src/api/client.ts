@@ -46,6 +46,7 @@ import type {
   Session,
   Status,
   Task,
+  TaskRow,
   TaskDetail,
   TaskEvent,
   TaskRepoRef,
@@ -69,6 +70,7 @@ import type {
   AgentKit,
   Instance,
 } from "./types";
+import { normalizeRowFields } from "./taskRow";
 import { UPLOAD_ABORTED } from "../components/task/attachmentRules";
 import { normalizeRoleVersion } from "../components/pipeline/roleDocs";
 
@@ -311,6 +313,12 @@ function normalizeTask(t: Task): Task {
     stage_settings: t.stage_settings ?? {},
     optional_stages: normalizeOptionalStages(t.optional_stages),
   };
+}
+
+// Строка списка задач: к задаче добавлены поля «Обзора» (CLAB-364), их
+// умолчания — в taskRow.ts.
+function normalizeTaskRow(t: TaskRow): TaskRow {
+  return { ...normalizeTask(t), ...normalizeRowFields(t) };
 }
 
 // Выбор необязательных этапов: объект «ключ → bool». Сервер старше CLAB-315
@@ -1064,9 +1072,9 @@ export const api = {
     if (filter.type) query.set("type", filter.type);
     if (filter.parent) query.set("parent", filter.parent);
     const suffix = query.size > 0 ? `?${query}` : "";
-    return request<{ tasks: Task[] }>(
+    return request<{ tasks: TaskRow[] }>(
       `/projects/${projectKey}/tasks${suffix}`,
-    ).then((r) => r.tasks.map(normalizeTask));
+    ).then((r) => (r.tasks ?? []).map(normalizeTaskRow));
   },
 
   createTask: (projectKey: string, body: Record<string, unknown>) =>
