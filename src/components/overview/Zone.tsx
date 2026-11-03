@@ -155,10 +155,14 @@ export function MoreButton({
       type="button"
       variant="outline"
       size="sm"
-      className="w-full"
-      onClick={onClick}
-      disabled={busy}
+      onClick={() => {
+        if (!busy) onClick();
+      }}
+      // Не disabled: кнопка в фокусе блокировалась бы при каждом
+      // автообновлении и отдавала фокус <body> (AC-14.13).
+      aria-disabled={busy || undefined}
       aria-busy={busy || undefined}
+      className="aria-disabled:cursor-default aria-disabled:opacity-50 w-full"
       data-zone-more>
       {label}
     </Button>

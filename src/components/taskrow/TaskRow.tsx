@@ -271,6 +271,7 @@ export function TaskRow({
       to={`/p/${projectKey}/tasks/${task.key}`}
       title={hint}
       aria-label={`${m.key} ${m.title}`}
+      data-task-link
       className="absolute inset-0 z-0 rounded-[inherit] focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50 focus-visible:outline-none"
     />
   );
@@ -292,6 +293,7 @@ export function TaskRow({
       <Card
         size="sm"
         data-density="card"
+        data-task-key={task.key}
         className={cn(
           'hover:bg-muted/40 relative gap-2 border-l-[3px] border-l-transparent transition-colors',
           m.primary && TONE_EDGE[m.primary.tone],
@@ -314,6 +316,7 @@ export function TaskRow({
   return (
     <div
       data-density="row"
+      data-task-key={task.key}
       data-queue-mark={queueMark}
       className={cn(
         'hover:bg-muted/40 relative rounded-lg border px-2.5 py-2 transition-colors',

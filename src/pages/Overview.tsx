@@ -24,6 +24,7 @@ import {useProjectEvents} from '../hooks/useProjectEvents';
 import {BacklogZone} from '../components/overview/BacklogZone';
 import {LiveIndicator} from '../components/overview/LiveIndicator';
 import {MoreButton, MoreFailed, Zone} from '../components/overview/Zone';
+import {useFocusKeeper} from '../components/overview/useFocusKeeper';
 import {useOverview, type EpicInfo, type OverviewData} from '../components/overview/useOverview';
 import {
   CAPS,
@@ -92,6 +93,9 @@ function OverviewPage({projectKey, project}: {projectKey: string; project?: Proj
   const reloadRef = useRef<() => void>(() => {});
   const live = useProjectEvents(projectKey, () => reloadRef.current());
   const data = useOverview(projectKey, filters, !unknownType && live.ready);
+  // Строка в фокусе при переезде между зонами пересоздаётся: фокус
+  // возвращается на строку той же задачи (AC-14.13).
+  useFocusKeeper(data.loading);
   useEffect(() => {
     reloadRef.current = data.reloadAll;
   });
@@ -303,8 +307,12 @@ function OverviewPage({projectKey, project}: {projectKey: string; project?: Proj
           />
           <Button
             variant="outline"
-            onClick={live.refresh}
-            disabled={data.refreshing}
+            onClick={() => {
+              // Не disabled: заблокированная кнопка теряет фокус при каждом
+              // автообновлении (AC-14.13). Повторное нажатие во время чтения
+              // не нужно — чтение уже идёт.
+              if (!data.refreshing) live.refresh();
+            }}
             aria-busy={data.refreshing || undefined}
             aria-label="Обновить"
             title={updatedClock ? `Обновить · данные на ${updatedClock}` : 'Обновить'}

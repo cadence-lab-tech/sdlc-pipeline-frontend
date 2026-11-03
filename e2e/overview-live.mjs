@@ -5,7 +5,8 @@
 // списка), скрытая вкладка, «Нет связи» и «Повторить», 400 на курсор, ручки
 // нет (404) — «раз в 30 с» без ошибок, наблюдатель, смена проекта, шапка на
 // 390 и 1440 px в обеих темах. Подмены (сеть, 404, права) — в браузере, на
-// одной ручке; события и данные настоящие. Заводит свои задачи и проект.
+// одной ручке; события и данные настоящие. Фокус клавиатуры (AC-14.13): строка,
+// переехавшая в другую зону, строка, ушедшая со страницы, и «Обновить» при событии. Заводит свои задачи и проект.
 // SDLC_E2E_SHOTS=<каталог> — снимки шапки.
 import {session, helpers} from './driver.mjs';
 
@@ -179,6 +180,100 @@ await run(`
   const toggle = (z) => document.querySelector('section[data-zone=' + z + '] [data-zone-toggle]');
   toggle('queue').click(); toggle('done').click(); await sleep(200); return 1;
 `);
+
+// ── фокус клавиатуры (AC-14.13, design §2.7) ───────────────────────────────
+console.log('фокус при автообновлении');
+const fk = (key) => `document.querySelector('[data-task-key=' + JSON.stringify(${JSON.stringify(key)}) + '] [data-task-link]')`;
+const focusInfo = () => run(`
+  const a = document.activeElement;
+  return {tag: a?.tagName ?? null, key: a?.closest?.('[data-task-key]')?.dataset.taskKey ?? null,
+    zone: a?.closest?.('[data-zone]')?.dataset.zone ?? null, refresh: Boolean(a?.matches?.('[data-refresh]')),
+    toggle: Boolean(a?.matches?.('[data-zone-toggle]'))};
+`);
+const post = (path) => fetch(`${API}/v1${path}`, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-SDLC-Actor': 'e2e'}, body: '{}'});
+
+// 1. Строка в фокусе переезжает в другую зону вместе с задачей.
+const titleF = `Фокус А ${tag}`;
+const keyF = await create(titleF);
+await waitFor(rowsOn(titleF), 8000);
+await run(`
+  ${fk(keyF)}.focus();
+  window.__ft = []; window.__ft0 = performance.now(); let last = '';
+  window.__fiv = setInterval(() => {
+    const a = document.activeElement;
+    const x = a?.matches?.('a') ? a.closest('[data-task-key]')?.dataset.taskKey + '@' + a.closest('[data-zone]')?.dataset.zone : a?.tagName;
+    if (x !== last) { window.__ft.push(Math.round(performance.now() - window.__ft0) + ' ' + x); last = x; }
+  }, 20);
+  return 1;
+`);
+let fi = await focusInfo();
+check('фокус на ссылке строки в блоке бэклога (исходное состояние)', fi.key === keyF && fi.zone === 'backlog', JSON.stringify(fi));
+await post(`/tasks/${keyF}/transitions/start`);
+await waitFor(`(() => { const z = Array.from(document.querySelectorAll('section[data-zone]')).filter((e) => (e.innerText || '').includes(${JSON.stringify(titleF)})); return z.length === 1 && z[0].getAttribute('data-zone') !== 'backlog'; })()`, 8000);
+const zoneF = await zoneOf(titleF);
+await waitFor(`document.activeElement?.closest?.('[data-task-key]')?.dataset.taskKey === ${JSON.stringify(keyF)} && document.activeElement.closest('[data-zone]')?.dataset.zone === ${JSON.stringify(zoneF)}`, 3000);
+fi = await focusInfo();
+const ft = await run(`clearInterval(window.__fiv); return window.__ft;`);
+check(`задача переехала (backlog → ${zoneF}): фокус на её строке в новой зоне, не на <body>`, zoneF !== 'backlog' && fi.key === keyF && fi.zone === zoneF && fi.tag === 'A', `${JSON.stringify(fi)} ход фокуса: ${JSON.stringify(ft)}`);
+// Между ответами зон (строка уже ушла из одной, но ещё не пришла в другую)
+// фокус может на десятки миллисекунд стоять на <body> — важно, где он в итоге.
+
+// 2. «Обновить» не блокируется и не теряет фокус при событии.
+await run(`
+  const b = document.querySelector('[data-refresh]');
+  b.focus();
+  window.__rs = [];
+  window.__rsTimer = setInterval(() => window.__rs.push({
+    disabled: b.disabled, active: document.activeElement === b, busy: b.getAttribute('aria-busy') === 'true',
+  }), 8);
+  return 1;
+`);
+const titleR = `Фокус Б ${tag}`;
+await create(titleR);
+await waitFor(rowsOn(titleR), 8000);
+await waitFor(`!document.querySelector('[data-refresh]').hasAttribute('aria-busy')`, 3000);
+await sleep(400);
+const rs = await run(`clearInterval(window.__rsTimer); return window.__rs;`);
+check('«Обновить»: во время автообновления была занята (aria-busy) — проверка не пустая', rs.some((x) => x.busy), `${rs.length} замеров`);
+check('«Обновить» ни разу не disabled за время автообновления', rs.every((x) => !x.disabled));
+check('фокус остался на «Обновить» всё время (ни одного замера мимо)', rs.length > 0 && rs.every((x) => x.active));
+fi = await focusInfo();
+check('после автообновления фокус по-прежнему на «Обновить»', fi.refresh === true, JSON.stringify(fi));
+
+// 3. Задача ушла со страницы: фокус — на первую строку той же зоны.
+const gone = [];
+for (let i = 1; i <= 3; i++) gone.push(await create(`Фокус В${i} ${tag}`));
+await waitFor(rowsOn(`Фокус В3 ${tag}`), 8000);
+await run(`${fk(gone[2])}.focus(); return 1;`);
+fi = await focusInfo();
+check('фокус на последней из трёх строк блока бэклога (исходное состояние)', fi.key === gone[2] && fi.zone === 'backlog', JSON.stringify(fi));
+await post(`/tasks/${gone[2]}/transitions/cancel`);
+const dtGone = await waitFor(`!document.body.innerText.includes(${JSON.stringify(`Фокус В3 ${tag}`)})`, 8000);
+await sleep(1500);
+fi = await focusInfo();
+const firstBacklog = await run(`return document.querySelector('section[data-zone=backlog] [data-task-key]')?.dataset.taskKey ?? null;`);
+check('отменённой задачи на странице нет (завершённые свёрнуты)', dtGone !== null);
+check('фокус не на <body>: на первой строке той же зоны (блок бэклога)', fi.tag === 'A' && fi.zone === 'backlog' && fi.key === firstBacklog && fi.key !== gone[2], `${JSON.stringify(fi)} первая: ${firstBacklog}`);
+// Человек сам увёл фокус — автообновление его не трогает.
+await run(`${fk(gone[0])}.focus(); return 1;`);
+await create(`Фокус Г ${tag}`);
+await waitFor(rowsOn(`Фокус Г ${tag}`), 8000);
+await sleep(500);
+fi = await focusInfo();
+check('событие, не менявшее строку в фокусе: фокус на месте', fi.key === gone[0], JSON.stringify(fi));
+// Убираем за собой: срочные задачи блока бэклога вытеснили бы из первых
+// 10 строк те, что заводят следующие разделы.
+for (const k of [gone[0], gone[1]]) await post(`/tasks/${k}/transitions/cancel`);
+await post(`/tasks/${(await call('GET', `/projects/SDLC/tasks?q=${encodeURIComponent(`Фокус Б ${tag}`)}&limit=1`)).tasks[0].key}/transitions/cancel`);
+await post(`/tasks/${(await call('GET', `/projects/SDLC/tasks?q=${encodeURIComponent(`Фокус Г ${tag}`)}&limit=1`)).tasks[0].key}/transitions/cancel`);
+await sleep(3000);
+
+// SDLC_E2E_UNTIL=focus — остановиться после проверок фокуса (быстрый прогон).
+if (process.env.SDLC_E2E_UNTIL === 'focus') {
+  console.log(`\n${ok} ✓, ${fail} ✗ (до фокуса включительно)`);
+  s.close();
+  process.exit(fail ? 1 : 0);
+}
 
 // ── пачка событий (AC-14.5) ─────────────────────────────────────────────────
 console.log('пачка событий');
