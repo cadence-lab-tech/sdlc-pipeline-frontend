@@ -102,7 +102,7 @@ const zones = async () => run(`
   }));
 `);
 let zs = await zones();
-check('зоны «Обзора» на месте, рамки приоритетных нет', zs.map((z) => z.zone).join() === 'decisions,stuck,work,queue,done', JSON.stringify(zs.map((z) => z.zone)));
+check('зоны «Обзора» на месте, блок «Приоритетные из бэклога» между очередью и завершённым', zs.map((z) => z.zone).join() === 'decisions,stuck,work,queue,backlog,done', JSON.stringify(zs.map((z) => z.zone)));
 check('каждая зона — section с h2 и кнопкой aria-expanded', zs.every((z) => z.labelledby === 'H2' && (z.expanded === 'true' || z.expanded === 'false')), JSON.stringify(zs));
 check('счётчик с подписью «<Зона>, N»', zs.every((z) => /^[^,]+, (\d+\+?|—)$/.test(z.label || '')), JSON.stringify(zs.map((z) => z.label)));
 check('по умолчанию свёрнута только «Завершено недавно»', zs.filter((z) => z.expanded === 'false').map((z) => z.zone).join() === 'done', JSON.stringify(zs));

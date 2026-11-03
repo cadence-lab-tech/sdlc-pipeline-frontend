@@ -9,7 +9,7 @@
 // terminal, top_level, дети); коды причин в запросах — словарь движка
 // (решение 0070). Подписи дорожек — имя роли из прогона, эпик — задача с
 // детьми, а не тип.
-import type {Approval, ListTasksQuery, TaskRow} from '../../api/types';
+import type {Approval, ListTasksQuery, TaskListPage, TaskRow} from '../../api/types';
 import {normalizeRowFields} from '../../api/taskRow';
 import type {ApprovalHint} from '../taskrow/rules';
 
@@ -24,6 +24,16 @@ export const ZONE_TITLES: Record<ZoneKey, string> = {
   backlog: 'Приоритетные из бэклога',
   done: 'Завершено недавно',
 };
+
+// Блок бэклога в нарезке эпика (решение человека на апруве CLAB-366, вариант
+// «а»): шапка «Неначатые в эпике» со счётчиком неначатых детей.
+export const BACKLOG_EPIC_TITLE = 'Неначатые в эпике';
+export const BACKLOG_TEXTS = {
+  empty: 'Бэклог пуст',
+  emptyHint: 'Всё начатое — в зонах выше. Новая задача попадёт сюда.',
+  epicEmpty: 'Неначатых задач в эпике нет. Всё начатое — в зонах выше.',
+  total: 'в бэклоге',
+} as const;
 
 export const ZONE_EMPTY: Record<Exclude<ZoneKey, 'backlog'>, string> = {
   decisions: 'Ничего не ждёт вашего решения',
@@ -176,10 +186,70 @@ export function zoneQuery(
   }
 }
 
-// Запрос блока «Приоритетные из бэклога» (CLAB-366): здесь только его форма,
-// чтобы блок встал в ту же систему фильтров.
+// Запрос блока «Приоритетные из бэклога» (CLAB-366): неначатые нетерминальные
+// задачи в порядке бэклога, всегда с limit. Без эпика — только верхний
+// уровень (дети эпика отдельными строками не идут, эпик — одна строка с
+// прогрессом). В нарезке эпика (parent) top_level не ставится: дети эпика не
+// верхнего уровня, и с ним список был бы пуст; сам эпик в нарезке в блок не
+// попадает — он в полосе страницы.
 export function backlogQuery(f: OverviewFilters, limit: number): ListTasksQuery {
-  return {...common(f), terminal: false, in_work: false, top_level: true, order: 'backlog', limit};
+  const base: ListTasksQuery = {...common(f), terminal: false, in_work: false, order: 'backlog', limit};
+  return f.parent ? base : {...base, top_level: true};
+}
+
+// Число строк блока — настройка вида в браузере по проекту (В-2): 5 или 10,
+// по умолчанию 5. Серверной настройки нет. Ключ не с префиксом свёрнутости
+// (`sdlc.collapsed.`): это другая настройка, а не свёрнутость секции.
+export const BACKLOG_SIZES = [5, 10] as const;
+export type BacklogSize = (typeof BACKLOG_SIZES)[number];
+export const BACKLOG_SIZE_DEFAULT: BacklogSize = 5;
+export const BACKLOG_SIZE_PREFIX = 'sdlc.backlog.size.';
+
+export const backlogSizeKey = (projectKey: string) => BACKLOG_SIZE_PREFIX + projectKey;
+
+export function parseBacklogSize(raw: string | null | undefined): BacklogSize {
+  const n = Number(raw);
+  return (BACKLOG_SIZES as readonly number[]).includes(n) ? (n as BacklogSize) : BACKLOG_SIZE_DEFAULT;
+}
+
+// Хранилище отдаёт функция, а не значение: обращение к localStorage в
+// приватном режиме бросает. Недоступно — умолчание, запись молча пропускается.
+export function readBacklogSize(storage: () => Pick<Storage, 'getItem'>, projectKey: string): BacklogSize {
+  try {
+    return parseBacklogSize(storage().getItem(backlogSizeKey(projectKey)));
+  } catch {
+    return BACKLOG_SIZE_DEFAULT;
+  }
+}
+
+export function writeBacklogSize(storage: () => Pick<Storage, 'setItem'>, projectKey: string, size: BacklogSize): void {
+  try {
+    storage().setItem(backlogSizeKey(projectKey), String(size));
+  } catch {
+    // Выбор живёт до перезагрузки страницы.
+  }
+}
+
+// Сервер, не знающий порядка бэклога, отвечает 400 на параметр order.
+export function isOrderRejected(err: unknown): boolean {
+  const e = err as {httpStatus?: number; message?: string} | null;
+  return e?.httpStatus === 400 && /order/i.test(e.message ?? '');
+}
+
+// Загрузка блока: 400 на order — повтор без него, строки в порядке сервера по
+// умолчанию, без пометок (AC-8.10). list — api.listTasks проекта.
+export async function fetchBacklog(
+  list: (q: ListTasksQuery) => Promise<TaskListPage>,
+  f: OverviewFilters,
+  limit: number,
+): Promise<TaskListPage> {
+  const q = backlogQuery(f, limit);
+  try {
+    return await list(q);
+  } catch (err) {
+    if (!isOrderRejected(err)) throw err;
+    return list({...q, order: undefined});
+  }
 }
 
 export const EPICS_QUERY: ListTasksQuery = {top_level: true, terminal: false, limit: EPICS_LIMIT};
@@ -378,8 +448,10 @@ export function epicOptions(rows: TaskRow[], total: number): {epics: TaskRow[]; 
 
 export type PageState = 'zones' | 'empty-project' | 'no-results' | 'pending';
 
-// Что показать вместо зон. zoneTotals — числа задач зон, null — зона ещё не
-// пришла или упала (тогда показываются зоны). projectTotal — число задач
+// Что показать вместо зон. zoneTotals — числа задач зон и блока «Приоритетные
+// из бэклога» (без блока пустой фильтр эпика с детьми в бэклоге выглядел бы
+// «ничего не найдено»), null — зона или блок ещё не пришли или упали (тогда
+// показываются зоны). projectTotal — число задач
 // проекта без фильтров (запрос с limit=1), undefined — ещё не спрашивали.
 export function pageState(filtered: boolean, zoneTotals: (number | null)[], projectTotal?: number | null): PageState {
   if (zoneTotals.some((n) => n === null)) return 'zones';

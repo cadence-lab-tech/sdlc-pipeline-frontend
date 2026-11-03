@@ -2,8 +2,9 @@ import {useCallback, useEffect, useState} from 'react';
 
 import {api} from '../../api/client';
 import {APPROVALS_MAX_LIMIT, type Approvals, type TaskListPage, type TaskRow} from '../../api/types';
+import {useBacklogSize} from '../../hooks/useBacklogSize';
 import {useZoneData, type ZoneData} from './useZoneData';
-import {APPROVALS_LIMIT, EPICS_QUERY, zoneQuery, type OverviewFilters} from './zones';
+import {APPROVALS_LIMIT, EPICS_QUERY, fetchBacklog, zoneQuery, type BacklogSize, type OverviewFilters} from './zones';
 
 // Вид зон, который не пишется в адрес (В-5): «Показать все» у решений,
 // «Ещё N» у застрявшего, работы и очереди, листание «Завершено». Сбрасывается
@@ -44,6 +45,11 @@ export interface OverviewData {
   stuck: ZoneData<TaskListPage>;
   work: ZoneData<TaskListPage>;
   queue: ZoneData<TaskListPage>;
+  // Блок «Приоритетные из бэклога» (CLAB-366): первые backlogSize строк
+  // бэклога в порядке сервера, total — весь бэклог выборки.
+  backlog: ZoneData<TaskListPage>;
+  backlogSize: BacklogSize;
+  setBacklogSize: (size: BacklogSize) => void;
   done: ZoneData<TaskListPage>;
   epics: ZoneData<TaskListPage>;
   // Ключ эпика из адреса: null — такого в проекте нет; undefined — ещё ищем
@@ -136,6 +142,17 @@ export function useOverview(projectKey: string, filters: OverviewFilters, enable
     tick,
     enabled,
   );
+  // Блок входит в общий tick: «Обновить» (и события CLAB-367) перечитывают
+  // его вместе с зонами. N — вид, как «Ещё N»: прежние строки на месте, пока
+  // не придут новые.
+  const [backlogSize, setBacklogSize] = useBacklogSize(projectKey);
+  const backlog = useZoneData(
+    () => fetchBacklog((q) => api.listTasks(projectKey, q), filters, backlogSize),
+    scope,
+    String(backlogSize),
+    tick,
+    enabled,
+  );
   const epics = useZoneData(() => api.listTasks(projectKey, EPICS_QUERY), projectKey, '', tick);
   const epic = useZoneData(
     () => (filters.parent ? findEpic(projectKey, filters.parent, epics.data?.tasks ?? []) : Promise.resolve(null)),
@@ -164,7 +181,7 @@ export function useOverview(projectKey: string, filters: OverviewFilters, enable
   const reloadAll = useCallback(() => setTick((n) => n + 1), []);
   const refreshing =
     tick > 0 &&
-    [approvals, decisionsList, stuck, work, queue, done, epics].some((z) => z.loading);
+    [approvals, decisionsList, stuck, work, queue, backlog, done, epics].some((z) => z.loading);
 
   return {
     view,
@@ -174,6 +191,9 @@ export function useOverview(projectKey: string, filters: OverviewFilters, enable
     stuck,
     work,
     queue,
+    backlog,
+    backlogSize,
+    setBacklogSize,
     done,
     epics,
     epic,

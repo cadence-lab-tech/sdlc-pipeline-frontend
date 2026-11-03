@@ -71,8 +71,11 @@ q = Z.zoneQuery('done', none);
 check('завершено: terminal, по обновлению, окно 5', q.terminal === true && q.order === 'updated' && q.limit === 5 && q.offset === undefined);
 q = Z.zoneQuery('done', none, {donePage: 2});
 check('листание по 20: offset страницы', q.limit === 20 && q.offset === 40);
-q = Z.backlogQuery(f, 5);
+q = Z.backlogQuery({type: 'bug', parent: '', q: ''}, 5);
 check('бэклог (CLAB-366): верхний уровень, не в работе, порядок бэклога', q.terminal === false && q.in_work === false && q.top_level === true && q.order === 'backlog' && q.limit === 5 && q.type === 'bug');
+q = Z.backlogQuery({type: 'bug', parent: 'X-9', q: 'обзор'}, 10);
+check('бэклог в нарезке эпика (AC-8.7): parent и тип есть, top_level не передаётся', q.parent === 'X-9' && q.type === 'bug' && q.q === 'обзор' && !('top_level' in q) && q.in_work === false && q.terminal === false && q.order === 'backlog' && q.limit === 10, JSON.stringify(q));
+check('бэклог: limit всегда задан, только 5 или 10 от переключателя', [5, 10].every((n) => Z.backlogQuery(none, n).limit === n) && Z.BACKLOG_SIZES.join() === '5,10');
 check('эпики для фильтра: ≤ 200, открытые верхнего уровня', Z.EPICS_QUERY.limit === 200 && Z.EPICS_QUERY.top_level === true && Z.EPICS_QUERY.terminal === false);
 
 // ── инвариант «одна задача — одна зона» (К-21) ──────────────────────────────
@@ -133,6 +136,8 @@ check('возврат и предел этапа — «Застряло»', zone
 check('ждёт решения и над пределом — только «Ждут решения»', zonesOf({codes: ['awaits_human', 'over_stage_limit'], in_work: true, terminal: false, top_level: true}).join() === 'decisions');
 check('можно забрать и блок — «Застряло»', zonesOf({codes: ['unclaimed', 'blocked'], in_work: true, terminal: false, top_level: true}).join() === 'stuck');
 check('бэклог: неначатая задача видна только запросом CLAB-366', match({codes: [], in_work: false, terminal: false, top_level: true}, Z.backlogQuery(none, 5)));
+check('бэклог: эпик в работе и ребёнок эпика вне нарезки блоком не берутся', !match({codes: [], in_work: true, terminal: false, top_level: true}, Z.backlogQuery(none, 5)) &&
+  !match({codes: [], in_work: false, terminal: false, top_level: false}, Z.backlogQuery(none, 5)));
 check('завершённая — только «Завершено»', match({codes: [], in_work: false, terminal: true, top_level: true}, Z.zoneQuery('done', none)) &&
   zonesOf({codes: [], in_work: false, terminal: true, top_level: true}).length === 0);
 
@@ -232,6 +237,11 @@ check('фильтры и пусто — «ничего не найдено»', Z
 check('без фильтров пусто — ждём числа задач проекта', Z.pageState(false, [0, 0, 0]) === 'pending');
 check('в проекте ни одной задачи — пустой проект', Z.pageState(false, [0, 0, 0], 0) === 'empty-project');
 check('задачи есть (бэклог) — зоны, а не пустой проект', Z.pageState(false, [0, 0, 0], 12) === 'zones');
+// Дефект из проверки CLAB-365 (AC-8.8): сумма блока бэклога входит в решение.
+check('AC-8.8: фильтр, зоны пусты, в блоке бэклога есть строки — зоны, не «ничего не найдено»', Z.pageState(true, [0, 0, 0, 0, 0, 7, 0]) === 'zones');
+check('AC-8.8: фильтр, пусты и зоны, и блок — «ничего не найдено»', Z.pageState(true, [0, 0, 0, 0, 0, 0, 0]) === 'no-results');
+check('AC-8.8: запрос блока упал — зоны (в блоке Failure), не «ничего не найдено»', Z.pageState(true, [0, 0, 0, 0, 0, null, 0]) === 'zones');
+check('без фильтров: пусто в зонах, блок с задачами — зоны, а не ожидание числа задач проекта', Z.pageState(false, [0, 0, 0, 0, 0, 3, 0]) === 'zones');
 const eo = Z.epicOptions([row({key: 'E1', child_counts: {done: 1}}), row({key: 'E2'}), row({key: 'E3', child_counts: {cancelled: 2}})], 250);
 check('эпики — с детьми, отбор на клиенте; усечение помечено', eo.epics.map((t) => t.key).join() === 'E1,E3' && eo.truncated === true);
 check('список полный — без пометки', Z.epicOptions([], 0).truncated === false);
@@ -269,7 +279,43 @@ check('данные зон — запросами zoneQuery/EPICS_QUERY или �
 check('зона — <section> с <h2> и aria-expanded', /<section/.test(sources.find(([n]) => n === 'Zone.tsx')[1]) &&
   /<h2/.test(sources.find(([n]) => n === 'Zone.tsx')[1]) && /aria-expanded/.test(sources.find(([n]) => n === 'Zone.tsx')[1]));
 check('страница обёрнута в WorkflowVersionsProvider', /<WorkflowVersionsProvider>/.test(page));
-check('пустой рамки «Приоритетные из бэклога» нет', !/zone="backlog"/.test(page));
+check('блок «Приоритетные из бэклога» стоит в слоте «Дальше»', /<BacklogZone/.test(page) && /zone="backlog"/.test(sources.find(([n]) => n === 'BacklogZone.tsx')[1]));
+const block = sources.find(([n]) => n === 'BacklogZone.tsx')[1];
+check('AC-8.5: блок только читает — ни PATCH/POST/PUT, ни перетаскивания', !/\b(PATCH|POST|PUT|DELETE)\b|onDrag|onDrop|draggable|dnd/i.test(block) && !/api\./.test(block));
+check('AC-8.5: ссылки «Весь бэклог» нет', !/Весь бэклог/.test(block + page));
+check('AC-8.11: блок не делает запросов сам — данные из общего useOverview (refresh)', /backlog = useZoneData/.test(hook) && /\btick\b/.test(hook.slice(hook.indexOf('backlog = useZoneData'), hook.indexOf('const epics'))));
+check('N хранится не под префиксом свёрнутости', !Z.BACKLOG_SIZE_PREFIX.startsWith('sdlc.collapsed.') && Z.backlogSizeKey('A') !== Z.backlogSizeKey('B'));
+
+// ── блок «Приоритетные из бэклога» (CLAB-366) ───────────────────────────────
+console.log('блок бэклога: N, 400 на order');
+const mem = (init = {}) => { const m = {...init}; return {getItem: (k) => (k in m ? m[k] : null), setItem: (k, v) => { m[k] = String(v); }, m}; };
+check('AC-8.3: по умолчанию 5', Z.readBacklogSize(() => mem(), 'CLAB') === 5);
+const st = mem();
+Z.writeBacklogSize(() => st, 'CLAB', 10);
+check('AC-8.3: выбор записан под ключом проекта и читается после «перезагрузки»', st.m['sdlc.backlog.size.CLAB'] === '10' && Z.readBacklogSize(() => st, 'CLAB') === 10);
+check('AC-8.3: у другого проекта своё значение', Z.readBacklogSize(() => st, 'OTHER') === 5);
+check('AC-8.3: чужое значение в хранилище — умолчание', Z.readBacklogSize(() => mem({'sdlc.backlog.size.CLAB': '50'}), 'CLAB') === 5 && Z.parseBacklogSize('abc') === 5 && Z.parseBacklogSize(null) === 5);
+const boom = () => { throw new Error('SecurityError'); };
+check('AC-8.3: localStorage недоступен — 5 строк, запись не падает', Z.readBacklogSize(boom, 'CLAB') === 5 && (Z.writeBacklogSize(boom, 'CLAB', 10), true));
+check('AC-8.3: хранилище без setItem — запись не падает', (Z.writeBacklogSize(() => ({setItem: boom}), 'CLAB', 10), true));
+
+const page5 = {tasks: [{key: 'X-1'}], total: 84};
+const calls = [];
+let page_ = await Z.fetchBacklog(async (qq) => { calls.push(qq); return page5; }, none, 5);
+check('AC-8.1: один запрос с order=backlog и limit', calls.length === 1 && calls[0].order === 'backlog' && calls[0].limit === 5 && page_.total === 84);
+const calls2 = [];
+page_ = await Z.fetchBacklog(async (qq) => {
+  calls2.push(qq);
+  if (qq.order) throw Object.assign(new Error('order: неизвестный порядок "backlog"'), {httpStatus: 400});
+  return page5;
+}, none, 10);
+check('AC-8.10: 400 на order — повтор без order, с тем же limit и фильтрами', calls2.length === 2 && calls2[1].order === undefined && calls2[1].limit === 10 && calls2[1].top_level === true && page_ === page5, JSON.stringify(calls2));
+let thrown = null;
+try { await Z.fetchBacklog(async () => { throw Object.assign(new Error('сервис недоступен'), {httpStatus: 500}); }, none, 5); } catch (e) { thrown = e; }
+check('AC-8.11: 5xx — ошибка наружу (в блоке Failure), без повтора', thrown?.httpStatus === 500);
+let n400 = 0;
+try { await Z.fetchBacklog(async () => { n400++; throw Object.assign(new Error('limit: не число'), {httpStatus: 400}); }, none, 5); } catch { /* ожидаемо */ }
+check('400 не про order — без повтора', n400 === 1);
 
 console.log(`\n${ok} ✓, ${fail} ✗`);
 if (fail > 0) process.exit(1);

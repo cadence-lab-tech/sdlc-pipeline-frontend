@@ -19,6 +19,7 @@ import {taskTypes} from '../components/taskTypes';
 import {TaskRow} from '../components/taskrow/TaskRow';
 import {progressOf} from '../components/taskrow/rules';
 import {WorkflowVersionsProvider} from '../components/taskrow/versions';
+import {BacklogZone} from '../components/overview/BacklogZone';
 import {MoreButton, MoreFailed, Zone} from '../components/overview/Zone';
 import {useOverview, type EpicInfo, type OverviewData} from '../components/overview/useOverview';
 import {
@@ -121,6 +122,9 @@ function OverviewPage({projectKey, project}: {projectKey: string; project?: Proj
     data.stuck.error ? null : (data.stuck.data?.total ?? null),
     data.work.error ? null : (data.work.data?.total ?? null),
     data.queue.error ? null : (data.queue.data?.tasks.length ?? null),
+    // Блок бэклога: задачи, которых нет ни в одной зоне (эпик с детьми только
+    // в бэклоге, тип, все задачи которого не начаты), — не «ничего не найдено».
+    data.backlog.error ? null : (data.backlog.data?.total ?? null),
     data.done.error ? null : (data.done.data?.total ?? null),
   ];
   const state = pageState(filtered, zoneTotals, undefined);
@@ -153,7 +157,9 @@ function OverviewPage({projectKey, project}: {projectKey: string; project?: Proj
 
   // Зоны «Дальше» монтируются один раз: колонкой на широкой области или
   // содержимым панели на узкой, но не обеими сразу (К-9).
-  const next = <NextZones data={data} queue={queue} rowProps={rowProps} />;
+  const next = (
+    <NextZones data={data} queue={queue} rowProps={rowProps} inEpic={Boolean(filters.parent)} newTask={newTask(true)} />
+  );
 
   const nextCount = data.queue.data ? queue.claimable : null;
   const showZones = !unknownType && !epicMissing && finalState !== 'empty-project';
@@ -551,18 +557,19 @@ function NextZones({
   data,
   queue,
   rowProps,
+  inEpic,
+  newTask,
 }: {
   data: OverviewData;
   queue: ReturnType<typeof queueModel>;
   rowProps: RowProps;
+  inEpic: boolean;
+  newTask: ReactNode;
 }) {
   return (
     <>
       <QueueZone data={data} queue={queue} rowProps={rowProps} />
-      {/* Слот «Приоритетные из бэклога» (CLAB-366): блок встанет здесь —
-          между очередью и завершённым, в колонке и в панели, в общей рамке
-          Zone zone="backlog" (ключ overview.backlog). Пока блока нет, рамки
-          на странице нет (design.spec §3.6). */}
+      <BacklogZone data={data} rowProps={rowProps} inEpic={inEpic} newTask={newTask} />
       <DoneZone data={data} rowProps={rowProps} />
     </>
   );
