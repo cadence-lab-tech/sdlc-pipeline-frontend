@@ -12,6 +12,7 @@ import {ApiError, api} from '../../api/client';
 import type {GateCheck, TaskDetail, TransitionOption, Workflow} from '../../api/types';
 import {Failure} from '../Feedback';
 import {GateRow} from '../Gates';
+import {transitionControl} from './stageRights';
 import {
   TRANSITION_UNAVAILABLE_LABEL,
   cycleTargetNote,
@@ -117,6 +118,9 @@ function TransitionRow({
   const unavailable = isUnavailable(transition);
   const target = transitionTarget(transition);
   const cycleNote = cycleTargetNote(transition, workflow?.statuses);
+  // Право на переход считает сервер (actor_may, решение 0072): нельзя — кнопки
+  // нет, на её месте его текст.
+  const control = transitionControl(transition);
 
   const decide = (gateKey: string) => (status: string, details?: unknown) =>
     act(() => api.decideGate(taskKey, transition.key, gateKey, {status, details}));
@@ -136,14 +140,21 @@ function TransitionRow({
             {target ?? `→ ${transition.to_status}`}
           </p>
         </div>
-        <Button
-          size="sm"
-          variant={transition.allowed ? 'default' : 'secondary'}
-          disabled={!transition.allowed || busy}
-          onClick={execute}>
-          {transition.allowed ? 'Перевести' : unavailable ? TRANSITION_UNAVAILABLE_LABEL : 'Держат гейты'}
-        </Button>
+        {control.button ? (
+          <Button
+            size="sm"
+            variant={transition.allowed ? 'default' : 'secondary'}
+            disabled={!transition.allowed || busy}
+            onClick={execute}>
+            {transition.allowed ? 'Перевести' : unavailable ? TRANSITION_UNAVAILABLE_LABEL : 'Держат гейты'}
+          </Button>
+        ) : null}
       </div>
+      {control.deny ? (
+        <p className="text-muted-foreground text-xs" data-transition-deny={transition.key}>
+          {control.deny}
+        </p>
+      ) : null}
       {unavailable ? (
         <p className="text-muted-foreground text-xs" data-transition-unavailable={transition.key}>
           {unavailableReason(transition, workflow?.statuses)}

@@ -326,7 +326,11 @@ export function decisionRows(approvals: Approval[], listed: TaskRow[]): Decision
   }
   return [...groups.values()].map((records) => ({
     task: byKey.get(records[0].task.key) ?? rowFromApprovals(records),
-    approvals: records.map((r) => ({transition_key: r.transition.key, lands_in_name: r.transition.lands_in_name})),
+    approvals: records.map((r) => ({
+      transition_key: r.transition.key,
+      lands_in_name: r.transition.lands_in_name,
+      can_decide: r.can_decide,
+    })),
   }));
 }
 

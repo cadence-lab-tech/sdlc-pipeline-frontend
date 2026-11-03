@@ -570,6 +570,10 @@ export interface Approval {
     lease_held: boolean;
     latest_artifact_id: string | null;
   };
+  // Может ли вызывающий вынести по гейту passed (решение 0072, п. 9): считает
+  // сервер. Поля нет у сервера прежней версии — тогда решает верхний
+  // Approvals.can_decide.
+  can_decide?: boolean;
 }
 
 export interface Approvals {
@@ -751,6 +755,21 @@ export interface GateCheck {
   status: "pending" | "passed" | "failed" | "waived" | "skipped";
   reason?: string;
   details?: Record<string, unknown>;
+  // Право того, кто спрашивает (решение 0072, п. 9). Считает сервер, клиент
+  // его не вычисляет. Полей нет у сервера прежней версии и в ответах без
+  // актора — тогда кнопки гейта по прежним правилам.
+  actor_may_decide?: boolean;
+  // Вердикты, которые актор вправе вынести руками: passed, failed, waived.
+  actor_decisions?: string[];
+  actor_deny?: ActorDenial;
+}
+
+// Почему актору нельзя: тот же код и текст, что вернул бы сам запрос.
+// message показывается дословно.
+export interface ActorDenial {
+  code: string;
+  reason?: string;
+  message: string;
 }
 
 export interface TransitionOption {
@@ -771,6 +790,11 @@ export interface TransitionOption {
   unavailable?: string;
   allowed: boolean;
   gates: GateCheck[];
+  // Вправе ли актор запросить этот переход (решение 0072, п. 9); гейты сюда не
+  // входят — это allowed. false — actor_deny с причиной. Нет у сервера
+  // прежней версии: кнопка по allowed, как раньше.
+  actor_may?: boolean;
+  actor_deny?: ActorDenial;
 }
 
 // Результат перехода: задача уже в фактическом статусе, skips — что пропущено.
@@ -843,6 +867,9 @@ export interface TaskEvent {
   type: string;
   actor_id?: UUID;
   actor_handle?: string;
+  // gate.decided, task.advanced и task.rejected несут (решение 0072, п. 4)
+  // self_approval (boolean), self_basis (string[]: lease, artifact), via,
+  // stage_role, level, token_kind; у старых событий ключей нет — «неизвестно».
   payload: Record<string, unknown>;
   created_at: string;
 }

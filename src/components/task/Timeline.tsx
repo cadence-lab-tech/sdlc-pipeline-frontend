@@ -36,7 +36,7 @@ export function Timeline({events}: {events: Resource<TaskEvent[]>}) {
 // Длинное (было/стало описания) и сырой payload — по раскрытию: строка ленты
 // остаётся строкой, а событие незнакомого типа не теряет того, что в нём есть.
 function EventRow({event}: {event: TaskEvent}) {
-  const details = eventDetails(event.type, event.payload, priorityLabel);
+  const details = eventDetails(event.type, event.payload, priorityLabel, event.actor_handle);
   const expandable = hasPayload(event.payload);
 
   const head = (
@@ -47,7 +47,10 @@ function EventRow({event}: {event: TaskEvent}) {
           <p className="text-muted-foreground text-xs">{event.actor_handle}</p>
         ) : null}
         {details.summary ? (
-          <p className="text-muted-foreground text-xs break-words" data-event-details>
+          <p
+            className="text-muted-foreground text-xs break-words"
+            data-event-details
+            data-self-approval={event.payload?.self_approval === true ? '' : undefined}>
             {details.summary}
           </p>
         ) : null}
