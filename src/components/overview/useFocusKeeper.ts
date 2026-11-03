@@ -29,7 +29,7 @@ function focusEl(el: Element | null | undefined) {
 
 function apply(target: FocusTarget) {
   switch (target.kind) {
-    case 'task': {
+    case 'row': {
       const rows = Array.from(document.querySelectorAll<HTMLElement>(ROW)).filter((e) => e.dataset.taskKey === target.key);
       const row = rows.find((e) => zoneOf(e) === target.zone) ?? rows[0];
       focusEl(row?.querySelector(LINK));

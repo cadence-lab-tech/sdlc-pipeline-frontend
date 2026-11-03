@@ -17,7 +17,7 @@ export interface FocusMemo {
 export type RowRef = FocusMemo;
 
 export type FocusTarget =
-  | {kind: 'task'; key: string; zone: string | null} // строка той же задачи
+  | {kind: 'row'; key: string; zone: string | null} // строка той же задачи
   | {kind: 'zone-first'; zone: string} // первая строка зоны, где был фокус
   | {kind: 'zone-toggle'; zone: string} // заголовок зоны, в которой строк не осталось
   | {kind: 'wait'} // зоны ещё читаются: задача может прийти в другую зону
@@ -30,7 +30,7 @@ export type FocusTarget =
 export function resolveFocus(memo: FocusMemo, rows: RowRef[], settled: boolean): FocusTarget {
   const same = rows.filter((r) => r.key === memo.key);
   const row = same.find((r) => r.zone === memo.zone) ?? same[0];
-  if (row) return {kind: 'task', key: row.key, zone: row.zone};
+  if (row) return {kind: 'row', key: row.key, zone: row.zone};
   if (!settled) return {kind: 'wait'};
   if (memo.zone === null) return {kind: 'none'};
   if (rows.some((r) => r.zone === memo.zone)) return {kind: 'zone-first', zone: memo.zone};

@@ -32,13 +32,13 @@ const rows = (...r) => r.map(([key, zone]) => ({key, zone}));
 console.log('куда возвращается фокус');
 // Задача переехала из бэклога в очередь (пример тестировщика).
 let t = F.resolveFocus(memo('SDLC-65', 'backlog'), rows(['SDLC-1', 'backlog'], ['SDLC-65', 'queue']), true);
-check('задача переехала в другую зону — строка той же задачи', eq(t, {kind: 'task', key: 'SDLC-65', zone: 'queue'}), JSON.stringify(t));
+check('задача переехала в другую зону — строка той же задачи', eq(t, {kind: 'row', key: 'SDLC-65', zone: 'queue'}), JSON.stringify(t));
 t = F.resolveFocus(memo('SDLC-65', 'backlog'), rows(['SDLC-65', 'backlog'], ['SDLC-2', 'backlog']), false);
-check('осталась в своей зоне — та же строка', eq(t, {kind: 'task', key: 'SDLC-65', zone: 'backlog'}));
+check('осталась в своей зоне — та же строка', eq(t, {kind: 'row', key: 'SDLC-65', zone: 'backlog'}));
 t = F.resolveFocus(memo('SDLC-65', 'backlog'), rows(['SDLC-65', 'queue'], ['SDLC-65', 'backlog']), true);
-check('на миг в двух зонах — предпочитается прежняя', eq(t, {kind: 'task', key: 'SDLC-65', zone: 'backlog'}));
+check('на миг в двух зонах — предпочитается прежняя', eq(t, {kind: 'row', key: 'SDLC-65', zone: 'backlog'}));
 t = F.resolveFocus(memo('SDLC-65', 'backlog'), rows(['SDLC-65', 'queue']), false);
-check('пока зоны читаются, найденная в другой зоне задача берётся сразу', t.kind === 'task' && t.zone === 'queue');
+check('пока зоны читаются, найденная в другой зоне задача берётся сразу', t.kind === 'row' && t.zone === 'queue');
 t = F.resolveFocus(memo('SDLC-65', 'backlog'), rows(['SDLC-1', 'backlog']), false);
 check('задачи нет, зоны ещё читаются — ждём (она может прийти в другую зону)', t.kind === 'wait');
 t = F.resolveFocus(memo('SDLC-65', 'backlog'), rows(['SDLC-1', 'backlog'], ['SDLC-3', 'work']), true);
