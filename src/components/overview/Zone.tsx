@@ -23,6 +23,8 @@ const COUNTER: Record<CounterTone | 'neutral', string> = {
 
 export interface ZoneProps {
   zone: ZoneKey;
+  // Заголовок вместо ZONE_TITLES[zone] (блок бэклога в нарезке эпика).
+  title?: string;
   // Счётчик: число, «N+» при неполном списке, «—» при ошибке.
   count: number | null;
   partial?: boolean;
@@ -54,6 +56,7 @@ export interface ZoneProps {
 // блок «Приоритетные из бэклога» (CLAB-366).
 export function Zone({
   zone,
+  title: titleOverride,
   count,
   partial,
   tone,
@@ -76,7 +79,7 @@ export function Zone({
   const setCollapsed = (next: boolean) => setStored(COLLAPSE_KEYS[zone].inverted ? !next : next);
   const headingId = useId();
   const bodyId = useId();
-  const title = ZONE_TITLES[zone];
+  const title = titleOverride ?? ZONE_TITLES[zone];
   const counter = count === null ? '—' : partial ? `${count}+` : String(count);
   const toneClass = count !== null && count > 0 && tone ? COUNTER[tone] : COUNTER.neutral;
 
