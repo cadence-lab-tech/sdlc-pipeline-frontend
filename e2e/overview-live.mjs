@@ -126,7 +126,9 @@ const firstEvents = lg.find((e) => e.kind === 'events');
 const firstTasks = lg.find((e) => e.kind === 'tasks' || e.kind === 'approvals');
 check('первый запрос ленты — рукопожатие без after', firstEvents && !firstEvents.u.includes('after='), firstEvents?.u);
 check('зоны читаются после рукопожатия (AC-14.1)', firstEvents && firstTasks && firstEvents.t < firstTasks.t, `${firstEvents?.t} / ${firstTasks?.t}`);
-const second = lg.filter((e) => e.kind === 'events')[1];
+// Под dev-сервером StrictMode запускает эффект дважды: первое рукопожатие
+// отменено, считаем только живые запросы (в сборке отменённых нет).
+const second = lg.filter((e) => e.kind === 'events' && !e.aborted)[1];
 check('следующий запрос ленты — с курсором и wait=25', second && /after=[^&]+/.test(second.u) && /wait=25/.test(second.u), second?.u);
 check('ни одного запроса списка без limit', lg.filter((e) => e.kind === 'tasks').every((e) => /[?&]limit=\d+/.test(e.u)));
 const btn = await run(`const b = document.querySelector('[data-refresh]'); return {label: b.getAttribute('aria-label'), title: b.title, busy: b.getAttribute('aria-busy')};`);
@@ -354,7 +356,7 @@ const ok30 = await waitFor(rowsOn(`Без ручки ${tag}`), 15_000);
 const at30 = await run('return performance.now();');
 check('через 30 с (±1 с) страница перечитана сама', ok30 !== null && at30 >= 29_000 && at30 <= 32_000, `${Math.round(at30)} мс от открытия`);
 lg = (await log()).slice(n404 - 0);
-check('ручку событий больше не спрашивали', (await log()).filter((e) => e.kind === 'events').length === 1);
+check('ручку событий больше не спрашивали', (await log()).filter((e) => e.kind === 'events' && !e.aborted).length === 1);
 await s.removeInitScript(ini);
 
 // ── итог ────────────────────────────────────────────────────────────────────
