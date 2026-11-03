@@ -232,13 +232,13 @@ check('тот же PUT …/statuses с порядком целиком',
   moved.calls.length === 1 && moved.calls[0].method === 'PUT' && JSON.stringify(moved.calls[0].body) === JSON.stringify({order: swapped}),
   JSON.stringify(moved.calls));
 check('порядок статусов изменился', afterMove[1] === order[2] && afterMove[2] === order[1], afterMove.join(','));
-check('панель называет новое место', moved.panel.includes(`Колонка доски 3 из ${order.length}`), moved.panel.slice(0, 300));
+check('панель называет новое место', moved.panel.includes(`Статус 3 из ${order.length} в порядке цикла`), moved.panel.slice(0, 300));
 check('удачная перестановка не показывает ошибку', !moved.page.includes('Порядок статусов не изменён'), moved.page.slice(0, 300));
 
 await s.goto(`${BASE}/p/SDLC/pipeline?type=task&wf=${draftId}&status=${order[1]}`);
 await pause(2000);
 t = await run('return panelText();');
-check('порядок сохранён после перезагрузки', (await keysOf(draftId)).join() === afterMove.join() && t.includes(`Колонка доски 3 из ${order.length}`), t.slice(0, 200));
+check('порядок сохранён после перезагрузки', (await keysOf(draftId)).join() === afterMove.join() && t.includes(`Статус 3 из ${order.length} в порядке цикла`), t.slice(0, 200));
 
 console.log('отказ на перестановку виден');
 const refused = await run(`

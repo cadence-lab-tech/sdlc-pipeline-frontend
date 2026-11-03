@@ -32,7 +32,7 @@ const TEAM_ROLE_LABEL: Record<TeamRole, string> = {
   lead: "лид",
 };
 
-// Куда вести после приёма: проект открывается доской, организация — на
+// Куда вести после приёма: проект открывается «Обзором», организация — на
 // странице команд, где она сразу выбрана.
 function targetPath(kind: InviteTargetKind, key: string): string {
   return kind === "project"
