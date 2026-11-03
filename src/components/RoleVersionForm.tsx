@@ -4,10 +4,10 @@ import {toast} from 'sonner';
 import {Button} from '@/components/ui/button';
 import {Card} from '@/components/ui/card';
 import {Switch, TextInput} from '@/components/fields';
-import {Spinner} from '@/components/kit';
+import {Note, Spinner} from '@/components/kit';
 
 import {ApiError, api} from '../api/client';
-import type {OutputContractItem, RoleVersion} from '../api/types';
+import type {OutputContractItem, RoleProposal, RoleVersion} from '../api/types';
 import {Failure} from './Feedback';
 import {ModelLevelToggle} from './ModelLevelToggle';
 import {DocumentEditor} from './pipeline/DocumentEditor';
@@ -31,6 +31,11 @@ import {
 // название и описание плюс первая версия тем же редактором с одним пустым
 // main.md — одним запросом POST …/roles с version.documents.
 //
+// Режим proposal (CLAB-384, решение 0072): участник уровня agent не заводит
+// версию, а предлагает её. Те же поля и тот же редактор, «Что изменилось»
+// обязательно, запрос — POST …/proposals; версию заведёт сопровождающий,
+// утвердив предложение.
+//
 // Серверные правила форма не повторяет: пустое содержимое и дубль имени
 // отклонит сервер, его сообщение показывается дословно, а названный в нём
 // документ подсвечивается.
@@ -41,6 +46,8 @@ export function RoleVersionForm({
   onCreated,
   onCancel,
   library,
+  mode = 'version',
+  onProposed,
 }: {
   projectKey: string;
   roleKey?: string;
@@ -50,7 +57,11 @@ export function RoleVersionForm({
   base?: RoleVersion;
   onCreated: (roleKey: string, created?: RoleVersion) => void;
   onCancel: () => void;
+  // proposal — «Предложение новой версии»; нужен roleKey.
+  mode?: 'version' | 'proposal';
+  onProposed?: (proposal: RoleProposal) => void;
 }) {
+  const isProposal = mode === 'proposal' && Boolean(roleKey);
   const isNewRole = !roleKey;
   const [newKey, setNewKey] = useState('');
   const [newName, setNewName] = useState('');
@@ -61,6 +72,9 @@ export function RoleVersionForm({
   const levelLabel = useId();
   const [error, setError] = useState<ApiError>();
   const [busy, setBusy] = useState(false);
+  // «Что изменилось» подсвечивается после потери фокуса пустым или попытки
+  // отправить, не при открытии.
+  const [changelogTouched, setChangelogTouched] = useState(false);
   const failure = useRef<HTMLDivElement>(null);
 
   const patch = (p: Partial<RoleDraft>) => setDraft((d) => ({...d, ...p}));
@@ -80,7 +94,14 @@ export function RoleVersionForm({
     const sent = draft.docs;
     try {
       const version = versionBody(draft, base);
-      if (roleKey) {
+      if (roleKey && isProposal) {
+        const proposal = await api.proposeRoleVersion(projectKey, roleKey, {
+          ...version,
+          changelog: draft.changelog.trim(),
+        });
+        toast.success('Предложение отправлено: версию заведёт сопровождающий после утверждения');
+        onProposed?.(proposal);
+      } else if (roleKey) {
         const created = await api.createRoleVersion(projectKey, roleKey, version);
         toast.success(`Версия ${created.version} роли ${roleKey} создана`);
         onCreated(roleKey, created);
@@ -112,7 +133,11 @@ export function RoleVersionForm({
     <Card className="@container gap-4 overflow-visible p-4" data-new-role={isNewRole ? '' : undefined}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <h3 className="text-base font-semibold">
-          {isNewRole ? 'Новая роль' : `Новая версия ${base ? `после v${base.version}` : ''}`}
+          {isNewRole
+            ? 'Новая роль'
+            : isProposal
+              ? `Предложение новой версии ${base ? `после v${base.version}` : ''}`
+              : `Новая версия ${base ? `после v${base.version}` : ''}`}
         </h3>
         {isNewRole ? null : (
           <p className="text-muted-foreground text-xs" aria-live="polite" data-form-counter>
@@ -120,10 +145,22 @@ export function RoleVersionForm({
           </p>
         )}
       </div>
+      {isProposal ? (
+        <Note
+          title={`Версия не заведётся сразу: её утвердит сопровождающий. Пока предложение не решено, прогоны идут по v${base?.version ?? ''}.`}
+        />
+      ) : null}
       {error ? (
         <div ref={failure} tabIndex={-1} role="alert" className="space-y-1.5 outline-none" data-form-failure>
-          <Failure error={error} title={isNewRole ? 'Роль не заведена' : 'Версия не создана'} />
-          <p className="text-muted-foreground text-xs">Введённое осталось в форме: исправьте и сохраните ещё раз.</p>
+          <Failure
+            error={error}
+            title={isNewRole ? 'Роль не заведена' : isProposal ? 'Предложение не отправлено' : 'Версия не создана'}
+          />
+          <p className="text-muted-foreground text-xs">
+            {isProposal
+              ? 'Введённое осталось в форме: исправьте и отправьте ещё раз.'
+              : 'Введённое осталось в форме: исправьте и сохраните ещё раз.'}
+          </p>
         </div>
       ) : null}
       {isNewRole ? (
@@ -153,7 +190,17 @@ export function RoleVersionForm({
       />
 
       <div className="grid gap-4 @[600px]:grid-cols-2">
-        <TextInput label="Что изменилось" value={draft.changelog} onChange={(changelog) => patch({changelog})} />
+        {/* Потерю фокуса ловит обёртка: focusout всплывает от поля. */}
+        <div onBlur={() => isProposal && setChangelogTouched(true)} data-proposal-changelog={isProposal ? '' : undefined}>
+          <TextInput
+            label="Что изменилось"
+            description={isProposal ? 'Нужно: что и зачем меняется' : undefined}
+            value={draft.changelog}
+            onChange={(changelog) => patch({changelog})}
+            isRequired={isProposal}
+            isInvalid={isProposal && changelogTouched && !draft.changelog.trim()}
+          />
+        </div>
         <TextInput
           label="Что читает на входе"
           description="Виды артефактов через запятую"
@@ -176,13 +223,23 @@ export function RoleVersionForm({
         <Button variant="ghost" onClick={onCancel}>
           Отмена
         </Button>
-        <Button disabled={busy || (isNewRole && (!newKey.trim() || !newName.trim()))} onClick={submit}>
+        <Button
+          disabled={busy || (isNewRole && (!newKey.trim() || !newName.trim())) || (isProposal && !draft.changelog.trim())}
+          onClick={() => {
+            if (isProposal && !draft.changelog.trim()) {
+              setChangelogTouched(true);
+              return;
+            }
+            void submit();
+          }}>
           {busy ? (
             <>
-              <Spinner /> Сохраняем…
+              <Spinner /> {isProposal ? 'Отправляем…' : 'Сохраняем…'}
             </>
           ) : isNewRole ? (
             'Завести роль'
+          ) : isProposal ? (
+            'Отправить предложение'
           ) : (
             'Сохранить версию'
           )}

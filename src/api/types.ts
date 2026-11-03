@@ -1005,6 +1005,40 @@ export interface RoleVersion {
   created_at: string;
 }
 
+// Предложение версии роли (CLAB-381, решение 0072): участник уровня agent
+// подаёт версию, сопровождающий утверждает или отклоняет. Версию заводит
+// только утверждение. Состояние — перечень сервера; незнакомое показывается
+// ключом как есть. Документы в списке без содержимого, в ответе на один
+// запрос — с ним.
+export type RoleProposalState = "pending" | "approved" | "rejected" | "withdrawn";
+
+export interface RoleProposal {
+  id: UUID;
+  role_id: UUID;
+  role: string;
+  // Версия роли, от которой подано; меньше последней — предложение устарело.
+  base_version: number;
+  state: RoleProposalState | (string & {});
+  changelog: string;
+  input_kinds: string[];
+  output_contract: OutputContractItem[];
+  tool_policy: Record<string, unknown>;
+  model_hint?: string;
+  model_level?: ModelLevel;
+  repo_scope: string[];
+  context_budget: Record<string, unknown>;
+  created_by: UUID;
+  created_by_handle: string;
+  created_at: string;
+  decided_by?: UUID;
+  decided_by_handle?: string;
+  decided_at?: string;
+  decision_note?: string;
+  // Номер версии, заведённой утверждением.
+  result_version?: number;
+  documents: RoleDocument[];
+}
+
 export interface WorkflowProblem {
   code: string;
   message: string;

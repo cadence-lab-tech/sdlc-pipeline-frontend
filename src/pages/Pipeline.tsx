@@ -401,6 +401,7 @@ export function Pipeline() {
         onForm={(open) => setWideFor(open ? role.key : undefined)}
         canEdit={canEditLibrary}
         reloadKey={libraryRev}
+        ownerTeamKey={project.data?.project.owner_team_key}
         onInstruction={openInstruction}
         onApply={(key, keys) => setApplyFor({key, roles: keys})}
         onToLibrary={(roleKey, doc) => setToLibrary({role: roleKey, doc})}

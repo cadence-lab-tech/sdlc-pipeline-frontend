@@ -41,6 +41,7 @@ import type {
   InstructionVersion,
   InstructionWrite,
   ApplyResult,
+  RoleProposal,
   RoleVersion,
   RoleWithVersions,
   Plan,
@@ -77,6 +78,7 @@ import type {
 import { normalizeRowFields } from "./taskRow";
 import { UPLOAD_ABORTED } from "../components/task/attachmentRules";
 import { normalizeRoleVersion } from "../components/pipeline/roleDocs";
+import { normalizeProposal } from "../components/pipeline/proposalRules";
 
 const BASE = import.meta.env.VITE_API_URL ?? "/v1";
 
@@ -96,6 +98,8 @@ export type ErrorCode =
   | "out_of_task_scope"
   | "unauthenticated"
   | "forbidden"
+  // Предложение версии роли подано от версии, которая уже не последняя.
+  | "stale_role_base"
   | "payload_too_large"
   | "internal";
 
@@ -981,6 +985,58 @@ export const api = {
       `/projects/${projectKey}/roles/${roleKey}/versions`,
       post(body),
     ).then(normalizeRoleVersion),
+
+  // ── предложения версий роли (CLAB-381, CLAB-384) ──────────────────────────
+  // Список без содержимого документов; фильтр по состоянию — на клиенте.
+  listRoleProposals: (projectKey: string, roleKey: string) =>
+    request<{ proposals?: RoleProposal[] }>(
+      `/projects/${projectKey}/roles/${roleKey}/proposals`,
+    ).then((r) => (r.proposals ?? []).map(normalizeProposal)),
+
+  getRoleProposal: (projectKey: string, roleKey: string, id: string) =>
+    request<RoleProposal>(
+      `/projects/${projectKey}/roles/${roleKey}/proposals/${id}`,
+    ).then(normalizeProposal),
+
+  // Тело — то же, что у версии (versionBody), плюс обязательный changelog.
+  proposeRoleVersion: (
+    projectKey: string,
+    roleKey: string,
+    body: Record<string, unknown>,
+  ) =>
+    request<RoleProposal>(
+      `/projects/${projectKey}/roles/${roleKey}/proposals`,
+      post(body),
+    ).then(normalizeProposal),
+
+  approveRoleProposal: (projectKey: string, roleKey: string, id: string) =>
+    request<RoleProposal>(
+      `/projects/${projectKey}/roles/${roleKey}/proposals/${id}/approve`,
+      post(),
+    ).then(normalizeProposal),
+
+  rejectRoleProposal: (
+    projectKey: string,
+    roleKey: string,
+    id: string,
+    note: string,
+  ) =>
+    request<RoleProposal>(
+      `/projects/${projectKey}/roles/${roleKey}/proposals/${id}/reject`,
+      post({ note }),
+    ).then(normalizeProposal),
+
+  // Заметка необязательна: без неё уходит пустой POST.
+  withdrawRoleProposal: (
+    projectKey: string,
+    roleKey: string,
+    id: string,
+    note?: string,
+  ) =>
+    request<RoleProposal>(
+      `/projects/${projectKey}/roles/${roleKey}/proposals/${id}/withdraw`,
+      post(note?.trim() ? { note: note.trim() } : undefined),
+    ).then(normalizeProposal),
 
   // ── библиотека инструкций (решение 0069) ──────────────────────────────────
   // Сервер без библиотеки отвечает на её ручки 404 маршрута — текстом, а не

@@ -78,7 +78,8 @@ src/
     ui/        компоненты shadcn: исходники в репозитории, а не зависимость
   hooks/       useCollapsed, useBacklogSize (число строк блока бэклога), useIsMobile, useInstance (профиль и версия сервера),
                useTaskLevelEditable (право на уровень модели задачи и этапов),
-               useProjectEvents (подписка на события проекта долгим опросом) и liveFeed.ts (её правила и цикл без React)
+               useProjectEvents (подписка на события проекта долгим опросом) и liveFeed.ts (её правила и цикл без React),
+               useRoleRights (права на версии ролей и предложения)
   pages/       Projects, Teams, Principals, Audit, Overview, TaskDetail, Pipeline,
                Knowledge, Metrics, Settings, Login, CLILogin, GitHubConnect,
                Invite
@@ -124,6 +125,10 @@ e2e/           сквозные проверки в headless-Chrome поверх
   на экране (выданный токен, отчёт активации остаются на месте). Ошибка —
   `Failure` рядом с формой, как и была; тостов об ошибках нет. Ошибка загрузки
   ресурса получает `reload` и кнопку «Повторить», ошибка действия — нет.
+- **Подтверждение не всегда красное.** У `ConfirmButton` есть необязательный
+  `confirmVariant` (по умолчанию `destructive`): действие, которое создаёт, а не
+  разрушает («Утвердить» предложение версии роли), просит основную кнопку
+  (`default`); `triggerProps` несёт `data-*` и `aria-describedby` триггера.
 - **Самое дорогое подтверждается вводом ключа.** У `ConfirmButton` есть
   необязательный `confirmPhrase`: в диалоге появляется поле, и пока введённое
   не совпало ровно, кнопка подтверждения выключена; закрытие диалога введённое
@@ -374,6 +379,35 @@ e2e/           сквозные проверки в headless-Chrome поверх
   `data-doc-card`, `data-doc-card-removed`, `data-rename-hint`,
   `data-form-counter`, `data-form-failure`, `data-form-footer`,
   `data-new-role`.
+
+- **Предложения версий роли — секция панели роли** (CLAB-384, решение 0072,
+  design.spec эпика CLAB-307). Участник уровня `agent` вместо «Новая версия» видит
+  «Предложить версию» (та же форма `RoleVersionForm` с `mode="proposal"`: заголовок
+  «Предложение новой версии после vN», обязательное «Что изменилось», «Отправить
+  предложение», `POST …/proposals`); под шапкой роли вне его набора — строка «Версию
+  этой роли вы не предлагаете…». Под формой стоит секция «Предложения (N)»
+  (`pipeline/RoleProposals.tsx`): один `GET …/proposals` на роль без фильтра,
+  переключатель «Ожидают / Все» — на клиенте, строки с номером `#k` (порядок подачи,
+  считается в интерфейсе), меткой состояния и автором («вы» — свой); раскрытие — не
+  больше одной карточки, не в адресе: `GET …/proposals/{id}`, дифф документов против
+  **последней** версии роли (а не базы предложения), «Прочее» (уровень модели,
+  контракт, вход), «Утвердить» (`ConfirmButton` с `confirmVariant="default"`; при
+  «устарело» — выключена с подписью), «Отклонить…» (обязательная заметка) и «Отозвать…»
+  (`pipeline/ProposalNoteDialog.tsx`: диалог, а не `ConfirmButton` — у него нет поля
+  ввода, а ошибка сервера должна оставить заметку на месте). «Устарело» — `pending` с
+  `base_version` меньше последней версии роли; `409 stale_role_base` показывается
+  текстом сервера над кнопками, очередь и роль перечитываются. Права — подсказка:
+  `pipeline/proposalRules.ts` без React (`computeRights`, `roleVersionAction`,
+  `canDecide`, `canWithdraw`) поверх `hooks/useRoleRights`; не известны (`me` не
+  загрузился, режим header, состав команд не пришёл) — показывается прежняя «Новая
+  версия» и все кнопки решения, решает сервер. После утверждения раскрыта новая версия
+  в режиме «Изменения»; после подачи, отклонения и отзыва фокус на строке
+  предложения (решённое в «Ожидают» выпадает, и фильтр переключается на «Все»).
+  Проверка — `e2e/proposal-rules.mjs` без браузера и `e2e/role-proposals.mjs` на своей
+  роли. Опоры — `data-role-proposals`, `data-proposal` (+`-number`, `-state`, `-label`,
+  `-stale`, `-card`, `-actions`, `-note`, `-other`, `-view`), `data-proposal-action`
+  (`approve|reject|withdraw`), `data-proposal-dialog`, `data-role-action`
+  (`create|propose`), `data-role-action-note`, `data-new-proposal`.
 
 - **Отбор документов роли — на статусе цикла** (CLAB-348, решение 0068,
   п. 3). У исполнителя и каждого проверяющего в `StatusDialog` — поле
