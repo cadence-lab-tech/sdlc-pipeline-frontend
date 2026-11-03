@@ -47,6 +47,10 @@ export interface ReasonContext {
   // Вправе ли смотрящий решать гейты (maintainer и выше). Наблюдателю вместо
   // гейта — «ждёт решения человека»: обещать ему решение нечем.
   canDecide: boolean;
+  // Решать смотрящему можно вообще, но не по этой записи (/approvals отдал ей
+  // can_decide: false: лимит попыток, перепроверка — решение сопровождающего,
+  // решение 0072). Тогда вместо «ждёт решения человека» — причина словами.
+  restricted?: boolean;
   // Куда приведёт переход по апруву — только из записи /approvals: клиент
   // пропуски этапов сам не вычисляет, это правило движка (решение 0066).
   landsIn?: (transitionKey: string) => string | undefined;
@@ -109,10 +113,14 @@ function build(code: string, icon: ReasonIcon, tone: ReasonTone, text: string, k
   return {code, icon, tone, text, title, known};
 }
 
+export const RESTRICTED_TEXT = 'решение сопровождающего';
+
 export function describeReason(a: Attention, ctx: ReasonContext): Reason {
   switch (a.code) {
     case 'awaits_human': {
-      if (!ctx.canDecide) return build(a.code, 'UserCheck', 'blue', 'ждёт решения человека', true);
+      if (!ctx.canDecide) {
+        return build(a.code, 'UserCheck', 'blue', ctx.restricted ? RESTRICTED_TEXT : 'ждёт решения человека', true);
+      }
       const gates = gateRefs(a);
       if (gates.length === 0) return build(a.code, 'UserCheck', 'blue', 'ждёт решения человека', true);
       const label = (g: GateRef) =>

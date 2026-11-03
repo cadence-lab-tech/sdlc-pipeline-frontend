@@ -6,6 +6,7 @@ import {Label} from '@/components/ui/label';
 import {StatusDot, Timestamp, Token, type DotVariant} from '@/components/kit';
 
 import type {Gate, GateCheck, RunGateVerdict} from '../api/types';
+import {gateControl} from './task/stageRights';
 
 // Вердикт по гейту считает бэкенд — фронтенд его показывает, а не пересчитывает.
 const GATE_VARIANT: Record<GateCheck['status'], DotVariant> = {
@@ -104,17 +105,27 @@ function GateDetails({
       ) : null;
     }
 
-    case 'human_approval':
-      return onDecide && check.status !== 'passed' ? (
+    case 'human_approval': {
+      // Кнопки — по вердиктам, которые разрешил сервер (actor_decisions);
+      // нет их — прежнее условие. Нельзя — текст сервера вместо кнопок.
+      const control = gateControl(check, onDecide !== undefined);
+      if (control.deny) return <GateDeny text={control.deny} gateKey={check.gate_key} />;
+      if (!onDecide || (!control.approve && !control.reject)) return null;
+      return (
         <div className="flex gap-2">
-          <Button size="sm" onClick={() => onDecide('passed')}>
-            Апрув
-          </Button>
-          <Button size="sm" variant="destructive" onClick={() => onDecide('failed')}>
-            Отклонить
-          </Button>
+          {control.approve ? (
+            <Button size="sm" onClick={() => onDecide('passed')}>
+              Апрув
+            </Button>
+          ) : null}
+          {control.reject ? (
+            <Button size="sm" variant="destructive" onClick={() => onDecide('failed')}>
+              Отклонить
+            </Button>
+          ) : null}
         </div>
-      ) : null;
+      );
+    }
 
     case 'checklist':
       return <Checklist gate={gate} check={check} onDecide={onDecide} />;
@@ -148,6 +159,15 @@ function GateDetails({
   }
 }
 
+// Причина отказа в решении — текст сервера дословно (actor_deny.message).
+function GateDeny({text, gateKey}: {text: string; gateKey: string}) {
+  return (
+    <p className="text-muted-foreground text-xs" data-gate-deny={gateKey}>
+      {text}
+    </p>
+  );
+}
+
 function Checklist({
   gate,
   check,
@@ -167,6 +187,8 @@ function Checklist({
   );
 
   if (items.length === 0) return null;
+
+  const control = gateControl(check, onDecide !== undefined);
 
   const toggle = (id: string) =>
     setChecked((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -188,11 +210,12 @@ function Checklist({
           </li>
         ))}
       </ul>
-      {onDecide ? (
+      {onDecide && control.save ? (
         <Button size="sm" variant="secondary" onClick={() => onDecide('passed', {checked})}>
           Сохранить отметки
         </Button>
       ) : null}
+      {control.deny ? <GateDeny text={control.deny} gateKey={check.gate_key} /> : null}
     </div>
   );
 }
