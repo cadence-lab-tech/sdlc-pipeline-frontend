@@ -12,8 +12,8 @@ import { BrowserRouter } from "react-router-dom";
 import {
   BarChart3,
   BookOpen,
-  Columns3,
   FolderKanban,
+  LayoutDashboard,
   LogOut,
   Moon,
   ScrollText,
@@ -66,7 +66,6 @@ import {
 } from "./components/health";
 import { Principals, Teams } from "./pages/Admin";
 import { InstanceAudit } from "./pages/Audit";
-import { Board } from "./pages/Board";
 import { CLILogin, CLI_LOGIN_PATH } from "./pages/CLILogin";
 import { Docs } from "./pages/Docs";
 import { docsHref } from "./components/cli";
@@ -82,6 +81,7 @@ import { Projects } from "./pages/Projects";
 import { Settings } from "./pages/Settings";
 import { TaskDetail } from "./pages/TaskDetail";
 import { NotFound } from "./pages/NotFound";
+import { Overview } from "./pages/Overview";
 
 export function App() {
   return (
@@ -156,15 +156,18 @@ export function App() {
                 </Shell>
               }
             />
+            {/* «Обзор» вместо доски (CLAB-365): /p/:key открывает его, старые
+                закладки /board переводятся с сохранением строки запроса. */}
             <Route
               path="/p/:projectKey"
-              element={<Navigate to="board" replace />}
+              element={<Navigate to="overview" replace />}
             />
+            <Route path="/p/:projectKey/board" element={<BoardRedirect />} />
             <Route
-              path="/p/:projectKey/board"
+              path="/p/:projectKey/overview"
               element={
-                <Shell page="board">
-                  <Board />
+                <Shell page="overview">
+                  <Overview />
                 </Shell>
               }
             />
@@ -206,7 +209,7 @@ export function App() {
             <Route
               path="/p/:projectKey/tasks/:taskKey"
               element={
-                <Shell page="board">
+                <Shell page="overview">
                   <TaskDetail />
                 </Shell>
               }
@@ -236,6 +239,14 @@ export function App() {
   );
 }
 
+// Старый адрес доски: тот же проект, та же строка запроса, без записи в
+// историю — «Назад» не возвращает на перенаправление.
+function BoardRedirect() {
+  const { projectKey = "" } = useParams();
+  const { search } = useLocation();
+  return <Navigate to={`/p/${projectKey}/overview${search}`} replace />;
+}
+
 type Page =
   | "projects"
   | "teams"
@@ -243,7 +254,7 @@ type Page =
   | "audit"
   | "docs"
   | "github"
-  | "board"
+  | "overview"
   | "pipeline"
   | "search"
   | "metrics"
@@ -257,7 +268,7 @@ const TITLES: Record<Page, string> = {
   audit: "Журнал",
   docs: "Подключение",
   github: "Подключение GitHub",
-  board: "Доска",
+  overview: "Обзор",
   pipeline: "Пайплайн",
   search: "Поиск",
   metrics: "Метрики",
@@ -478,11 +489,12 @@ function Nav({
 
   const inProject: NavEntry[] = projectKey
     ? [
+        // «Обзор» — первый пункт; «Бэклог» (CLAB-368) встанет сразу за ним.
         {
-          page: "board",
-          label: "Доска",
-          icon: Columns3,
-          href: `/p/${projectKey}/board`,
+          page: "overview",
+          label: "Обзор",
+          icon: LayoutDashboard,
+          href: `/p/${projectKey}/overview`,
         },
         {
           page: "pipeline",

@@ -637,13 +637,17 @@ check('активация подтверждена отчётом', t.includes('
 check('показаны задачи, оставшиеся на прежней версии', t.includes('SDLC-1'), t.slice(0, 500));
 check('версия стала рабочей и только читается', t.includes('v2 · работает') && !t.includes('Добавить статус'), t.slice(0, 300));
 
-console.log('доска после смены версии цикла');
-await s.goto(BASE + '/p/SDLC/board');
-await pause(1500);
+// «Обзор» (CLAB-365): задача на прежней версии цикла видна в своей зоне с
+// токеном. Зона «Завершено недавно» развёрнута заранее — задача могла
+// дойти до конца.
+console.log('«Обзор» после смены версии цикла');
+await run(`localStorage.setItem('sdlc.collapsed.overview.done.open', '1'); return true;`);
+await s.goto(BASE + '/p/SDLC/overview?q=SDLC-1');
+await pause(2000);
 t = await run('return texts();');
-check('доска на новой версии цикла', t.includes('v2'), t.slice(0, 200));
-check('задачи не пропали с доски', t.includes('SDLC-1') && t.includes('SDLC-3'), t.slice(0, 600));
+check('задача на прежней версии не пропала', t.includes('SDLC-1'), t.slice(0, 600));
 check('задача с прежней версии помечена', t.includes('прежняя версия цикла'), t.slice(0, 600));
+await run(`localStorage.removeItem('sdlc.collapsed.overview.done.open'); return true;`);
 
 console.log('активная версия: отметки видны, правки нет');
 await s.goto(PAGE);

@@ -77,20 +77,20 @@ const menuMatches = async (reload) => {
   }
 };
 
-const s = await session(BASE + '/p/SDLC/board');
+const s = await session(BASE + '/p/SDLC/overview');
 const run = (body) => s.evaluate(helpers + menu + body);
 await s.resize(1280, 900);
 await sleep(2500);
 
 console.log('отметки в меню сверены со сводкой');
 const open = (page) => async () => { await s.goto(`${BASE}/p/SDLC/${page}`); await sleep(1500); };
-let seen = await menuMatches(open('board'));
+let seen = await menuMatches(open('overview'));
 let m = seen.m;
 check('отметка у «Настроек» — тогда и только тогда, когда ключ не принят', m.settings === want.settings, JSON.stringify({m, want}));
 check('отметка у «Поиска» — тогда и только тогда, когда есть нечитаемые', m.search === want.search, JSON.stringify({m, want}));
 check('у остальных пунктов отметок нет', m.others.length === 0, JSON.stringify(m.others));
 check('точка отметки видна на иконке', m.dots === true);
-check('доска отрисована, не дожидаясь сводки', (await run('return texts();')).includes('Доска'));
+check('«Обзор» отрисован, не дожидаясь сводки', (await run('return texts();')).includes('Обзор'));
 
 console.log('отметки на каждой странице проекта');
 // «Роли» и «Цикл» — одна страница «Пайплайн» (CLAB-346): пункт меню один,
@@ -99,7 +99,7 @@ const menuLabels = await run(`return all('[data-sidebar=menu-button]').map((a) =
 check('в меню проекта один пункт «Пайплайн», «Роли» и «Цикл» нет',
   menuLabels.filter((x) => x === 'Пайплайн').length === 1 && !menuLabels.includes('Роли') && !menuLabels.includes('Цикл'),
   JSON.stringify(menuLabels));
-for (const page of ['board', 'tasks/SDLC-1', 'pipeline', 'search', 'metrics', 'settings']) {
+for (const page of ['overview', 'tasks/SDLC-1', 'pipeline', 'search', 'metrics', 'settings']) {
   await open(page)();
   seen = await menuMatches(open(page));
   check(`${page}: меню сходится со сводкой`, seen.ok, JSON.stringify({m: seen.m, want}));
@@ -115,7 +115,7 @@ for (const page of ['projects', 'teams']) {
 }
 
 console.log('сводка запрашивается по переходам, а не по таймеру');
-await s.goto(BASE + '/p/SDLC/board');
+await s.goto(BASE + '/p/SDLC/overview');
 await sleep(2000);
 const before = await run('return healthRequests();');
 await sleep(5000);
@@ -163,7 +163,7 @@ await collapse();
 
 console.log('узкий экран: меню спрятано, отметка на кнопке меню');
 await s.resize(600, 900);
-await open('board')();
+await open('overview')();
 const triggerDot = `
   const dot = document.querySelector('[data-menu-mark]');
   return Boolean(dot) && dot.getBoundingClientRect().width > 0;
@@ -171,7 +171,7 @@ const triggerDot = `
 let narrow = await run(triggerDot);
 want = expectMarks((await get('/projects/SDLC/health')).body);
 if (narrow !== Boolean(want.settings || want.search)) {
-  await open('board')();
+  await open('overview')();
   narrow = await run(triggerDot);
   want = expectMarks((await get('/projects/SDLC/health')).body);
 }
@@ -181,10 +181,10 @@ const openSheet = async () => {
   await run(`document.querySelector('[data-sidebar=trigger]').click(); await sleep(900); return true;`);
 };
 await openSheet();
-seen = await menuMatches(async () => { await open('board')(); await openSheet(); });
+seen = await menuMatches(async () => { await open('overview')(); await openSheet(); });
 check('в раскрытом меню отметки стоят у своих пунктов', seen.ok, JSON.stringify({m: seen.m, want}));
 await s.resize(1280, 900);
-await s.goto(BASE + '/p/SDLC/board');
+await s.goto(BASE + '/p/SDLC/overview');
 await sleep(1500);
 const wide = await run(`
   const dot = document.querySelector('[data-menu-mark]');
@@ -338,7 +338,7 @@ const created = await fetch(`${API}/projects`, {
 if (created.ok) {
   const other = (await get(`/projects/${KEY}/health`)).body;
   const wantOther = expectMarks(other);
-  await s.goto(`${BASE}/p/SDLC/board`);
+  await s.goto(`${BASE}/p/SDLC/overview`);
   await sleep(1500);
   // Переход внутри приложения, без перезагрузки: прежняя сводка осталась бы
   // в оболочке, если бы та не помнила, чей это ответ.

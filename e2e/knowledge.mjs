@@ -10,13 +10,17 @@ const check = (name, cond, extra = '') => {
   else { fail++; console.log('  ✗', name, extra); }
 };
 
-const s = await session(BASE + '/p/SDLC/board');
+const s = await session(BASE + '/p/SDLC/overview');
 const run = (body) => s.evaluate(helpers + body);
 await new Promise((r) => setTimeout(r, 2500));
 
-console.log('аренда на доске');
-let t = await run('return texts();');
-check('видно, кто держит задачу', t.includes('в работе у analyst-bot'), t.slice(0, 600));
+// «Обзор» (CLAB-365): задача с живой арендой — в зоне «В работе», в карточке
+// строки держатель с точкой.
+console.log('аренда на «Обзоре»');
+const work = await run(`return (document.querySelector('[data-zone=work]')?.innerText || '').replace(/\\s+/g, ' ');`);
+check('задача с живой арендой — в «В работе»', work.includes('SDLC-1'), work.slice(0, 600));
+check('видно, кто держит задачу', work.includes('analyst-bot'), work.slice(0, 600));
+let t;
 
 console.log('аренда в карточке задачи');
 await s.goto(BASE + '/p/SDLC/tasks/SDLC-1');

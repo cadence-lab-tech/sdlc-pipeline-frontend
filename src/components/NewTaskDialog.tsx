@@ -27,12 +27,16 @@ export function NewTaskDialog({
   onCreated,
   defaultType,
   parentKey,
+  trigger,
 }: {
   project: ProjectDetail;
   onCreated: () => void;
   defaultType?: string;
   // Задан — форма заводит дочернюю задачу этого эпика.
   parentKey?: string;
+  // Своя кнопка открытия (шапка «Обзора»: значок и подпись, на узком —
+  // только значок); нет — обычная кнопка с подписью.
+  trigger?: React.ReactElement;
 }) {
   const navigate = useNavigate();
   const types = taskTypes(project);
@@ -98,9 +102,11 @@ export function NewTaskDialog({
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
-        <Button variant={parentKey ? 'secondary' : 'default'}>
-          {parentKey ? 'Дочерняя задача' : 'Новая задача'}
-        </Button>
+        {trigger ?? (
+          <Button variant={parentKey ? 'secondary' : 'default'}>
+            {parentKey ? 'Дочерняя задача' : 'Новая задача'}
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[560px]">
         <DialogHeader>

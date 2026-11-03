@@ -503,6 +503,84 @@ export interface TaskRow extends Task {
   subtree_cost_usd: number | null;
 }
 
+// Параметры списка задач (CLAB-327, CLAB-375). Всё необязательно: без
+// параметров сервер отвечает как раньше — до 200 задач в порядке цикла.
+// Коды причин в attention* — словарь движка (решение 0070), а не ключи
+// проекта; несколько кодов — через запятую.
+export interface ListTasksQuery {
+  type?: string;
+  // Ключ родителя; несколько — через запятую.
+  parent?: string;
+  // Подстрока ключа или заголовка, регистр не важен.
+  q?: string;
+  limit?: number;
+  offset?: number;
+  order?: "updated" | "backlog";
+  terminal?: boolean;
+  in_work?: boolean;
+  top_level?: boolean;
+  attention?: string;
+  attention_not?: string;
+  attention_except?: string;
+  attention_within?: string;
+}
+
+// Страница списка: строки и `total` — сколько задач в выборке без limit и
+// offset. Сервер старше CLAB-327 total не отдаёт: тогда это длина страницы.
+export interface TaskListPage {
+  tasks: TaskRow[];
+  total: number;
+}
+
+// ── «Ждут решения» (CLAB-326) ───────────────────────────────────────────────
+// Ответ GET /projects/{key}/approvals: гейты человека, ждущие решения, по всем
+// циклам проекта. can_decide: false — у смотрящего нет права решать
+// (ниже maintainer), список тогда пуст. truncated — записей больше limit.
+export interface ApprovalTask {
+  key: string;
+  title: string;
+  type: string;
+  parent_key?: string;
+  priority: Task["priority"];
+  workflow_id: UUID;
+  status_key: string;
+  status_name: string;
+}
+
+export interface Approval {
+  task: ApprovalTask;
+  transition: {
+    key: string;
+    name: string;
+    to_status: string;
+    lands_in: string;
+    lands_in_name: string;
+  };
+  gate: {
+    gate_key: string;
+    gate_name: string;
+    type: string;
+    blocking: boolean;
+    status: string;
+    reason?: string;
+  };
+  stage_run: {
+    id: UUID;
+    attempt: number;
+    lease_held: boolean;
+    latest_artifact_id: string | null;
+  };
+}
+
+export interface Approvals {
+  approvals: Approval[];
+  can_decide: boolean;
+  truncated: boolean;
+}
+
+// Предел выборки /approvals сверху (ApprovalsMaxLimit движка).
+export const APPROVALS_MAX_LIMIT = 200;
+
 // Уровень модели — перечень сервера (решение 0060), а не данные проекта;
 // подписи к нему — components/modelLevel.ts.
 export type ModelLevel = "low" | "medium" | "high";

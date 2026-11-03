@@ -11,6 +11,7 @@ import {
   TimerOff,
   Unplug,
   UserCheck,
+  UserX,
   XCircle,
 } from 'lucide-react';
 
@@ -76,6 +77,9 @@ export interface TaskRowProps {
   hideEpic?: boolean;
   // «Сейчас» для относительного времени; по умолчанию — часы строки, раз в минуту.
   now?: number;
+  // Пометка строки очереди (CLAB-365): этап по роли смотрящего или прогон,
+  // назначенный другому (В-2: в очереди, но забрать его нельзя).
+  queueMark?: 'own_role' | 'assigned_other';
 }
 
 function ReasonToken({reason}: {reason: Reason}) {
@@ -128,6 +132,7 @@ export function TaskRow({
   onPickEpic,
   hideEpic,
   now: nowProp,
+  queueMark,
 }: TaskRowProps) {
   const tick = useNow();
   const now = nowProp ?? tick;
@@ -165,6 +170,18 @@ export function TaskRow({
 
   const tokens = (
     <>
+      {queueMark === 'own_role' ? <Token label="ваша роль" color="blue" /> : null}
+      {queueMark === 'assigned_other' ? (
+        <Token
+          className="border-dashed"
+          label={
+            <>
+              <UserX aria-hidden />
+              назначена другому
+            </>
+          }
+        />
+      ) : null}
       {m.priority ? <Token label={m.priority.label} className={m.priority.className} /> : null}
       {m.type ? <Token label={m.type} className="text-muted-foreground" /> : null}
       {m.epic ? (
@@ -263,8 +280,10 @@ export function TaskRow({
       <p
         className={cn('flex min-w-0 items-center gap-1.5 text-sm', isCard && 'font-semibold', TONE_TEXT[m.primary.tone])}
         title={m.primary.title}>
-        <PrimaryIcon className="size-4 shrink-0" aria-hidden />
-        <span className="truncate">{m.primary.text}</span>
+        <PrimaryIcon className={cn('size-4 shrink-0', isCard && 'self-start mt-0.5')} aria-hidden />
+        {/* В карточке главная причина несёт гейт, переход и «→ куда» — до
+            двух строк, чтобы стрелка не обрезалась (design.spec CLAB-365 §6). */}
+        <span className={isCard ? 'line-clamp-2' : 'truncate'}>{m.primary.text}</span>
       </p>
     ) : null;
 
@@ -295,7 +314,11 @@ export function TaskRow({
   return (
     <div
       data-density="row"
-      className="hover:bg-muted/40 relative rounded-lg border px-2.5 py-2 transition-colors">
+      data-queue-mark={queueMark}
+      className={cn(
+        'hover:bg-muted/40 relative rounded-lg border px-2.5 py-2 transition-colors',
+        queueMark === 'assigned_other' && 'bg-muted/60 border-dashed',
+      )}>
       {link}
       <div className="pointer-events-none relative flex min-w-0 flex-col gap-1">
         <div className="flex min-w-0 items-start gap-2">

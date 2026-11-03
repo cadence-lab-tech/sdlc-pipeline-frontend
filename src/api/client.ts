@@ -47,6 +47,9 @@ import type {
   Status,
   Task,
   TaskRow,
+  TaskListPage,
+  ListTasksQuery,
+  Approvals,
   TaskDetail,
   TaskEvent,
   TaskRepoRef,
@@ -1064,18 +1067,39 @@ export const api = {
     ),
 
   // ── задачи ────────────────────────────────────────────────────────────────
-  listTasks: (
-    projectKey: string,
-    filter: { type?: string; parent?: string } = {},
-  ) => {
+  // Страница списка задач со строками «Обзора» и total выборки. Пустые и
+  // ложные значения параметров не уходят: «не задан» и «false» у сервера —
+  // разные фильтры, поэтому false передаётся только явно.
+  listTasks: (projectKey: string, filter: ListTasksQuery = {}) => {
     const query = new URLSearchParams();
-    if (filter.type) query.set("type", filter.type);
-    if (filter.parent) query.set("parent", filter.parent);
+    for (const [name, value] of Object.entries(filter)) {
+      if (value === undefined || value === null || value === "") continue;
+      query.set(name, String(value));
+    }
     const suffix = query.size > 0 ? `?${query}` : "";
-    return request<{ tasks: TaskRow[] }>(
+    return request<{ tasks?: TaskRow[]; total?: number }>(
       `/projects/${projectKey}/tasks${suffix}`,
-    ).then((r) => (r.tasks ?? []).map(normalizeTaskRow));
+    ).then((r): TaskListPage => {
+      const tasks = (r.tasks ?? []).map(normalizeTaskRow);
+      return {
+        tasks,
+        total: typeof r.total === "number" ? r.total : tasks.length,
+      };
+    });
   },
+
+  // Гейты человека, ждущие решения (CLAB-326). limit не больше
+  // APPROVALS_MAX_LIMIT — сервер всё равно урежет до него.
+  approvals: (projectKey: string, filter: { limit?: number } = {}) =>
+    request<Partial<Approvals>>(
+      `/projects/${projectKey}/approvals${filter.limit ? `?limit=${filter.limit}` : ""}`,
+    ).then(
+      (r): Approvals => ({
+        approvals: r.approvals ?? [],
+        can_decide: r.can_decide === true,
+        truncated: r.truncated === true,
+      }),
+    ),
 
   createTask: (projectKey: string, body: Record<string, unknown>) =>
     request<Task>(`/projects/${projectKey}/tasks`, post(body)).then(
