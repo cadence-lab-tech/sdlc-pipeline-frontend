@@ -22,6 +22,19 @@ export type RowZone = 'decisions' | 'stuck' | 'working' | 'queue' | 'backlog' | 
 export interface ApprovalHint {
   transition_key: string;
   lands_in_name?: string;
+  // Может ли смотрящий решить этот гейт (элемент /approvals, решение 0072);
+  // поля нет у сервера прежней версии.
+  can_decide?: boolean;
+}
+
+// Вправе ли смотрящий решать по строке, судя по её записям /approvals: хоть
+// одна с can_decide: true — да; записи есть и все false — нет; ни одна не
+// сказала (сервер прежней версии, записей нет) — undefined, и решает верхний
+// can_decide ответа. Формулу права клиент не считает: это сводка полей сервера.
+export function rowCanDecide(approvals: Pick<ApprovalHint, 'can_decide'>[] | undefined): boolean | undefined {
+  const said = (approvals ?? []).filter((a) => typeof a.can_decide === 'boolean');
+  if (said.length === 0) return undefined;
+  return said.some((a) => a.can_decide === true);
 }
 
 export interface RowOptions {
@@ -176,9 +189,14 @@ function latest(a: string | null | undefined, b: string | null | undefined): str
 
 export function buildRowModel(task: TaskRow, o: RowOptions): RowModel {
   const rules = ZONES[o.zone];
-  const canDecide = o.canDecide ?? true;
   const run = task.current_run ?? null;
   const approvals = o.approvals ?? [];
+  // Решение по строке — от её записей /approvals; нет сведений — от верхнего.
+  // Отказ по записи при праве вообще — «решение сопровождающего», а не
+  // «вы наблюдатель».
+  const byRecords = rowCanDecide(approvals);
+  const canDecide = byRecords ?? o.canDecide ?? true;
+  const restricted = byRecords === false && o.canDecide !== false;
 
   const landsIn = (transition: string): string | undefined => {
     const exact = approvals.find((a) => a.transition_key === transition && a.lands_in_name);
@@ -192,6 +210,7 @@ export function buildRowModel(task: TaskRow, o: RowOptions): RowModel {
     now: o.now,
     version: o.version,
     canDecide,
+    restricted,
     landsIn,
     blockedBy: task.blocked_by ?? [],
   });

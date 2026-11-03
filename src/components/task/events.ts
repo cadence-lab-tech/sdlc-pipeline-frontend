@@ -99,6 +99,18 @@ function join(parts: (string | undefined | false)[]): string {
   return parts.filter((p): p is string => Boolean(p)).join(' · ');
 }
 
+// Пометка самоапрува (решение 0072, п. 4): сервер пишет self_approval в
+// gate.decided, когда решил тот, кто сам вёл этап. Только строгое true; нет
+// ключа (событие до CLAB-380) или false — пометки нет, «неизвестно» не равно
+// «чужое».
+export const SELF_APPROVAL_LABEL = 'исполнитель этапа сам';
+
+export function selfApproval(payload: Payload, actor?: string): string | undefined {
+  if (payload.self_approval !== true) return undefined;
+  const who = actor?.trim();
+  return who ? `решил ${who}, ${SELF_APPROVAL_LABEL}` : SELF_APPROVAL_LABEL;
+}
+
 function updated(payload: Payload, priority: (p: string) => string): EventDetails {
   const changed = isObject(payload.changed) ? payload.changed : {};
   const names = [
@@ -190,10 +202,14 @@ function money(v: unknown): string | undefined {
 // исключение: сырой payload лента всё равно показывает по раскрытию.
 // Подпись приоритета передаётся снаружи (priorityLabel): словарь живёт в
 // своём модуле, а этот файл проверяется node без сборщика.
+//
+// actor — handle того, кто записан в событии (event.actor_handle): строка
+// самоапрува называет его словами «решил X».
 export function eventDetails(
   type: string,
   payload: unknown,
   priority: (p: string) => string = (p) => p,
+  actor?: string,
 ): EventDetails {
   const p: Payload = isObject(payload) ? payload : {};
   const only = (summary: string | undefined): EventDetails => ({summary: summary ?? '', long: []});
@@ -248,7 +264,7 @@ export function eventDetails(
     case 'artifact.submitted':
       return only(join([text(p.kind), text(p.version) && `v${text(p.version)}`, text(p.title)]));
     case 'gate.decided':
-      return only(join([text(p.gate), text(p.transition), text(p.status)]));
+      return only(join([text(p.gate), text(p.transition), text(p.status), selfApproval(p, actor)]));
     case 'gate.failed': {
       const gates = Array.isArray(p.gates) ? p.gates : [];
       const held = gates
