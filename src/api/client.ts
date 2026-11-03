@@ -34,6 +34,7 @@ import type {
   RepositoryRemoved,
   ProjectMember,
   ProjectDetail,
+  ProjectEventsPage,
   Role,
   Instruction,
   InstructionDetail,
@@ -1207,6 +1208,42 @@ export const api = {
     return request<{ events: TaskEvent[] }>(
       `/tasks/${taskKey}/timeline${suffix}`,
     ).then((r) => r.events ?? []);
+  },
+
+  // Лента событий проекта долгим опросом (CLAB-323, CLAB-367). Без after —
+  // рукопожатие: пустой список и курсор «с этого момента». С after сервер
+  // держит ответ до wait секунд (потолок 25) и отвечает пустым списком с тем
+  // же курсором, если событий не было. Ошибка всегда ApiError со статусом
+  // (если ответ был): 404 без тела ошибки — сервер без ручки, 404 с кодом
+  // not_found — нет проекта, 400 — испорченный курсор. Отмена запроса через
+  // signal пробрасывается как есть, а не как «сервис недоступен».
+  projectEvents: async (
+    projectKey: string,
+    opts: { after?: string; wait?: number; signal?: AbortSignal } = {},
+  ): Promise<ProjectEventsPage> => {
+    const query = new URLSearchParams();
+    if (opts.after !== undefined) query.set("after", opts.after);
+    if (opts.wait) query.set("wait", String(opts.wait));
+    const suffix = query.size > 0 ? `?${query}` : "";
+    let res: Response;
+    let text: string;
+    try {
+      res = await fetch(`${BASE}/projects/${projectKey}/events${suffix}`, {
+        headers: authHeaders(),
+        signal: opts.signal,
+      });
+      text = await res.text();
+    } catch (cause) {
+      if (opts.signal?.aborted) throw cause;
+      throw new ApiError("internal", `сервис недоступен: ${String(cause)}`);
+    }
+    const body = errorBody(text);
+    if (!res.ok) raise(res, body);
+    const page = body as Partial<ProjectEventsPage> | undefined;
+    if (!page?.cursor) {
+      throw new ApiError("internal", "ответ ленты без курсора", undefined, res.status);
+    }
+    return { events: page.events ?? [], cursor: page.cursor };
   },
 
   // Журнал действий (CLAB-210): задачи и проекта — maintainer, инстанса —

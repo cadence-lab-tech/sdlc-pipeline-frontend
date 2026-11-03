@@ -1,6 +1,6 @@
 import {useCallback, useEffect, useState} from 'react';
 
-import {api} from '../../api/client';
+import {api, type ApiError} from '../../api/client';
 import {APPROVALS_MAX_LIMIT, type Approvals, type TaskListPage, type TaskRow} from '../../api/types';
 import {useBacklogSize} from '../../hooks/useBacklogSize';
 import {useZoneData, type ZoneData} from './useZoneData';
@@ -58,9 +58,23 @@ export interface OverviewData {
   // Роли специалиста смотрящего в этом проекте: null — любые, undefined —
   // неизвестно (участие через команду или /auth/me не ответил).
   roleKeys: string[] | null | undefined;
-  // Перечитать все зоны разом (кнопка «Обновить»; её возьмёт CLAB-367).
+  // Перечитать все зоны разом: «Обновить» и события проекта (CLAB-367) идут
+  // этим одним путём.
   reloadAll: () => void;
   refreshing: boolean;
+  // Какая-нибудь зона сейчас читается (в том числе первая загрузка).
+  loading: boolean;
+  // Последнее чтение не удалось из-за сети или 5xx (не отказ по смыслу:
+  // 400 на order, 403 и т. п.): «Нет связи» в шапке.
+  unreachable: boolean;
+  // Когда зоны последний раз пришли целиком; null — ещё ни разу.
+  updatedAt: number | null;
+}
+
+// Ответа не было вовсе или сервер упал: сеть, 5xx. Отказы по смыслу (4xx) —
+// не «нет связи», их зона показывает сама.
+function isUnreachable(err: ApiError): boolean {
+  return err.httpStatus === undefined || err.httpStatus === 0 || err.httpStatus >= 500;
 }
 
 // Поиск эпика по ключу: среди открытых эпиков фильтра, иначе поиском списка
@@ -179,9 +193,20 @@ export function useOverview(projectKey: string, filters: OverviewFilters, enable
   }, [projectKey]);
 
   const reloadAll = useCallback(() => setTick((n) => n + 1), []);
-  const refreshing =
-    tick > 0 &&
-    [approvals, decisionsList, stuck, work, queue, backlog, done, epics].some((z) => z.loading);
+  const zones = [approvals, decisionsList, stuck, work, queue, backlog, done, epics];
+  const loading = zones.some((z) => z.loading);
+  const refreshing = tick > 0 && loading;
+  const unreachable = zones.some((z) => z.error !== undefined && isUnreachable(z.error));
+
+  // Время последнего полного чтения — для подсказки у «Обновить» и подписи
+  // «Нет связи · данные на HH:MM». Чужого проекта не показываем.
+  const [stamp, setStamp] = useState<{key: string; at: number} | null>(null);
+  const settled = enabled && !loading && !unreachable && approvals.data !== undefined;
+  useEffect(() => {
+    // Часы — внешняя система: момент прихода данных в состоянии не выразить.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (settled) setStamp({key: projectKey, at: Date.now()});
+  }, [settled, loading, projectKey]);
 
   return {
     view,
@@ -200,5 +225,8 @@ export function useOverview(projectKey: string, filters: OverviewFilters, enable
     roleKeys: roleKeys?.key === projectKey ? roleKeys.value : undefined,
     reloadAll,
     refreshing,
+    loading,
+    unreachable,
+    updatedAt: stamp?.key === projectKey ? stamp.at : null,
   };
 }

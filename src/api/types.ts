@@ -874,6 +874,23 @@ export interface TaskEvent {
   created_at: string;
 }
 
+// Событие ленты проекта (CLAB-323, решение 0067 п. 4): без подробностей,
+// только будит клиента — истина остаётся в состоянии (списки, карточка).
+export interface FeedEvent {
+  id: UUID;
+  type: string;
+  task_key: string;
+  actor: string | null;
+  created_at: string;
+}
+
+// Ответ долгого опроса: события после курсора и курсор для следующего
+// запроса. Пустой список с прежним курсором — штатный ответ по сроку wait.
+export interface ProjectEventsPage {
+  events: FeedEvent[];
+  cursor: string;
+}
+
 export interface Role {
   id: UUID;
   project_id: UUID;

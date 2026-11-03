@@ -19,8 +19,12 @@ import {taskTypes} from '../components/taskTypes';
 import {TaskRow} from '../components/taskrow/TaskRow';
 import {progressOf} from '../components/taskrow/rules';
 import {WorkflowVersionsProvider} from '../components/taskrow/versions';
+import {clockLabel} from '../hooks/liveFeed';
+import {useProjectEvents} from '../hooks/useProjectEvents';
 import {BacklogZone} from '../components/overview/BacklogZone';
+import {LiveIndicator} from '../components/overview/LiveIndicator';
 import {MoreButton, MoreFailed, Zone} from '../components/overview/Zone';
+import {useFocusKeeper} from '../components/overview/useFocusKeeper';
 import {useOverview, type EpicInfo, type OverviewData} from '../components/overview/useOverview';
 import {
   CAPS,
@@ -83,7 +87,23 @@ function OverviewPage({projectKey, project}: {projectKey: string; project?: Proj
   const types = project ? taskTypes(project) : [];
   const unknownType = Boolean(project && filters.type && !types.includes(filters.type));
 
-  const data = useOverview(projectKey, filters, !unknownType);
+  // Живое обновление (CLAB-367): событие проекта будит ту же функцию, что
+  // «Обновить», — reloadAll. Зоны читаются после рукопожатия с лентой, чтобы
+  // событие между чтением и подпиской не потерялось.
+  const reloadRef = useRef<() => void>(() => {});
+  const live = useProjectEvents(projectKey, () => reloadRef.current());
+  const data = useOverview(projectKey, filters, !unknownType && live.ready);
+  // Строка в фокусе при переезде между зонами пересоздаётся: фокус
+  // возвращается на строку той же задачи (AC-14.13).
+  useFocusKeeper(data.loading);
+  useEffect(() => {
+    reloadRef.current = data.reloadAll;
+  });
+  const {reloadResult} = live;
+  useEffect(() => {
+    if (live.ready && !data.loading) reloadResult(!data.unreachable);
+  }, [live.ready, data.loading, data.unreachable, reloadResult]);
+  const updatedClock = clockLabel(data.updatedAt);
   const epicMissing = Boolean(filters.parent) && data.epic.data === null && !data.epic.loading && !data.epic.error;
 
   // Контейнер «Дальше» — по ширине области страницы, а не окна (Д-1): с
@@ -279,12 +299,23 @@ function OverviewPage({projectKey, project}: {projectKey: string; project?: Proj
               </SheetContent>
             </Sheet>
           ) : null}
+          <LiveIndicator
+            connection={live.connection}
+            updatedAt={data.updatedAt}
+            stopReason={live.state.stopReason}
+            onRetry={live.refresh}
+          />
           <Button
             variant="outline"
-            onClick={data.reloadAll}
-            disabled={data.refreshing}
+            onClick={() => {
+              // Не disabled: заблокированная кнопка теряет фокус при каждом
+              // автообновлении (AC-14.13). Повторное нажатие во время чтения
+              // не нужно — чтение уже идёт.
+              if (!data.refreshing) live.refresh();
+            }}
             aria-busy={data.refreshing || undefined}
             aria-label="Обновить"
+            title={updatedClock ? `Обновить · данные на ${updatedClock}` : 'Обновить'}
             className="max-sm:size-8 max-sm:px-0"
             data-refresh>
             <RefreshCw aria-hidden className={cn(data.refreshing && 'animate-spin')} />
