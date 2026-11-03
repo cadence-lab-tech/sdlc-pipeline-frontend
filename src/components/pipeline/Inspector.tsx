@@ -413,7 +413,7 @@ export function StatusInspector({
     (t) => t.kind === 'reject' && (t.from_status_id === status.id || t.to_status_id === status.id),
   );
 
-  // Порядок колонок доски меняется одним запросом на весь набор: уникальность
+  // Порядок статусов меняется одним запросом на весь набор: уникальность
   // позиции не переживает перестановку по одному статусу.
   const move = async (delta: number) => {
     const keys = workflow.statuses.map((s) => s.key);
@@ -491,11 +491,11 @@ export function StatusInspector({
           </div>
         ) : null}
         {editable ? (
-          // Порядок статусов — порядок колонок доски: на схеме его не видно,
-          // поэтому он правится здесь, у выбранного статуса.
+          // Порядок статусов — порядок их следования в цикле: на схеме его не
+          // видно, поэтому он правится здесь, у выбранного статуса.
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-muted-foreground text-xs">
-              Колонка доски {index + 1} из {workflow.statuses.length}
+              Статус {index + 1} из {workflow.statuses.length} в порядке цикла
             </span>
             <Button
               size="sm"
