@@ -8,6 +8,11 @@
 // показывает документы и дифф против предыдущей (RoleVersionCard.tsx), форма
 // новой версии — редактор документов (RoleVersionForm). Текст документов
 // прежних версий подгружается по раскрытию и держится, пока открыта панель.
+//
+// Предложения версий (CLAB-384, решение 0072): участник уровня agent вместо
+// «Новая версия» видит «Предложить версию», а под версиями — очередь
+// предложений (RoleProposals), которую сопровождающий утверждает или
+// отклоняет. Права — подсказка (proposalRules.ts), решает сервер.
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {toast} from 'sonner';
 
@@ -16,14 +21,17 @@ import {Separator} from '@/components/ui/separator';
 import {ConfirmButton, EmptyState, Note, Token} from '@/components/kit';
 
 import {ApiError, api} from '../../api/client';
-import type {Role, RoleDocument, RoleUsage, RoleVersion, Workflow} from '../../api/types';
+import type {Role, RoleDocument, RoleProposal, RoleUsage, RoleVersion, Workflow} from '../../api/types';
 import {useResource} from '../../api/useResource';
 import {Failure, Loading} from '../Feedback';
 import {RoleVersionForm} from '../RoleVersionForm';
 import type {RoleVersionView} from './params';
 import {RoleVersionCard, VersionRow, type VersionContent} from './RoleVersionCard';
 import {useLibraryLatest} from '../../hooks/useLibraryLatest';
+import {useRoleRights} from '../../hooks/useRoleRights';
 import {lagLine} from './libraryRules';
+import {RoleProposals} from './RoleProposals';
+import {roleVersionAction, type VersionAction} from './proposalRules';
 import {hasContent, versionDocuments} from './roleDocs';
 
 export function RolePanel({
@@ -39,6 +47,7 @@ export function RolePanel({
   onForm,
   canEdit = true,
   reloadKey,
+  ownerTeamKey,
   onInstruction,
   onApply,
   onToLibrary,
@@ -51,6 +60,8 @@ export function RolePanel({
   // инструкции, «Обновить…» из плашки и «В библиотеку» у документа.
   canEdit?: boolean;
   reloadKey?: unknown;
+  // Команда-владелец проекта: её лид — сопровождающий (для подсказки прав).
+  ownerTeamKey?: string;
   onInstruction?: (key: string, version?: number) => void;
   onApply?: (key: string, roles: string[]) => void;
   onToLibrary?: (roleKey: string, doc: RoleDocument) => void;
@@ -69,9 +80,13 @@ export function RolePanel({
   const role = useResource(() => api.getRole(projectKey, roleKey), [projectKey, roleKey, reloadKey]);
   const libraryLatest = useLibraryLatest(projectKey, reloadKey);
   const [error, setError] = useState<ApiError>();
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState<'version' | 'proposal'>();
   const [justCreated, setJustCreated] = useState<number>();
+  const [focusProposal, setFocusProposal] = useState<{id: string; decided?: boolean}>();
   const contents = useVersionContents(projectKey, roleKey);
+  const rights = useRoleRights(projectKey, ownerTeamKey);
+  // Очередь предложений: один запрос на роль, фильтр «Ожидают / Все» — на клиенте.
+  const proposals = useResource(() => api.listRoleProposals(projectKey, roleKey), [projectKey, roleKey]);
 
   const versions = role.data?.versions ?? [];
   const latest = versions[0];
@@ -89,7 +104,9 @@ export function RolePanel({
   useEffect(() => {
     if (open) ensure(open, latestFull);
     if (diffMode && prev) ensure(prev, latestFull);
-  }, [open, prev, diffMode, latestFull, ensure]);
+    // Предложения сравниваются с последней версией, раскрыта она или нет.
+    if (latest) ensure(latest, latestFull);
+  }, [open, prev, diffMode, latest, latestFull, ensure]);
 
   if (role.error) return <div className="p-4"><Failure error={role.error} reload={role.reload} /></div>;
   if (!role.data) return <Loading />;
@@ -108,9 +125,22 @@ export function RolePanel({
     }
   };
 
-  const setForm = (value: boolean) => {
+  const setForm = (value?: 'version' | 'proposal') => {
     setAdding(value);
-    onForm(value);
+    onForm(Boolean(value));
+  };
+
+  const versionAction = roleVersionAction(rights, head.key, {
+    archived: Boolean(head.archived_at),
+    hasVersions: versions.length > 0,
+  });
+
+  // Очередь и роль читаются заново: утверждение заводит версию, а любое
+  // решение меняет состояние остальных предложений.
+  const reloadAll = () => {
+    proposals.reload();
+    role.reload();
+    onChanged();
   };
 
   // Версия в адресе — только не последняя: последняя раскрыта и без v.
@@ -122,7 +152,10 @@ export function RolePanel({
         role={head}
         onArchive={() => archive(true)}
         onRestore={() => archive(false)}
-        onNewVersion={() => setForm(true)}
+        action={versionAction.action}
+        actionNote={versionAction.note}
+        onNewVersion={() => setForm('version')}
+        onPropose={() => setForm('proposal')}
       />
       {error ? <ArchiveError error={error} workflow={workflow} onStatus={onStatus} /> : null}
 
@@ -155,13 +188,21 @@ export function RolePanel({
 
       {adding ? (
         <NewVersionForm
+          mode={adding}
           projectKey={projectKey}
           roleKey={roleKey}
           base={latestFull ?? latest}
           library={{latest: libraryLatest, onOpenInstruction: onInstruction ? (k, v) => onInstruction(k, v) : undefined}}
-          onCancel={() => setForm(false)}
+          onCancel={() => setForm(undefined)}
+          onProposed={(proposal) => {
+            // Версии не прибавилось: перечитывается только очередь, фокус —
+            // на строке нового предложения.
+            setForm(undefined);
+            setFocusProposal({id: proposal.id});
+            proposals.reload();
+          }}
           onCreated={(created) => {
-            setForm(false);
+            setForm(undefined);
             setJustCreated(created?.version);
             role.reload();
             onChanged();
@@ -171,6 +212,31 @@ export function RolePanel({
           }}
         />
       ) : null}
+
+      <RoleProposals
+        projectKey={projectKey}
+        roleKey={roleKey}
+        roleName={head.name}
+        proposals={proposals}
+        latest={latestFull ?? latest}
+        latestContent={latest ? contentOf(latest) ?? {state: 'loading'} : {state: 'loading'}}
+        onRetryLatest={() => latest && contents.retry(latest)}
+        rights={rights}
+        focus={focusProposal}
+        onFocused={() => setFocusProposal(undefined)}
+        onReload={reloadAll}
+        onApproved={(p: RoleProposal) => {
+          // После утверждения раскрыта новая версия в режиме «Изменения».
+          setJustCreated(p.result_version);
+          reloadAll();
+          onVersion(undefined, 'diff');
+        }}
+        onClosed={(p: RoleProposal) => {
+          setFocusProposal({id: p.id, decided: true});
+          reloadAll();
+        }}
+        onOpenVersion={(n) => onVersion(n === latest?.version ? undefined : n, 'diff')}
+      />
 
       <Separator />
 
@@ -280,11 +346,19 @@ export function RoleHeader({
   onArchive,
   onRestore,
   onNewVersion,
+  onPropose,
+  action = 'create',
+  actionNote,
 }: {
   role: Role;
   onArchive: () => Promise<void>;
   onRestore: () => Promise<void>;
   onNewVersion: () => void;
+  onPropose?: () => void;
+  // Что стоит на месте правки версии: «Новая версия», «Предложить версию»
+  // или ничего (proposalRules.roleVersionAction).
+  action?: VersionAction;
+  actionNote?: string;
 }) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-2">
@@ -314,10 +388,21 @@ export function RoleHeader({
             В архив
           </ConfirmButton>
         )}
-        <Button size="sm" onClick={onNewVersion}>
-          Новая версия
-        </Button>
+        {action === 'create' ? (
+          <Button size="sm" onClick={onNewVersion} data-role-action="create">
+            Новая версия
+          </Button>
+        ) : action === 'propose' ? (
+          <Button size="sm" onClick={onPropose} data-role-action="propose">
+            Предложить версию
+          </Button>
+        ) : null}
       </div>
+      {actionNote ? (
+        <p className="text-muted-foreground basis-full text-xs" data-role-action-note>
+          {actionNote}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -331,6 +416,8 @@ export function NewVersionForm({
   library,
   onCancel,
   onCreated,
+  mode = 'version',
+  onProposed,
 }: {
   projectKey: string;
   roleKey: string;
@@ -338,10 +425,14 @@ export function NewVersionForm({
   library?: {latest: Map<string, number>; onOpenInstruction?: (key: string, version: number) => void};
   onCancel: () => void;
   onCreated: (created?: RoleVersion) => void;
+  mode?: 'version' | 'proposal';
+  onProposed?: (proposal: RoleProposal) => void;
 }) {
   return (
-    <div data-new-version>
+    <div data-new-version={mode === 'version' ? '' : undefined} data-new-proposal={mode === 'proposal' ? '' : undefined}>
       <RoleVersionForm
+        mode={mode}
+        onProposed={onProposed}
         projectKey={projectKey}
         roleKey={roleKey}
         base={base}

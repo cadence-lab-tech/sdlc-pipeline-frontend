@@ -200,6 +200,8 @@ export function ConfirmButton({
   size = 'sm',
   disabled,
   className,
+  confirmVariant = 'destructive',
+  triggerProps,
   children,
 }: {
   title: React.ReactNode;
@@ -214,6 +216,12 @@ export function ConfirmButton({
   size?: React.ComponentProps<typeof Button>['size'];
   disabled?: boolean;
   className?: string;
+  // Вид кнопки подтверждения: по умолчанию красная — действие разрушает.
+  // Действие, которое создаёт (утвердить предложение версии), просит
+  // основную кнопку.
+  confirmVariant?: React.ComponentProps<typeof Button>['variant'];
+  // Атрибуты триггера: опоры сценариев (data-*) и aria-describedby.
+  triggerProps?: Partial<Record<`data-${string}` | 'aria-describedby', string | undefined>>;
   children: React.ReactNode;
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -244,7 +252,7 @@ export function ConfirmButton({
         setIsOpen(open);
       }}>
       <AlertDialogTrigger asChild>
-        <Button variant={variant} size={size} disabled={disabled} className={className}>
+        <Button variant={variant} size={size} disabled={disabled} className={className} {...triggerProps}>
           {children}
         </Button>
       </AlertDialogTrigger>
@@ -266,7 +274,7 @@ export function ConfirmButton({
           {/* Radix закрывает диалог по клику на Action сам; preventDefault
               оставляет его открытым до ответа бэкенда. */}
           <AlertDialogAction
-            variant="destructive"
+            variant={confirmVariant}
             disabled={busy || !isPhraseTyped}
             onClick={(e) => {
               e.preventDefault();
