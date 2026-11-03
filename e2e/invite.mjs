@@ -97,7 +97,7 @@ check('role_keys: null — «любые»', anyLookup.role_keys === null && t.in
 console.log('приём в проект');
 await open(project.token);
 await run(`await clickExact('Принять'); await sleep(1500);`);
-check('после приёма — доска проекта', (await path()) === '/p/SDLC/board', await path());
+check('после приёма — «Обзор» проекта', (await path()) === '/p/SDLC/overview', await path());
 let member = await memberOf(INVITEE);
 check('принявший в участниках с уровнем и ролями инвайта',
   member && member.role === 'agent' && JSON.stringify(member.role_keys) === '["developer"]', JSON.stringify(member));
@@ -127,7 +127,7 @@ member = await memberOf(INVITEE);
 check('уровень и роли не изменились', member.role === 'agent' && JSON.stringify(member.role_keys) === '["developer"]', JSON.stringify(member));
 check('приглашение принято', (await lookup(INVITEE, anyRoles.token)).status === 'accepted');
 await run(`await clickExact('Открыть'); await sleep(1500);`);
-check('«Открыть» ведёт в проект', (await path()) === '/p/SDLC/board', await path());
+check('«Открыть» ведёт в проект', (await path()) === '/p/SDLC/overview', await path());
 
 console.log('отказы');
 await as(OTHER);

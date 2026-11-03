@@ -14,7 +14,7 @@ const check = (name, cond, extra = '') => {
 const get = (path) => fetch(API + '/v1' + path, {headers: {'X-SDLC-Actor': 'e2e'}}).then((r) => r.json());
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const s = await session(BASE + '/p/SDLC/board');
+const s = await session(BASE + '/p/SDLC/overview');
 const run = (body) => s.evaluate(helpers + body);
 await s.resize(1440, 900);
 await s.goto(BASE + '/p/SDLC/pipeline');

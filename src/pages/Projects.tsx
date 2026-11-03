@@ -215,7 +215,7 @@ function ProjectCard({
     <Card className="hover:border-foreground/20 transition-colors">
       <CardHeader>
         <CardTitle>
-          <Link to={`/p/${projectKey}/board`} className="flex items-center gap-1 hover:underline">
+          <Link to={`/p/${projectKey}/overview`} className="flex items-center gap-1 hover:underline">
             {name}
             <ChevronRight className="size-4 opacity-50" />
           </Link>

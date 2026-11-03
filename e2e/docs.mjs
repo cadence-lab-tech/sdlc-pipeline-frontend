@@ -88,7 +88,7 @@ console.log('К16: пункт «Подключение» в глобальной
 await s.goto(BASE + '/projects');
 await sleep(1500);
 check('вне проекта — /docs', (await navHref()) === '/docs', String(await navHref()));
-await s.goto(BASE + '/p/SDLC/board');
+await s.goto(BASE + '/p/SDLC/overview');
 await sleep(1500);
 check('со страницы проекта — с его ключом', (await navHref()) === '/docs?project=SDLC', String(await navHref()));
 await run('await click("Подключение", "a"); await sleep(1200); return 1;');
