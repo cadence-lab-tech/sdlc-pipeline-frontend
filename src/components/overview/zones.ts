@@ -163,9 +163,13 @@ export function zoneQuery(
       return {...base, attention: 'awaits_human', limit: EXPANDED_LIMIT};
     // Любая причина, кроме ожидания человека, возврата и «можно забрать»,
     // включая коды, которых клиент не знает; ждущая человека сюда не попадает.
+    // Только начатые (in_work, решение 0070 §5): неначатая задача с незакрытым
+    // blocked_by — бэклог, и блок «Приоритетные из бэклога» (backlogQuery) уже
+    // показывает её с пометкой «Ждёт <ключи>» (CLAB-388).
     case 'stuck':
       return {
         ...base,
+        in_work: true,
         attention_except: 'awaits_human,returned,unclaimed',
         attention_not: 'awaits_human',
         limit: o.expanded ? EXPANDED_LIMIT : CAPS.stuck,
