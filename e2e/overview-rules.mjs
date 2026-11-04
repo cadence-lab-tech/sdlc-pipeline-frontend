@@ -62,6 +62,7 @@ for (const zone of ['decisions', 'stuck', 'work', 'queue', 'done']) {
 }
 let q = Z.zoneQuery('stuck', none);
 check('застряло: except и not по словарю движка', q.attention_except === 'awaits_human,returned,unclaimed' && q.attention_not === 'awaits_human' && q.limit === 4);
+check('застряло (CLAB-388): только начатые — in_work=true, как в решении 0070 §5', q.in_work === true && Z.zoneQuery('stuck', {type: 'bug', parent: 'X-9', q: 'обзор'}).in_work === true && Z.zoneQuery('stuck', none, {expanded: true}).in_work === true);
 check('застряло развёрнуто — предел 200', Z.zoneQuery('stuck', none, {expanded: true}).limit === 200);
 q = Z.zoneQuery('work', none);
 check('в работе: in_work и только возврат, 9', q.in_work === true && q.attention_within === 'returned' && q.limit === 9);
@@ -102,9 +103,12 @@ const tasks = [];
 for (let mask = 0; mask < 1 << pool.length; mask++) {
   const codes = pool.filter((_, i) => mask & (1 << i));
   for (const inWork of [false, true]) {
-    // «Можно забрать» бывает только у этапа с ролью, а этап с ролью — в работе
-    // по правилу in_work: без него сочетание невозможно.
-    if (codes.includes('unclaimed') && !inWork) continue;
+    // Причины, привязанные к прогону этапа (ждёт человека, отклонён гейт,
+    // аренда, предел, «можно забрать»), бывают только у этапа с ролью, а этап
+    // с ролью — в работе по правилу in_work: без него сочетание невозможно.
+    // Не в работе (бэклог) бывают «заблокирована», «возврат» и код, которого
+    // клиент не знает.
+    if (!inWork && codes.some((c) => KNOWN.includes(c) && c !== 'blocked' && c !== 'returned')) continue;
     for (const topLevel of [false, true]) tasks.push({codes, in_work: inWork, terminal: false, top_level: topLevel});
   }
 }
@@ -115,6 +119,9 @@ const zonesOf = (t) => {
   if (match(t, Z.zoneQuery('stuck', none))) out.push('stuck');
   if (match(t, Z.zoneQuery('work', none))) out.push('work');
   if (match(t, Z.zoneQuery('queue', none))) out.push('queue');
+  // Блок «Приоритетные из бэклога» (CLAB-366) — тоже зона: без него неначатая
+  // заблокированная задача двоилась бы с «Застряло» незамеченно (CLAB-388).
+  if (match(t, Z.backlogQuery(none, 5))) out.push('backlog');
   return out;
 };
 let dup = 0, lost = 0;
@@ -122,11 +129,10 @@ const lostSamples = [];
 for (const t of tasks) {
   const zs = zonesOf(t);
   if (zs.length > 1) dup++;
-  // Без зоны остаётся только задача не в работе без причин или с одним
-  // возвратом (статус без роли, куда задачу вернули) — она в бэклоге
-  // (CLAB-366, backlogQuery) или в нарезке эпика.
-  const backlog = !t.in_work && t.codes.every((c) => c === 'returned');
-  if (zs.length === 0 && !backlog) { lost++; lostSamples.push(JSON.stringify(t)); }
+  // Без зоны остаётся только неначатая задача не верхнего уровня (ребёнок
+  // эпика): она в нарезке эпика, а не в зонах страницы без фильтра по эпику.
+  const inEpicSlice = !t.in_work && !t.top_level;
+  if (zs.length === 0 && !inEpicSlice) { lost++; lostSamples.push(JSON.stringify(t)); }
 }
 check(`ни одна из ${tasks.length} задач не в двух зонах`, dup === 0, String(dup));
 check('ни одна задача с причиной или в работе не пропала', lost === 0, lostSamples.slice(0, 3).join(' '));
@@ -135,6 +141,13 @@ check('возврат с живой арендой — «В работе»', zon
 check('возврат и предел этапа — «Застряло»', zonesOf({codes: ['returned', 'over_stage_limit'], in_work: true, terminal: false, top_level: true}).join() === 'stuck');
 check('ждёт решения и над пределом — только «Ждут решения»', zonesOf({codes: ['awaits_human', 'over_stage_limit'], in_work: true, terminal: false, top_level: true}).join() === 'decisions');
 check('можно забрать и блок — «Застряло»', zonesOf({codes: ['unclaimed', 'blocked'], in_work: true, terminal: false, top_level: true}).join() === 'stuck');
+check('CLAB-388: неначатая заблокированная задача — только «бэклог», не «Застряло»', zonesOf({codes: ['blocked'], in_work: false, terminal: false, top_level: true}).join() === 'backlog');
+check('CLAB-388: начатая заблокированная задача — «Застряло», не бэклог', zonesOf({codes: ['blocked'], in_work: true, terminal: false, top_level: true}).join() === 'stuck');
+check('CLAB-388: неначатая заблокированная с возвратом — бэклог', zonesOf({codes: ['blocked', 'returned'], in_work: false, terminal: false, top_level: true}).join() === 'backlog');
+check('CLAB-388: ребёнок эпика, неначатый и заблокированный, в зонах без эпика не виден; в нарезке (parent) — бэклог',
+  zonesOf({codes: ['blocked'], in_work: false, terminal: false, top_level: false}).length === 0 &&
+  match({codes: ['blocked'], in_work: false, terminal: false, top_level: false}, Z.backlogQuery({type: '', parent: 'X-9', q: ''}, 5)) &&
+  !match({codes: ['blocked'], in_work: false, terminal: false, top_level: false}, Z.zoneQuery('stuck', {type: '', parent: 'X-9', q: ''})));
 check('бэклог: неначатая задача видна только запросом CLAB-366', match({codes: [], in_work: false, terminal: false, top_level: true}, Z.backlogQuery(none, 5)));
 check('бэклог: эпик в работе и ребёнок эпика вне нарезки блоком не берутся', !match({codes: [], in_work: true, terminal: false, top_level: true}, Z.backlogQuery(none, 5)) &&
   !match({codes: [], in_work: false, terminal: false, top_level: false}, Z.backlogQuery(none, 5)));

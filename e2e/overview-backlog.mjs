@@ -132,6 +132,14 @@ const epicRow = b.rows.find((r) => r.includes(epic)) ?? '';
 check('строка эпика: «готово · в работе · в бэклоге»', /0 готово · 0 в работе · 2 в бэклоге/.test(epicRow), epicRow);
 const blockedRow = b.rows.find((r) => r.includes(blocked)) ?? '';
 check('у заблокированной — «Ждёт <ключ блокирующей>»', blockedRow.includes(`Ждёт ${blocker}`), blockedRow || b.rows.join(' | '));
+// CLAB-388: неначатая заблокированная задача — бэклог, а не «Застряло».
+const zoneRows = (key) => run(`return Array.from(document.querySelectorAll('section[data-zone] [data-density]')).filter((r) => (r.innerText || '').includes(${JSON.stringify(key)})).map((r) => r.closest('section[data-zone]').getAttribute('data-zone'));`);
+const blockedZones = await zoneRows(blocked);
+check('CLAB-388: неначатая заблокированная задача на странице ровно в одной зоне — «бэклог»', blockedZones.join() === 'backlog', blockedZones.join());
+const stuckUrls = (await run('return window.__urls;')).filter((u) => u.includes('attention_except='));
+check('CLAB-388: запрос «Застряло» ограничен начатыми (in_work=true)', stuckUrls.length > 0 && stuckUrls.every((u) => /in_work=true/.test(u)), JSON.stringify(stuckUrls));
+const stuckTruth = await list('in_work=true&attention_not=awaits_human&attention_except=awaits_human,returned,unclaimed&limit=200');
+check('CLAB-388: сервер на запросе «Застряло» неначатую заблокированную не отдаёт', !keysOf(stuckTruth).includes(blocked), keysOf(stuckTruth).join());
 check('в строке приоритет и тип', /(низкий|обычный|высокий|срочный|low|normal|high|urgent)/i.test(b.rows[0] ?? ''), b.rows[0]);
 const href = await run(`return document.querySelector('section[data-zone=backlog] a[href*="/tasks/"]')?.getAttribute('href');`);
 check('нажатие на строку ведёт в карточку задачи', /\/tasks\/[A-Z]+-\d+/.test(href ?? ''), String(href));
