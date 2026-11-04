@@ -140,6 +140,79 @@ export function groupTitle(parent: string | null): string {
   return parent ? `Порядок в эпике ${parent}` : 'Порядок в бэклоге';
 }
 
+// ── перетаскивание (CLAB-403, design.spec §5.3) ─────────────────────────────
+
+// Датчики @dnd-kit (design.spec §5.3): мышь — после сдвига на 4 px; касание —
+// удержание 200 мс с допуском 5 px, чтобы прокрутка пальцем не становилась
+// перетаскиванием. Числа живут здесь, чтобы их проверяли без браузера.
+export const DRAG_SENSORS = {
+  mouse: {distance: 4},
+  touch: {delay: 200, tolerance: 5},
+} as const;
+
+// Окно, в которое ложится событие `task.ranked` собственного перемещения.
+// Лента схлопывает пачку событий окном COALESCE_MS (2 с) и отдаёт хвост в
+// конце окна; запас сверху — на ответ сети. Кончилось окно, а события нет
+// (лента стоит) — список перечитывается по ответу, как и раньше.
+export const ECHO_MS = 2_500;
+
+export interface Drop {
+  // Тело запроса; null — бросок на то же место.
+  body: RankTaskBody | null;
+  // Порядок ключей группы после броска.
+  keys: string[];
+}
+
+// Перенос элемента с места from на место to — порядок после броска. Индекс
+// вне массива — порядок не меняется.
+export function dropRows<T>(rows: T[], from: number, to: number): T[] {
+  if (from < 0 || to < 0 || from >= rows.length || to >= rows.length || from === to) return rows;
+  const rest = rows.filter((_, i) => i !== from);
+  return [...rest.slice(0, to), rows[from], ...rest.slice(to)];
+}
+
+// Тело запроса по месту броска: есть строка выше по новому месту — `after`
+// ею, иначе (начало группы) — `before` строкой ниже. Ранг клиент не считает.
+// Бросок на то же место и индексы вне группы — null.
+export function dropBody(keys: string[], from: number, to: number): RankTaskBody | null {
+  const next = dropRows(keys, from, to);
+  if (next === keys) return null;
+  return to > 0 ? {after: next[to - 1]} : {before: next[1]};
+}
+
+// Бросок строки active на строку over той же группы: новый порядок и тело
+// запроса. Строки over нет в группе (бросок вне неё) или ключи совпали —
+// body: null и прежний порядок.
+export function planDrop(keys: string[], active: string, over: string | null | undefined): Drop {
+  const from = keys.indexOf(active);
+  const to = over ? keys.indexOf(over) : -1;
+  if (from < 0 || to < 0) return {body: null, keys};
+  return {body: dropBody(keys, from, to), keys: dropRows(keys, from, to)};
+}
+
+// Точка внутри прямоугольника (с запасом slack по вертикали) — зона броска.
+export function insideZone(
+  p: {x: number; y: number},
+  r: {left: number; right: number; top: number; bottom: number},
+  slack = 0,
+): boolean {
+  return p.x >= r.left && p.x <= r.right && p.y >= r.top - slack && p.y <= r.bottom + slack;
+}
+
+// Тексты диктора перетаскивания (design.spec §10). «Из M» — число
+// загруженных строк группы.
+export const DRAG_INSTRUCTIONS =
+  'Чтобы переставить задачу, нажмите пробел на ручке, двигайте стрелками вверх и вниз, пробел — поставить, Escape — отменить.';
+export const dragTexts = {
+  picked: (key: string, place: number, total: number) => `Взята ${key}, место ${place} из ${total}.`,
+  over: (key: string, place: number, total: number) => `${key} — место ${place} из ${total}.`,
+  dropped: (key: string, place: number, total: number) => `${key} поставлена на место ${place} из ${total}.`,
+  cancelled: (key: string) => `Перемещение отменено, ${key} на прежнем месте.`,
+};
+
+export const handleLabel = (key: string) => `Переместить ${key}`;
+export const HANDLE_TITLE = 'Перетащите, чтобы изменить порядок';
+
 // ── тексты ──────────────────────────────────────────────────────────────────
 
 // Тосты ошибок перемещения дословно (design.spec §5.4).
@@ -282,32 +355,63 @@ export interface ReloadGate {
   hold: () => () => void;
   // Событие или ответ хотят перечитать: сейчас или после отпускания.
   wake: () => void;
+  // Ответ на своё перемещение: перечитать надо, но событие этого же
+  // перемещения придёт следом — окно ms ждёт его и перечитывает один раз
+  // (по событию, а если его нет, по окончании окна).
+  echo: (ms: number) => void;
   held: () => boolean;
 }
 
-export function createReloadGate(run: () => void): ReloadGate {
+export interface GateTimers {
+  set: (fn: () => void, ms: number) => unknown;
+  clear: (handle: unknown) => void;
+}
+
+const REAL_TIMERS: GateTimers = {
+  set: (fn, ms) => setTimeout(fn, ms),
+  clear: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
+};
+
+export function createReloadGate(run: () => void, timers: GateTimers = REAL_TIMERS): ReloadGate {
   let holds = 0;
   let pending = false;
-  return {
-    hold() {
-      holds++;
-      let released = false;
-      return () => {
-        if (released) return;
-        released = true;
-        holds--;
-        if (holds === 0 && pending) {
-          pending = false;
-          run();
-        }
-      };
-    },
-    wake() {
-      if (holds > 0) {
-        pending = true;
-        return;
+  // Окна ожидания собственных событий: любое пришедшее событие закрывает их
+  // все — оно будит перечитывание, которому ответ уже поставил метку.
+  const echoes = new Set<() => void>();
+  const hold = () => {
+    holds++;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      holds--;
+      if (holds === 0 && pending) {
+        pending = false;
+        run();
       }
-      run();
+    };
+  };
+  return {
+    hold,
+    wake() {
+      pending = true;
+      for (const end of [...echoes]) end();
+      // Последнее окно могло само отпустить удержание и запустить чтение.
+      if (holds === 0 && pending) {
+        pending = false;
+        run();
+      }
+    },
+    echo(ms) {
+      pending = true;
+      const release = hold();
+      const end = () => {
+        timers.clear(handle);
+        echoes.delete(end);
+        release();
+      };
+      const handle = timers.set(end, ms);
+      echoes.add(end);
     },
     held: () => holds > 0,
   };

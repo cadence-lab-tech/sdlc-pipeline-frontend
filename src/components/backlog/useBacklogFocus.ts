@@ -1,13 +1,13 @@
 import {useCallback, useEffect, useLayoutEffect, useRef} from 'react';
 
 // Опоры разметки: строка (TaskRow), её ссылка и элементы управления строки
-// бэклога (шеврон, приоритет, меню), список страницы.
+// бэклога (ручка, шеврон, приоритет, меню), список страницы.
 const ROW = '[data-task-key]';
 const LINK = '[data-task-link]';
 const CONTROL = '[data-row-control]';
 const LIST = '[data-backlog-list]';
 
-export type RowControl = 'link' | 'expand' | 'priority' | 'menu';
+export type RowControl = 'link' | 'expand' | 'priority' | 'menu' | 'handle';
 
 interface Memo {
   key: string;
@@ -33,7 +33,7 @@ function controlEl(row: HTMLElement, control: RowControl): HTMLElement | null {
 // Фокус клавиатуры на странице бэклога (design.spec CLAB-368 §5.1, §6):
 // строка, на которой он стоит, при переносе и перечитывании переставляется в
 // документе, и браузер уводит фокус на <body>. Хук помнит задачу и элемент
-// строки (ссылка, шеврон, приоритет, меню) и возвращает фокус туда же — на
+// строки (ссылка, ручка, шеврон, приоритет, меню) и возвращает фокус туда же — на
 // новом месте строки; строки на странице нет, а чтение закончилось — на
 // первую строку списка. expect — запомнить заранее: меню порядка держит фокус
 // в своём всплывающем списке, а после выбора фокус должен прийти на кнопку
