@@ -449,7 +449,8 @@ function BacklogRow({
         type="button"
         variant="ghost"
         size="icon-xs"
-        className="max-sm:size-8"
+        // Раскрытый шеврон без фона: состояние показывает поворот значка.
+        className="aria-expanded:bg-transparent hover:aria-expanded:bg-muted max-sm:size-8"
         aria-expanded={open}
         aria-controls={open ? childrenId : undefined}
         aria-label={expandLabel(row.key, open)}
