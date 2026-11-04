@@ -1,8 +1,9 @@
-import type {ComponentType} from 'react';
+import type {ComponentType, ReactNode} from 'react';
 import {Link} from 'react-router-dom';
 import {
   CircleDashed,
   CircleHelp,
+  CirclePlay,
   Layers,
   Lock,
   MessageCircleQuestion,
@@ -80,6 +81,20 @@ export interface TaskRowProps {
   // Пометка строки очереди (CLAB-365): этап по роли смотрящего или прогон,
   // назначенный другому (В-2: в очереди, но забрать его нельзя).
   queueMark?: 'own_role' | 'assigned_other';
+  // Слоты строки бэклога (CLAB-368, design.spec §4.2): leading — шеврон
+  // раскрытия (и ручка перетаскивания CLAB-403) слева от ключа,
+  // priorityControl — выбор приоритета на месте токена приоритета, trailing —
+  // меню справа. Слоты лежат над ссылкой строки; без них строка прежняя.
+  // Порядок Tab: leading → ссылка → priorityControl → trailing.
+  leading?: ReactNode;
+  priorityControl?: ReactNode;
+  trailing?: ReactNode;
+  // Пометка «в работе» у строки, которая сама в работе (in_work сервера):
+  // только на странице бэклога, «Обзор» её не показывает.
+  showInWork?: boolean;
+  // Строка ждёт ответа на своё действие (перемещение): aria-busy,
+  // содержимое приглушено.
+  busy?: boolean;
 }
 
 function ReasonToken({reason}: {reason: Reason}) {
@@ -133,6 +148,11 @@ export function TaskRow({
   hideEpic,
   now: nowProp,
   queueMark,
+  leading,
+  priorityControl,
+  trailing,
+  showInWork,
+  busy,
 }: TaskRowProps) {
   const tick = useNow();
   const now = nowProp ?? tick;
@@ -148,6 +168,7 @@ export function TaskRow({
     approvals,
     canDecide,
     hideEpic,
+    showInWork,
   });
 
   const PrimaryIcon = m.primary ? ICONS[m.primary.icon] : null;
@@ -158,6 +179,7 @@ export function TaskRow({
   const hint = [
     `${m.key} · ${m.title}`,
     m.primary?.title,
+    m.inWork?.title,
     ...m.reasons.map((r) => r.title),
     m.stage.title,
     m.waiting?.title,
@@ -182,8 +204,19 @@ export function TaskRow({
           }
         />
       ) : null}
-      {m.priority ? <Token label={m.priority.label} className={m.priority.className} /> : null}
+      {priorityControl ?? (m.priority ? <Token label={m.priority.label} className={m.priority.className} /> : null)}
       {m.type ? <Token label={m.type} className="text-muted-foreground" /> : null}
+      {m.inWork ? (
+        <Token
+          color="blue"
+          label={
+            <>
+              <CirclePlay aria-hidden />
+              <span title={m.inWork.title}>{m.inWork.text}</span>
+            </>
+          }
+        />
+      ) : null}
       {m.epic ? (
         onPickEpic ? (
           <button
@@ -313,28 +346,40 @@ export function TaskRow({
     );
   }
 
+  const slotted = leading !== undefined || trailing !== undefined;
+
+  const rowBody = (
+    <div
+      className={cn('pointer-events-none relative flex min-w-0 flex-col gap-1', slotted && 'flex-1', busy && 'opacity-60')}>
+      <div className="flex min-w-0 items-start gap-2">
+        <span className="text-muted-foreground shrink-0 pt-0.5 font-mono text-xs tabular-nums">{m.key}</span>
+        <p className="line-clamp-2 min-w-0 flex-1 text-sm font-medium sm:line-clamp-1">{m.title}</p>
+      </div>
+      {primaryLine}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="contents [&_button]:pointer-events-auto">{tokens}</span>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">{facts}</div>
+      {m.progress ? <ProgressBar progress={m.progress} /> : null}
+    </div>
+  );
+
   return (
     <div
       data-density="row"
       data-task-key={task.key}
       data-queue-mark={queueMark}
+      aria-busy={busy || undefined}
       className={cn(
         'hover:bg-muted/40 relative rounded-lg border px-2.5 py-2 transition-colors',
         queueMark === 'assigned_other' && 'bg-muted/60 border-dashed',
+        slotted && 'flex items-start gap-2',
       )}>
+      {/* Шеврон (и ручка) — до ссылки в документе: Tab идёт слева направо. */}
+      {leading !== undefined ? <div className="relative z-10 flex shrink-0 items-start gap-0.5">{leading}</div> : null}
       {link}
-      <div className="pointer-events-none relative flex min-w-0 flex-col gap-1">
-        <div className="flex min-w-0 items-start gap-2">
-          <span className="text-muted-foreground shrink-0 pt-0.5 font-mono text-xs tabular-nums">{m.key}</span>
-          <p className="line-clamp-2 min-w-0 flex-1 text-sm font-medium sm:line-clamp-1">{m.title}</p>
-        </div>
-        {primaryLine}
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="contents [&_button]:pointer-events-auto">{tokens}</span>
-        </div>
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">{facts}</div>
-        {m.progress ? <ProgressBar progress={m.progress} /> : null}
-      </div>
+      {rowBody}
+      {trailing !== undefined ? <div className="relative z-10 -my-0.5 shrink-0">{trailing}</div> : null}
     </div>
   );
 }

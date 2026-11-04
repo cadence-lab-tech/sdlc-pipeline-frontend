@@ -1,5 +1,8 @@
 import type {ReactNode} from 'react';
+import {Link} from 'react-router-dom';
+import {ArrowRight} from 'lucide-react';
 
+import {Button} from '@/components/ui/button';
 import {ToggleGroup, ToggleGroupItem} from '@/components/ui/toggle-group';
 
 import type {ProjectDetail} from '../../api/types';
@@ -19,7 +22,8 @@ type RowProps = {
 // задач бэклога в порядке, который отдал сервер, — клиент строки не
 // сортирует и не правит. Только чтение: ни перетаскивания, ни правки
 // приоритета (это страница бэклога, CLAB-368). Нарезка эпика (parent) —
-// «Неначатые в эпике»: первые N неначатых детей. newTask — кнопка
+// «Неначатые в эпике»: первые N неначатых детей. В шапке — ссылка «Весь
+// бэклог» на страницу бэклога (CLAB-402), в нарезке эпика та же. newTask — кнопка
 // «Новая задача» страницы (тип по умолчанию из данных проекта).
 export function BacklogZone({
   data,
@@ -44,6 +48,12 @@ export function BacklogZone({
       aside={
         <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
           {inEpic ? null : <span data-backlog-total>{BACKLOG_TEXTS.total}</span>}
+          <Button asChild variant="link" size="sm" className="h-auto px-0" data-backlog-all>
+            <Link to={`/p/${rowProps.projectKey}/backlog`}>
+              {BACKLOG_TEXTS.all}
+              <ArrowRight aria-hidden />
+            </Link>
+          </Button>
           <ToggleGroup
             type="single"
             variant="outline"

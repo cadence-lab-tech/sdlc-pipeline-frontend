@@ -187,7 +187,9 @@ console.log('блок только читает');
 await s.goto(BASE + '/p/SDLC/overview');
 await sleep(2000);
 check('запросы страницы проекта — только GET', (await run('return window.__methods;')).every((m) => m === 'GET'), JSON.stringify(await run('return [...new Set(window.__methods)];')));
-check('ссылки «Весь бэклог» нет', !(await block()).text.includes('Весь бэклог'));
+// Ссылку «Весь бэклог» добавила страница бэклога (CLAB-402, К-2): переход
+// по ней — GET страницы, блок по-прежнему ничего не пишет.
+check('«Весь бэклог» ведёт на страницу бэклога', await run(`return Array.from(document.querySelectorAll('section[data-zone=backlog] a')).some((a) => a.innerText.trim().startsWith('Весь бэклог') && a.getAttribute('href') === '/p/SDLC/backlog');`));
 check('перетаскивания нет', await run(`return !document.querySelector('section[data-zone=backlog] [draggable=true]');`));
 
 // ── нарезка эпика ───────────────────────────────────────────────────────────

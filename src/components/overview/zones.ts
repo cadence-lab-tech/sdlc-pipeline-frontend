@@ -33,6 +33,8 @@ export const BACKLOG_TEXTS = {
   emptyHint: 'Всё начатое — в зонах выше. Новая задача попадёт сюда.',
   epicEmpty: 'Неначатых задач в эпике нет. Всё начатое — в зонах выше.',
   total: 'в бэклоге',
+  // Ссылка на страницу бэклога (CLAB-402) в шапке блока.
+  all: 'Весь бэклог',
 } as const;
 
 export const ZONE_EMPTY: Record<Exclude<ZoneKey, 'backlog'>, string> = {

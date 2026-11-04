@@ -41,5 +41,6 @@ export function normalizeRowFields(t: {[K in keyof TaskRowFields]?: unknown}): T
     child_counts: childCounts(t.child_counts),
     subtree_last_moved_at: typeof t.subtree_last_moved_at === 'string' ? t.subtree_last_moved_at : null,
     subtree_cost_usd: typeof t.subtree_cost_usd === 'number' ? t.subtree_cost_usd : null,
+    in_work: t.in_work === true,
   };
 }
