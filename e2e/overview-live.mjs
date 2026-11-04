@@ -28,13 +28,21 @@ const call = async (method, path, body) => {
   if (!res.ok) throw new Error(`${method} ${path}: ${res.status} ${JSON.stringify(json)}`);
   return json;
 };
-// Срочные — наверху бэклога: блок показывает первые 5 или 10, а проверка
-// «задача появилась» ищет строку на экране.
+// Порядок бэклога задаёт ранг (`order=backlog` = `rank, seq`, CLAB-399): новая
+// задача встаёт в конец своей группы, приоритет места не меняет. Блок
+// показывает первые 5 или 10 строк, а проверка «задача появилась» ищет строку
+// на экране, поэтому задачу, которую ищут после «пачки событий», поднимает
+// наверх createTop (POST /tasks/:key/rank {position: top}).
 const create = async (title, project = 'SDLC', priority = 'urgent') => (await call('POST', `/projects/${project}/tasks`, {title, priority})).key;
+const createTop = async (title) => {
+  const key = await create(title);
+  await call('POST', `/tasks/${key}/rank`, {position: 'top'});
+  return key;
+};
 const tag = Date.now().toString(36);
 // Страница открыта с поиском по метке прогона: на общем стенде от прежних
-// прогонов остаются срочные задачи, и они вытесняли бы наши из первых 5–10
-// строк блока.
+// прогонов остаются задачи, и они стояли бы в бэклоге по рангу выше наших и
+// вытесняли бы их из первых 5–10 строк блока.
 const OV = `/p/SDLC/overview?q=${tag}`;
 
 // Журнал запросов и подмены ответов ленты — до кода страницы. Режимы ленты:
@@ -100,6 +108,9 @@ const live = () => run(`
     announce: el.querySelector('[data-live-announce]')?.textContent || '',
     retry: Boolean(el.querySelector('[data-live-retry]'))} : null;
 `);
+// Задача в первых 10 строках бэклога прогона по ответу сервера — ровно как
+// читает блок «Обзора» (limit 10, поиск по метке).
+const inBlock = async (key) => (await call('GET', `/projects/SDLC/tasks?terminal=false&in_work=false&top_level=true&order=backlog&limit=10&q=${tag}`)).tasks.some((t) => t.key === key);
 const waitFor = async (expr, ms = 8000) => {
   const t0 = Date.now();
   while (Date.now() - t0 < ms) {
@@ -261,8 +272,8 @@ await waitFor(rowsOn(`Фокус Г ${tag}`), 8000);
 await sleep(500);
 fi = await focusInfo();
 check('событие, не менявшее строку в фокусе: фокус на месте', fi.key === gone[0], JSON.stringify(fi));
-// Убираем за собой: срочные задачи блока бэклога вытеснили бы из первых
-// 10 строк те, что заводят следующие разделы.
+// Убираем за собой: оставшиеся в бэклоге прогона задачи стоят в нём по рангу
+// выше заводимых позже и занимали бы строки блока.
 for (const k of [gone[0], gone[1]]) await post(`/tasks/${k}/transitions/cancel`);
 await post(`/tasks/${(await call('GET', `/projects/SDLC/tasks?q=${encodeURIComponent(`Фокус Б ${tag}`)}&limit=1`)).tasks[0].key}/transitions/cancel`);
 await post(`/tasks/${(await call('GET', `/projects/SDLC/tasks?q=${encodeURIComponent(`Фокус Г ${tag}`)}&limit=1`)).tasks[0].key}/transitions/cancel`);
@@ -311,7 +322,8 @@ const cursorBefore = inflight.u.match(/after=([^&]+)/)?.[1];
 const hideFrom = (await log()).length;
 await run(`window.__vis = 'hidden'; document.dispatchEvent(new Event('visibilitychange')); await sleep(300); return 1;`);
 check('скрытие отменило текущий долгий запрос', (await log()).filter((e) => e.kind === 'events').at(-1).aborted === true);
-const hiddenKey = await create(`Скрытая ${tag}`);
+const hiddenKey = await createTop(`Скрытая ${tag}`);
+check('«Скрытая» стоит в первых 10 строках бэклога (по ответу сервера)', await inBlock(hiddenKey));
 await sleep(8000);
 lg = (await log()).slice(hideFrom);
 check('за время скрытия новых запросов нет (ни ленты, ни списков)', lg.length === 0, JSON.stringify(lg.map((e) => e.u)));
@@ -339,7 +351,7 @@ await sleep(6500);
 lg = (await log()).slice(offFrom).filter((e) => e.kind === 'events');
 check('повтор через 5 с (один запрос ленты)', lg.length === 1, String(lg.length));
 await run(`window.__eventsMode = ''; return 1;`);
-const afterRetry = await create(`После обрыва ${tag}`);
+const afterRetry = await createTop(`После обрыва ${tag}`);
 await run(`document.querySelector('[data-live-retry]').click(); return 1;`);
 const dtBack = await waitFor(`document.querySelector('[data-live-mode=live]')`, 4000);
 check('«Повторить»: связь вернулась', dtBack !== null);
@@ -368,7 +380,7 @@ await sleep(1500);
 const viewerNote = () => run(`return Boolean(document.querySelector('[data-viewer-note]')) && document.querySelector('[data-viewer-note]').innerText.includes('Решать может уровень сопровождающего и выше');`);
 check('подпись о правах показана', await viewerNote());
 const vKey = `Наблюдатель ${tag}`;
-await create(vKey);
+await createTop(vKey);
 check('событие под наблюдателем: страница обновилась без ошибок', (await waitFor(rowsOn(vKey), 5000)) !== null && (await viewerNote()) && !(await run('return texts();')).includes('Не получилось'));
 check('лента ответила наблюдателю 200', (await log()).filter((e) => e.kind === 'events' && e.status !== null).every((e) => e.status === 200 || e.status === 400 || e.status === 0));
 await run('window.__viewer = false; return 1;');
@@ -444,7 +456,8 @@ check('подсказка про ручку', /Ручки событий нет 
 let t = await run('return texts();');
 check('зоны показаны, ни баннера ошибки, ни пустых зон', (await run(`return document.querySelectorAll('section[data-zone] [data-density]').length;`)) > 3 && !t.includes('Не получилось') && !t.includes('не открылся'));
 const n404 = (await log()).length;
-await create(`Без ручки ${tag}`);
+const noHandleKey = await createTop(`Без ручки ${tag}`);
+check('«Без ручки» стоит в первых 10 строках бэклога (по ответу сервера)', await inBlock(noHandleKey));
 await sleep(20_000);
 check('до 30 с события не перечитывают страницу', !(await run(`return ${rowsOn(`Без ручки ${tag}`)};`)));
 const ok30 = await waitFor(rowsOn(`Без ручки ${tag}`), 15_000);
