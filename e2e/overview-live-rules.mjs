@@ -465,7 +465,9 @@ console.log('структура');
   const uses = readdirSync(new URL('../src/', import.meta.url), {recursive: true})
     .filter((f) => /\.tsx?$/.test(f))
     .filter((f) => /useProjectEvents\(/.test(read('src/' + f)) && !f.endsWith('useProjectEvents.ts'));
-  check('хук подключён к «Обзору» в одной точке', uses.length === 1 && /Overview\.tsx$/.test(uses[0]), uses.join());
+  // Страница бэклога (CLAB-402) подписывается тем же хуком — второй точкой.
+  check('хук подключён к «Обзору» и «Бэклогу» — по одной точке', uses.length === 2 &&
+    uses.some((f) => /Overview\.tsx$/.test(f)) && uses.some((f) => /Backlog\.tsx$/.test(f)), uses.join());
   const overview = noComments(files['src/pages/Overview.tsx']);
   check('страница перечитывает одним путём: reloadAll', /reloadRef\.current = data\.reloadAll/.test(overview) && /onCreated=\{data\.reloadAll\}/.test(overview));
 }

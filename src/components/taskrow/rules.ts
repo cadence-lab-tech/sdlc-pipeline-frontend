@@ -56,6 +56,9 @@ export interface RowOptions {
   canDecide?: boolean;
   // Не показывать токен эпика — страница уже внутри нарезки этого эпика.
   hideEpic?: boolean;
+  // Показывать пометку «в работе» по in_work сервера (страница бэклога,
+  // CLAB-368). По умолчанию нет: на «Обзоре» зона уже говорит, что в работе.
+  showInWork?: boolean;
 }
 
 interface ZoneRules {
@@ -100,6 +103,8 @@ export interface RowModel {
   versionFailed: boolean;
   // Главная причина строки (значок, текст) — в зонах с заголовком.
   primary: Reason | null;
+  // Пометка «в работе» (страница бэклога): строка сама в работе.
+  inWork: {text: string; title: string} | null;
   // Остальные причины токенами в порядке сервера.
   reasons: Reason[];
   stage: {text: string; title: string};
@@ -112,6 +117,13 @@ export interface RowModel {
   cost: {text: string; title: string; hasData: boolean} | null;
   progress: ProgressModel | null;
 }
+
+// Пометка «в работе» на странице бэклога (design.spec CLAB-368 §4.1): на
+// странице такая строка бывает только эпиком с неначатыми детьми.
+export const IN_WORK = {
+  text: 'в работе',
+  title: 'Эпик в работе: на странице, пока у него есть неначатые задачи',
+} as const;
 
 export interface ProgressModel {
   done: number;
@@ -271,6 +283,7 @@ export function buildRowModel(task: TaskRow, o: RowOptions): RowModel {
     oldVersion: isOldVersion(task, o.activeWorkflows),
     versionFailed: o.versionFailed === true,
     primary,
+    inWork: o.showInWork && task.in_work === true ? IN_WORK : null,
     reasons: tokens,
     stage: {text: stageText, title: stageText},
     holder: handle ? {handle, live: run?.lease_alive === true} : null,

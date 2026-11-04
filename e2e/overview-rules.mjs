@@ -295,7 +295,10 @@ check('страница обёрнута в WorkflowVersionsProvider', /<Workflo
 check('блок «Приоритетные из бэклога» стоит в слоте «Дальше»', /<BacklogZone/.test(page) && /zone="backlog"/.test(sources.find(([n]) => n === 'BacklogZone.tsx')[1]));
 const block = sources.find(([n]) => n === 'BacklogZone.tsx')[1];
 check('AC-8.5: блок только читает — ни PATCH/POST/PUT, ни перетаскивания', !/\b(PATCH|POST|PUT|DELETE)\b|onDrag|onDrop|draggable|dnd/i.test(block) && !/api\./.test(block));
-check('AC-8.5: ссылки «Весь бэклог» нет', !/Весь бэклог/.test(block + page));
+// Ссылку «Весь бэклог» добавила страница бэклога (CLAB-402, К-2): до неё
+// блок ссылки не имел. Запросы блока при этом не меняются.
+check('К-2 (CLAB-402): «Весь бэклог» — ссылка на страницу бэклога, без запросов', Z.BACKLOG_TEXTS.all === 'Весь бэклог' &&
+  /to=\{`\/p\/\$\{rowProps\.projectKey\}\/backlog`\}/.test(block) && !/Весь бэклог/.test(page));
 check('AC-8.11: блок не делает запросов сам — данные из общего useOverview (refresh)', /backlog = useZoneData/.test(hook) && /\btick\b/.test(hook.slice(hook.indexOf('backlog = useZoneData'), hook.indexOf('const epics'))));
 check('N хранится не под префиксом свёрнутости', !Z.BACKLOG_SIZE_PREFIX.startsWith('sdlc.collapsed.') && Z.backlogSizeKey('A') !== Z.backlogSizeKey('B'));
 

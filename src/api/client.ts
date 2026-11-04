@@ -50,6 +50,8 @@ import type {
   Task,
   TaskRow,
   TaskListPage,
+  RankResult,
+  RankTaskBody,
   ListTasksQuery,
   Approvals,
   TaskDetail,
@@ -1186,6 +1188,20 @@ export const api = {
   // каждого своя.
   updateTask: (taskKey: string, body: Record<string, unknown>) =>
     request<Task>(`/tasks/${taskKey}`, patch(body)).then(normalizeTask),
+
+  // Место задачи в её группе бэклога (решение 0075, CLAB-399): уровень agent
+  // и выше. Порядок считает сервер; клиент называет только соседа или край.
+  rankTask: (taskKey: string, body: RankTaskBody) =>
+    request<RankResult>(`/tasks/${taskKey}/rank`, post(body)).then(
+      (r): RankResult => ({
+        ...r,
+        task: normalizeTask(r.task),
+        changed: r.changed === true,
+        parent: r.parent ?? null,
+        above: r.above ?? null,
+        below: r.below ?? null,
+      }),
+    ),
 
   // Назначение адресное: назначенную задачу заберёт только этот принципал
   // (решение 0025). Пустой хэндл снимает назначение.

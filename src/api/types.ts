@@ -442,6 +442,10 @@ export interface Task {
   // задачи → включён ли. Сервер отдаёт полный набор, `{}` — у цикла без
   // необязательных; сервер старше CLAB-315 поля не отдаёт, клиент читает `{}`.
   optional_stages: Record<string, boolean>;
+  // Место в группе бэклога (решение 0075, CLAB-399): непрозрачная строка,
+  // клиент её не сравнивает и не строит — порядок отдаёт сервер. Сервер
+  // старше CLAB-399 поля не отдаёт.
+  rank?: string;
   created_at: string;
   updated_at: string;
   closed_at?: string;
@@ -501,6 +505,9 @@ export interface TaskRow extends Task {
   // Только у задач с детьми: движение и стоимость поддерева вместе с задачей.
   subtree_last_moved_at: string | null;
   subtree_cost_usd: number | null;
+  // Задача «в работе» по правилу движка (CLAB-399, то же выражение, что
+  // фильтр in_work). Сервер старше поля не отдаёт — false.
+  in_work: boolean;
 }
 
 // Параметры списка задач (CLAB-327, CLAB-375). Всё необязательно: без
@@ -518,6 +525,9 @@ export interface ListTasksQuery {
   order?: "updated" | "backlog";
   terminal?: boolean;
   in_work?: boolean;
+  // Выборка страницы «Бэклог» (решение 0075): не закрытые и не «в работе»,
+  // плюс эпики «в работе» с неначатыми детьми.
+  backlog?: boolean;
   top_level?: boolean;
   attention?: string;
   attention_not?: string;
@@ -530,6 +540,25 @@ export interface ListTasksQuery {
 export interface TaskListPage {
   tasks: TaskRow[];
   total: number;
+}
+
+// Место в бэклоге (POST /tasks/:key/rank, решение 0075): ровно одно из
+// before (встать над задачей), after (встать под задачей), position (край
+// группы).
+export type RankTaskBody =
+  | { before: string }
+  | { after: string }
+  | { position: "top" | "bottom" };
+
+// Ответ перемещения: above и below — ближайшие незакрытые соседи после него
+// (null — край группы), parent — ключ эпика группы (null — верхний уровень).
+// changed: false — задача уже стояла там, событие не пишется.
+export interface RankResult {
+  task: Task;
+  changed: boolean;
+  parent: string | null;
+  above: string | null;
+  below: string | null;
 }
 
 // ── «Ждут решения» (CLAB-326) ───────────────────────────────────────────────

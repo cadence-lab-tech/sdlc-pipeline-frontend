@@ -14,6 +14,7 @@ import {
   BookOpen,
   FolderKanban,
   LayoutDashboard,
+  ListOrdered,
   LogOut,
   Moon,
   ScrollText,
@@ -82,6 +83,7 @@ import { Settings } from "./pages/Settings";
 import { TaskDetail } from "./pages/TaskDetail";
 import { NotFound } from "./pages/NotFound";
 import { Overview } from "./pages/Overview";
+import { Backlog } from "./pages/Backlog";
 
 export function App() {
   return (
@@ -171,6 +173,15 @@ export function App() {
                 </Shell>
               }
             />
+            {/* Бэклог с ручным порядком (CLAB-402, эпик CLAB-368). */}
+            <Route
+              path="/p/:projectKey/backlog"
+              element={
+                <Shell page="backlog">
+                  <Backlog />
+                </Shell>
+              }
+            />
             {/* Роли и цикл — одна страница (решение 0068 §7). Старых адресов
                 /roles и /workflow нет: они попадают в «Страница не найдена»
                 (решение человека 2026-11-02). */}
@@ -255,6 +266,7 @@ type Page =
   | "docs"
   | "github"
   | "overview"
+  | "backlog"
   | "pipeline"
   | "search"
   | "metrics"
@@ -269,6 +281,7 @@ const TITLES: Record<Page, string> = {
   docs: "Подключение",
   github: "Подключение GitHub",
   overview: "Обзор",
+  backlog: "Бэклог",
   pipeline: "Пайплайн",
   search: "Поиск",
   metrics: "Метрики",
@@ -489,12 +502,18 @@ function Nav({
 
   const inProject: NavEntry[] = projectKey
     ? [
-        // «Обзор» — первый пункт; «Бэклог» (CLAB-368) встанет сразу за ним.
+        // «Обзор» — первый пункт, «Бэклог» (CLAB-368) — сразу за ним.
         {
           page: "overview",
           label: "Обзор",
           icon: LayoutDashboard,
           href: `/p/${projectKey}/overview`,
+        },
+        {
+          page: "backlog",
+          label: "Бэклог",
+          icon: ListOrdered,
+          href: `/p/${projectKey}/backlog`,
         },
         {
           page: "pipeline",

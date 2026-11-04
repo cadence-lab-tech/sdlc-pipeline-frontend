@@ -13,6 +13,7 @@ const EVENT_LABELS: Record<string, string> = {
   'task.unlinked': 'связь снята',
   'task.scope_updated': 'область задачи изменена',
   'task.workflow_moved': 'переехала на новую версию цикла',
+  'task.ranked': 'место в бэклоге изменено',
   'stage.entered': 'этап начат',
   'stage.skipped': 'этап пропущен',
   'stage.claimed': 'этап забран',
@@ -190,6 +191,26 @@ function scope(payload: Payload): string {
   ]);
 }
 
+// Место в бэклоге (task.ranked, решение 0075): нагрузка {parent, above,
+// below} — ключ эпика группы (null — верхний уровень) и ближайшие соседи после
+// перемещения (above — выше, below — ниже, null — край группы). Нет хотя бы
+// одного из полей соседей или они не строки и не null — нагрузка незнакомая, строки
+// нет (design.spec CLAB-368 §8).
+export function rankedSummary(payload: Payload): string {
+  // Ключ задачи — непустая строка; null — край группы; иное — незнакомое.
+  const neighbor = (v: unknown) => (v === null ? null : typeof v === 'string' ? text(v) : undefined);
+  if (!('above' in payload) || !('below' in payload)) return '';
+  const above = neighbor(payload.above);
+  const below = neighbor(payload.below);
+  if (above === undefined || below === undefined) return '';
+  const parent = payload.parent === null || payload.parent === undefined ? null : neighbor(payload.parent);
+  if (parent === undefined) return '';
+  const group = parent ? `эпика ${parent}` : 'бэклога';
+  if (!above) return `в начало ${group}`;
+  if (!below) return `в конец ${group}`;
+  return join([`над ${below}`, `под ${above}`, parent ? `в эпике ${parent}` : undefined]);
+}
+
 // Исходы гейта, которые переход не держат (GateOutcome.Passed на бэкенде).
 const PASSING = ['passed', 'waived', 'skipped'];
 
@@ -249,6 +270,8 @@ export function eventDetails(
         moved && `этапы: ${moved}`,
       ]));
     }
+    case 'task.ranked':
+      return only(rankedSummary(p));
     case 'stage.skipped':
       return only(join([
         text(p.status),
