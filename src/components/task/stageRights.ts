@@ -1,5 +1,5 @@
-// Право этапа на карточке задачи (решение 0072, п. 9, CLAB-383): какие кнопки
-// показать и какой текст поставить на место отсутствующих. Право считает
+// Право этапа на карточке задачи (решение 0072, п. 9, CLAB-383, CLAB-409):
+// какие кнопки показать и какой текст поставить на место отсутствующих. Право считает
 // сервер и присылает его полями actor_may, actor_may_decide, actor_decisions
 // и actor_deny; здесь они только читаются — роль участника, ключ статуса и
 // уровень доступа не сравниваются ни с чем. Поля, которых нет в ответе
@@ -58,4 +58,24 @@ export function gateControl(check: GateRights, canAct: boolean): GateControl {
   // и на пройденном гейте.
   const save = may('passed');
   return {approve: false, reject: false, save, deny: !save ? check.actor_deny?.message : undefined};
+}
+
+export interface WaiveControl {
+  // Кнопка «Снять предел» (вердикт waived).
+  button: boolean;
+}
+
+// Снятие предела попыток и времени. Сервер отдаёт actor_decisions по гейту; у
+// предела человек вправе вынести только waived (passed и failed — подмена
+// вычисления движка), поэтому кнопка — когда waived единственный разрешённый
+// вердикт. У гейтов, где человек решает любым вердиктом (апрув, чек-лист),
+// waived идёт в списке вместе с passed и failed — это не предел, и «Снять
+// предел» там не нужна. Тип гейта не сравнивается: типы — данные цикла. Нет
+// списка (сервер прежней версии) — кнопки нет. Закрытый гейт не снимают.
+export function waiveControl(check: GateRights, canAct: boolean): WaiveControl {
+  if (!canAct || check.status === 'passed' || check.status === 'waived' || check.status === 'skipped') {
+    return {button: false};
+  }
+  const verdicts = allowed(check);
+  return {button: verdicts !== null && verdicts.includes('waived') && verdicts.every((v) => v === 'waived')};
 }

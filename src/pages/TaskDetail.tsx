@@ -26,6 +26,7 @@ import {Attachments} from '../components/task/AttachmentsSection';
 import {Stages} from '../components/task/Stages';
 import {UsageLines} from '../components/task/Usage';
 import {isLeaseLive} from '../components/task/lease';
+import {rightOf} from '../components/task/taskRights';
 import {useTaskLevelEditable} from '../hooks/useTaskLevelEditable';
 
 // Пока аренда жива, за карточкой стоит агент на другой машине: он сдаёт
@@ -153,6 +154,7 @@ export function TaskDetail() {
               skipped={skipped}
               stageEvents={stageEvents}
               levelEditable={levelEditable}
+              rights={detail.actor_rights}
               onClearStage={() => setStage(undefined)}
               onChanged={reload}
             />
@@ -174,6 +176,7 @@ export function TaskDetail() {
               project={project.data}
               workflow={workflow.data}
               levelEditable={levelEditable}
+              rights={detail.actor_rights}
               onChanged={reload}
             />
             {detail.links.length > 0 ? (
@@ -196,6 +199,9 @@ export function TaskDetail() {
 // показывается — он в «Деталях», где его и меняют.
 function Header({detail, onChanged}: {detail: TaskDetailData; onChanged: () => void}) {
   const {task} = detail;
+  // «Править постановку» — по праву сервера; сервер прежней версии права не
+  // присылает, и кнопка стоит, как стояла.
+  const mayEdit = rightOf(detail.actor_rights, 'edit', true);
 
   return (
     <div className="space-y-2 border-b p-4">
@@ -204,7 +210,7 @@ function Header({detail, onChanged}: {detail: TaskDetailData; onChanged: () => v
           <CopyKey taskKey={task.key} />
           <h1 className="text-2xl font-semibold tracking-tight">{task.title}</h1>
         </div>
-        <EditTaskDialog task={task} onChanged={onChanged} />
+        {mayEdit ? <EditTaskDialog task={task} onChanged={onChanged} /> : null}
       </div>
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <Badge variant="secondary">{task.status_name}</Badge>

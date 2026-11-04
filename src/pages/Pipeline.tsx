@@ -68,6 +68,7 @@ import {
   type InstructionNotice,
 } from '../components/pipeline/InstructionLibrary';
 import {useTaskLevelEditable} from '../hooks/useTaskLevelEditable';
+import {cycleControls} from '../components/pipeline/cycleRights';
 import {activateText, activateTitle, stateLabel, versionLabel} from '../components/pipeline/labels';
 import {
   ZOOM_FIT_MAX,
@@ -111,8 +112,10 @@ export function Pipeline() {
   );
 
   const project = useResource(() => api.getProject(projectKey), [projectKey]);
-  // Право правки библиотеки: знает, что maintainer нет, — кнопок нет; не
-  // знает — кнопки есть, отказ покажет сервер (design.spec CLAB-351 §3).
+  // Подсказка по уровню доступа, общая для библиотеки инструкций и правки
+  // цикла: знает, что права нет, — кнопок нет (библиотека) или они неактивны с
+  // пояснением (цикл, CLAB-409); не знает — кнопки есть, отказ покажет сервер
+  // (design.spec CLAB-351 §3).
   const canEditLibrary = useTaskLevelEditable(projectKey, project.data?.project.owner_team_key);
   const versions = useResource(() => api.listWorkflows(projectKey), [projectKey]);
   const roles = useResource(() => api.listRoles(projectKey, true), [projectKey]);
@@ -248,7 +251,8 @@ export function Pipeline() {
 
   const typeHeads = heads.filter((w) => w.task_types.includes(type)).sort((a, b) => b.version - a.version);
   const draftOfType = typeHeads.find((w) => w.state === 'draft');
-  const editable = Boolean(isDraft);
+  // Кнопки правки цикла неактивны, если права нет; сервер проверяет всё равно.
+  const {editable, locked, hint: lockedHint} = cycleControls(Boolean(isDraft), canEditLibrary);
 
   const createDraft = async (body: {from: string; task_types: string[]}) => {
     setHeadError(undefined);
@@ -494,6 +498,7 @@ export function Pipeline() {
             type={type}
             heads={typeHeads}
             onPick={(id) => set({wf: id, status: undefined, transition: undefined})}
+            locked={locked}
             onCopy={() => void copyThis()}
             onEmpty={() => void emptyDraft()}
           />
@@ -506,24 +511,34 @@ export function Pipeline() {
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {wf && isDraft ? (
             <>
-              <Button size="sm" variant="ghost" onClick={() => setDialog({kind: 'draft-head'})}>
+              <Button size="sm" variant="ghost" disabled={locked} onClick={() => setDialog({kind: 'draft-head'})}>
                 Название и типы
               </Button>
               <ConfirmButton
                 variant="secondary"
+                disabled={locked}
                 title="Удалить черновик?"
                 description={`Черновик ${versionLabel(wf)} пропадёт вместе со всеми правками`}
                 onConfirm={deleteDraft}>
                 Удалить черновик
               </ConfirmButton>
-              <ActivateButton blockedReason={blockedReason} busy={isBusy} onClick={() => setConfirmActivate(true)} />
+              <ActivateButton
+                blockedReason={locked ? lockedHint : blockedReason}
+                busy={isBusy}
+                onClick={() => setConfirmActivate(true)}
+              />
             </>
           ) : wf && !mobile ? (
-            <Button size="sm" variant="secondary" onClick={() => void copyThis()}>
+            <Button size="sm" variant="secondary" disabled={locked} onClick={() => void copyThis()}>
               Черновик копией этой версии
             </Button>
           ) : null}
         </div>
+        {lockedHint ? (
+          <p className="text-muted-foreground w-full text-xs" data-pipeline-cycle-hint>
+            {lockedHint}
+          </p>
+        ) : null}
       </div>
 
       {headError ? (
@@ -547,8 +562,8 @@ export function Pipeline() {
                     Обзор
                   </Button>
                 ) : null}
-                {editable ? (
-                  <Button size="sm" variant="secondary" onClick={() => setDialog({kind: 'status-new'})}>
+                {isDraft ? (
+                  <Button size="sm" variant="secondary" disabled={locked} onClick={() => setDialog({kind: 'status-new'})}>
                     Добавить статус
                   </Button>
                 ) : null}
@@ -609,10 +624,13 @@ export function Pipeline() {
                 description="Задачи этого типа завести нельзя, пока у типа нет активного цикла. Начните с черновика: пустого или копией цикла другого типа"
                 action={
                   <div className="flex flex-wrap justify-center gap-2">
-                    <Button onClick={() => void emptyDraft()}>Пустой черновик</Button>
+                    <Button disabled={locked} onClick={() => void emptyDraft()}>
+                      Пустой черновик
+                    </Button>
                     {otherActive ? (
                       <Button
                         variant="secondary"
+                        disabled={locked}
                         onClick={() => void createDraft({from: otherActive.id, task_types: [type]})}>
                         Копией цикла {otherActive.task_types[0]}
                       </Button>
@@ -620,6 +638,7 @@ export function Pipeline() {
                   </div>
                 }
               />
+              {lockedHint ? <p className="text-muted-foreground mt-2 text-center text-xs">{lockedHint}</p> : null}
               {draftOfType ? (
                 <div className="mt-3 text-center">
                   <Button variant="link" size="sm" onClick={() => set({wf: draftOfType.id, ...NO_SELECTION})}>
@@ -793,6 +812,7 @@ function VersionMenu({
   type,
   heads,
   onPick,
+  locked,
   onCopy,
   onEmpty,
 }: {
@@ -800,6 +820,8 @@ function VersionMenu({
   type: string;
   heads: WorkflowHead[];
   onPick: (id: UUID) => void;
+  // Права на правку цикла нет: черновик не завести.
+  locked: boolean;
   onCopy: () => void;
   onEmpty: () => void;
 }) {
@@ -824,8 +846,12 @@ function VersionMenu({
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={onCopy}>Черновик копией этой версии</DropdownMenuItem>
-        <DropdownMenuItem onSelect={onEmpty}>Пустой черновик</DropdownMenuItem>
+        <DropdownMenuItem disabled={locked} onSelect={onCopy}>
+          Черновик копией этой версии
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={locked} onSelect={onEmpty}>
+          Пустой черновик
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -154,6 +154,14 @@ const WHO = `
   window.fetch = async (input, init) => {
     const url = typeof input === 'string' ? input : input.url;
     const who = sessionStorage.getItem('e2e.who');
+    // Сценарий проверяет решение «по уровню доступа», которое осталось запасным
+    // путём для сервера без права (CLAB-409): с уровнем в /auth/me карточка
+    // отвечает как сервер прежней версии, без actor_rights.
+    if (who && /\\/v1\\/tasks\\/[^/?]+$/.test(url) && (init?.method ?? 'GET') === 'GET') {
+      const data = await (await prevFetch(input, init)).json();
+      delete data.actor_rights;
+      return new Response(JSON.stringify(data), {status: 200, headers: {'Content-Type': 'application/json'}});
+    }
     if (!who || !/\\/v1\\/auth\\/me$/.test(url)) return prevFetch(input, init);
     if (who === 'fail-card' && new Error().stack.includes('useTaskLevelEditable')) {
       return new Response(JSON.stringify({error: {code: 'internal', message: 'сбой (e2e)'}}), {status: 500, headers: {'Content-Type': 'application/json'}});

@@ -14,6 +14,7 @@ import type {
   TaskDetail,
   TaskPropertyDef,
   TaskRepoRef,
+  TaskRights,
   Workflow,
 } from '../../api/types';
 import {useResource} from '../../api/useResource';
@@ -27,6 +28,11 @@ import {
   stageToggles,
 } from '../optionalStage';
 import {priorityClass, priorityLabel} from '../priorities';
+import {denyOf, reasonOf, rightOf} from './taskRights';
+
+// Подсказка ползунка уровня задачи для сервера без права: он решает по уровню
+// доступа. Сервер с правом присылает свой текст отказа.
+const TASK_LEVEL_LEGACY_HINT = 'Уровень задачи меняет сопровождающий проекта';
 
 // «Детали» — список ключ-значение: всё, что задача про себя знает, одной
 // колонкой. Формы (назначение, свойства, расширение области) по умолчанию
@@ -37,6 +43,7 @@ export function Details({
   project,
   workflow,
   levelEditable,
+  rights,
   onChanged,
 }: {
   detail: TaskDetail;
@@ -51,7 +58,12 @@ export function Details({
   // Версия цикла задачи: по ней выбираются необязательные этапы (решение
   // 0066); пока она не загружена или этапов нет, блока нет.
   workflow?: Workflow;
+  // Запасное решение по уровню доступа — для сервера, который права не
+  // присылает.
   levelEditable: boolean;
+  // Право сервера на карточку (actor_rights): правка, выбор этапов,
+  // исполнитель, свойства и область. Нет — поведение прежнее.
+  rights?: TaskRights;
   onChanged: () => void;
 }) {
   const {task} = detail;
@@ -91,15 +103,26 @@ export function Details({
           <Token label={priorityLabel(task.priority)} className={priorityClass(task.priority)} />
         </DetailRow>
         <DetailRow label="Уровень модели">
-          <TaskModelLevel task={task} editable={levelEditable} onChanged={onChanged} />
+          <TaskModelLevel
+            task={task}
+            editable={rightOf(rights, 'edit', levelEditable)}
+            reason={reasonOf(rights, 'edit', TASK_LEVEL_LEGACY_HINT)}
+            onChanged={onChanged}
+          />
         </DetailRow>
         {stageRows.length > 0 ? (
           <DetailRow label={OPTIONAL_STAGES_TITLE}>
-            <TaskStages task={task} workflow={workflow} editable={levelEditable} onChanged={onChanged} />
+            <TaskStages
+              task={task}
+              workflow={workflow}
+              editable={rightOf(rights, 'stage_choice', levelEditable)}
+              reason={reasonOf(rights, 'stage_choice', STAGES_READONLY_HINT)}
+              onChanged={onChanged}
+            />
           </DetailRow>
         ) : null}
         <DetailRow label="Исполнитель">
-          <Assignee task={task} onChanged={onChanged} />
+          <Assignee task={task} canAssign={rightOf(rights, 'assign', true)} deny={denyOf(rights, 'assign')} onChanged={onChanged} />
         </DetailRow>
         {task.parent_key ? (
           <DetailRow label="Родитель">
@@ -126,7 +149,10 @@ export function Details({
 
       {scopeError ? <Failure error={scopeError} title="Область не изменена" /> : null}
 
-      {project ? (
+      {project && !rightOf(rights, 'scope', true) ? (
+        <ReadOnlyReason text={denyOf(rights, 'scope')} data="scope" />
+      ) : null}
+      {project && rightOf(rights, 'scope', true) ? (
         editing ? (
           <div className="space-y-4 rounded-lg border p-3">
             {defs.map((def) => (
@@ -165,6 +191,17 @@ export function Details({
         )
       ) : null}
     </Section>
+  );
+}
+
+// Причина, по которой действие недоступно: текст сервера дословно; нет
+// текста — нет и строки.
+function ReadOnlyReason({text, data}: {text?: string; data: string}) {
+  if (!text) return null;
+  return (
+    <p className="text-muted-foreground text-xs" data-right-deny={data}>
+      {text}
+    </p>
   );
 }
 
@@ -253,14 +290,18 @@ function RefLink({refItem}: {refItem: TaskRepoRef}) {
 // захвате, идущий прогон не меняется — его снимок уже сделан. Сдвиг
 // сохраняется сразу, без кнопки: правка одного поля обратима тем же кликом.
 // Уровни этапов (stage_settings) двигает панель этапа (CLAB-285); право у
-// обоих ползунков одно — useTaskLevelEditable на странице.
+// обоих ползунков одно — `edit` из actor_rights, а у сервера без права —
+// useTaskLevelEditable на странице.
 function TaskModelLevel({
   task,
   editable,
+  reason,
   onChanged,
 }: {
   task: Task;
   editable: boolean;
+  // Почему ползунок только для просмотра: текст сервера или прежний текст.
+  reason?: string;
   onChanged: () => void;
 }) {
   const [error, setError] = useState<ApiError>();
@@ -289,7 +330,7 @@ function TaskModelLevel({
         disabled={!editable}
         busy={busy}
         label="Уровень модели задачи"
-        title={editable ? undefined : 'Уровень задачи меняет сопровождающий проекта'}
+        title={editable ? undefined : reason}
       />
       {error ? <Failure error={error} title="Уровень не изменён" /> : null}
     </div>
@@ -307,11 +348,14 @@ function TaskStages({
   task,
   workflow,
   editable,
+  reason: deny,
   onChanged,
 }: {
   task: Task;
   workflow?: Workflow;
   editable: boolean;
+  // Почему выбор только для просмотра: текст сервера или прежний текст.
+  reason?: string;
   onChanged: () => void;
 }) {
   const [error, setError] = useState<ApiError>();
@@ -334,7 +378,7 @@ function TaskStages({
   };
 
   const readOnly = !editable || denied !== undefined;
-  const reason = denied ?? (editable ? undefined : STAGES_READONLY_HINT);
+  const reason = denied ?? (editable ? undefined : deny);
 
   return (
     <div className="space-y-2" data-task-stages data-readonly={readOnly ? 'true' : undefined} aria-busy={busy}>
@@ -369,7 +413,18 @@ function TaskStages({
 // Исполнителем может быть любой принципал, а не только участник проекта: агент
 // заводится при первом обращении и участником становится не всегда. Поэтому
 // участники — подсказка, а не ограничение: когда их нет, хэндл вводится руками.
-function Assignee({task, onChanged}: {task: Task; onChanged: () => void}) {
+function Assignee({
+  task,
+  canAssign,
+  deny,
+  onChanged,
+}: {
+  task: Task;
+  // Право сервера на назначение; нет — «Изменить» скрыта, причина — его текст.
+  canAssign: boolean;
+  deny?: string;
+  onChanged: () => void;
+}) {
   const members = useResource(() => api.listMembers(task.project_key), [task.project_key]);
   const [editing, setEditing] = useState(false);
   const [handle, setHandle] = useState(task.assignee_handle ?? '');
@@ -443,10 +498,12 @@ function Assignee({task, onChanged}: {task: Task; onChanged: () => void}) {
             </Button>
           </div>
         </div>
-      ) : (
+      ) : canAssign ? (
         <Button size="sm" variant="ghost" className="-ml-2" onClick={() => setEditing(true)}>
           Изменить
         </Button>
+      ) : (
+        <ReadOnlyReason text={deny} data="assign" />
       )}
     </div>
   );
