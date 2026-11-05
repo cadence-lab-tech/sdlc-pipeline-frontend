@@ -6,7 +6,7 @@ import {Label} from '@/components/ui/label';
 import {StatusDot, Timestamp, Token, type DotVariant} from '@/components/kit';
 
 import type {Gate, GateCheck, RunGateVerdict} from '../api/types';
-import {gateControl} from './task/stageRights';
+import {gateControl, waiveControl} from './task/stageRights';
 
 // Вердикт по гейту считает бэкенд — фронтенд его показывает, а не пересчитывает.
 const GATE_VARIANT: Record<GateCheck['status'], DotVariant> = {
@@ -155,8 +155,27 @@ function GateDetails({
     }
 
     default:
-      return null;
+      return <WaiveButton check={check} onDecide={onDecide} />;
   }
+}
+
+// Снять предел попыток или времени: решение waived, а не passed. Кнопка — по
+// actor_decisions сервера, тип гейта не смотрим.
+function WaiveButton({
+  check,
+  onDecide,
+}: {
+  check: GateCheck;
+  onDecide?: (status: string, details?: unknown) => void;
+}) {
+  if (!onDecide || !waiveControl(check, true).button) return null;
+  return (
+    <div className="flex gap-2">
+      <Button size="sm" variant="secondary" data-gate-waive={check.gate_key} onClick={() => onDecide('waived')}>
+        Снять предел
+      </Button>
+    </div>
+  );
 }
 
 // Причина отказа в решении — текст сервера дословно (actor_deny.message).

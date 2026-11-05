@@ -862,6 +862,20 @@ export interface UsageSummary {
   subtree_subscription_cost_usd: number;
 }
 
+// Право того, кто спрашивает, на действия с карточкой (CLAB-411, решение 0072,
+// п. 9). Считает сервер, клиент его не вычисляет: булевы — вправе ли актор,
+// actor_deny — почему нет, по имени действия. Поля move нет: перевод в статус
+// появится вместе с CLAB-407/408. Нет объекта у сервера прежней версии.
+export interface TaskRights {
+  edit?: boolean;
+  stage_choice?: boolean;
+  create_child?: boolean;
+  assign?: boolean;
+  link?: boolean;
+  scope?: boolean;
+  actor_deny?: Record<string, ActorDenial>;
+}
+
 export interface TaskDetail {
   task: Task;
   stage_runs: StageRun[];
@@ -871,6 +885,7 @@ export interface TaskDetail {
   children: Task[];
   links: TaskLink[];
   usage: UsageSummary;
+  actor_rights?: TaskRights;
 }
 
 // Привязка задачи к репозиторию: PR, ветка или коммит. Вид привязки —

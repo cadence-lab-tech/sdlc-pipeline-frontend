@@ -9,7 +9,7 @@ import {Collapsible, CollapsibleContent, CollapsibleTrigger} from '@/components/
 import {StatusDot, Timestamp, Token, type DotVariant} from '@/components/kit';
 
 import {ApiError, api} from '../../api/client';
-import type {Artifact, ModelLevel, StageRun, Status, TaskDetail, TaskEvent, Workflow} from '../../api/types';
+import type {Artifact, ModelLevel, StageRun, Status, TaskDetail, TaskEvent, TaskRights, Workflow} from '../../api/types';
 import type {Resource} from '../../api/useResource';
 import {ArtifactTile} from '../ArtifactView';
 import {TileGrid} from '../FileTile';
@@ -19,6 +19,7 @@ import {ModelLevelToggle} from '../ModelLevelToggle';
 import {runModelLine} from '../modelLevel';
 import {artifactAnchor} from './fileItem';
 import {isLeaseLive} from './lease';
+import {reasonOf, rightOf} from './taskRights';
 import {
   exitLabel,
   hasExecutor,
@@ -41,6 +42,10 @@ import {Timeline} from './Timeline';
 import {cycleProgress, type NodeState} from '../cycle/state';
 import {notStartedNote, notStartedTitle} from '../optionalStage';
 
+// Подсказка ползунка уровня этапа для сервера без права: он решает по уровню
+// доступа. Сервер с правом присылает свой текст отказа.
+const STAGE_LEVEL_LEGACY_HINT = 'Уровень этапа меняет сопровождающий проекта';
+
 // Этапы идут попытками: повторный заход после отката — новая попытка, а не
 // перезапись прежней, поэтому «аналитика делалась дважды» видно целиком. Но
 // раскрыта только последняя: у задачи, вернувшейся с тестирования, три
@@ -61,6 +66,7 @@ export function Stages({
   skipped,
   stageEvents,
   levelEditable,
+  rights,
   onClearStage,
   onChanged,
 }: {
@@ -73,7 +79,10 @@ export function Stages({
   // Лента выбранного статуса (`timeline?status=`): её держит страница, чтобы
   // перезапрашивать вместе с карточкой и опросом живой аренды.
   stageEvents?: Resource<TaskEvent[]>;
+  // Запасное решение по уровню (сервер прежней версии без права).
   levelEditable?: boolean;
+  // Право сервера на карточку: уровень этапа правится по `edit`.
+  rights?: TaskRights;
   onClearStage?: () => void;
   onChanged: () => void;
 }) {
@@ -85,6 +94,7 @@ export function Stages({
       skipped={skipped}
       events={stageEvents}
       levelEditable={levelEditable ?? true}
+      rights={rights}
       onClear={onClearStage}
       onChanged={onChanged}
     />
@@ -100,6 +110,7 @@ function StagePanel({
   skipped,
   events,
   levelEditable,
+  rights,
   onClear,
   onChanged,
 }: {
@@ -109,6 +120,7 @@ function StagePanel({
   skipped?: Set<string>;
   events?: Resource<TaskEvent[]>;
   levelEditable: boolean;
+  rights?: TaskRights;
   onClear?: () => void;
   onChanged: () => void;
 }) {
@@ -159,7 +171,13 @@ function StagePanel({
             <>
               <dt className="text-muted-foreground">Уровень этапа</dt>
               <dd>
-                <StageModelLevel task={detail.task} stage={stage} editable={levelEditable} onChanged={onChanged} />
+                <StageModelLevel
+                  task={detail.task}
+                  stage={stage}
+                  editable={rightOf(rights, 'edit', levelEditable)}
+                  reason={reasonOf(rights, 'edit', STAGE_LEVEL_LEGACY_HINT)}
+                  onChanged={onChanged}
+                />
               </dd>
             </>
           ) : null}
@@ -292,11 +310,14 @@ function StageModelLevel({
   task,
   stage,
   editable,
+  reason,
   onChanged,
 }: {
   task: TaskDetail['task'];
   stage: string;
   editable: boolean;
+  // Почему ползунок только для просмотра: текст сервера или прежний текст.
+  reason?: string;
   onChanged: () => void;
 }) {
   const [error, setError] = useState<ApiError>();
@@ -327,7 +348,7 @@ function StageModelLevel({
         disabled={!editable}
         busy={busy}
         labelledBy={labelId}
-        title={editable ? undefined : 'Уровень этапа меняет сопровождающий проекта'}
+        title={editable ? undefined : reason}
       />
       {error ? <Failure error={error} title="Уровень этапа не изменён" /> : null}
     </div>

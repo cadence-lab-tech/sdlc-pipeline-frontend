@@ -136,6 +136,14 @@ const SCRIPT = `
       me.teams = [];
       return new Response(JSON.stringify(me), {status: 200, headers: {'Content-Type': 'application/json'}});
     }
+    // Сценарий проверяет прежнее решение «по уровню доступа», которое
+    // осталось запасным путём для сервера без права (CLAB-409): с уровнем в
+    // /auth/me карточка отвечает как сервер прежней версии, без actor_rights.
+    if (ss('e2e.who') && /\\/v1\\/tasks\\/[^/?]+$/.test(url)) {
+      const data = await res.json();
+      delete data.actor_rights;
+      return new Response(JSON.stringify(data), {status: 200, headers: {'Content-Type': 'application/json'}});
+    }
     const strip = ss('e2e.strip');
     const odd = ss('e2e.odd');
     if ((strip || odd) && /\\/v1\\/(tasks\\/[^/]+|workflows\\/[^/]+|projects\\/[^/]+\\/workflow(\\?.*)?)$/.test(url)) {
