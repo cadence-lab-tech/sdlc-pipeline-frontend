@@ -3,7 +3,9 @@
 // дочитывание соседа для «Ниже», оптимистичный перенос, тексты тостов и
 // объявлений, подсказка права уровня agent, ключ раскрытия эпика, отложенное
 // перечитывание, сервер без порядка бэклога, подпись task.ranked в ленте,
-// пометка «в работе» строки и поиск ключей статусов, ролей и типов в коде
+// пометка «в работе» строки, перетаскивание (CLAB-403: тело запроса по месту
+// броска, зона, датчики, тексты диктора, одно перечитывание на своё
+// перемещение) и поиск ключей статусов, ролей и типов в коде
 // страницы. Модули — чистые функции, проверяются прямо в исходниках.
 //
 // Ключи статусов, ролей и типов в данных нарочно не похожи на ключи наших
@@ -160,6 +162,145 @@ check('К-10: всё отпущено — одно перечитывание с
 const r3 = gate.hold(); r3();
 check('удержание без событий — перечитывания нет', runs === 2);
 
+// ── К-10: перетаскивание ─────────────────────────────────────────────────────
+console.log('перетаскивание');
+const abcd = ['A-1', 'A-2', 'A-3', 'A-4'];
+check('К-10: бросок вниз — after строки, что теперь выше', eq(B.dropBody(abcd, 0, 2), {after: 'A-3'}) && eq(B.dropBody(abcd, 0, 3), {after: 'A-4'}) && eq(B.dropBody(abcd, 1, 2), {after: 'A-3'}));
+check('К-10: бросок вверх — after строки, что теперь выше', eq(B.dropBody(abcd, 3, 2), {after: 'A-2'}) && eq(B.dropBody(abcd, 3, 1), {after: 'A-1'}));
+check('К-10: бросок в начало — before строки, что теперь ниже', eq(B.dropBody(abcd, 2, 0), {before: 'A-1'}) && eq(B.dropBody(abcd, 1, 0), {before: 'A-1'}) && eq(B.dropBody(abcd, 3, 0), {before: 'A-1'}));
+check('К-10: то же место — тела нет, индексы вне группы — тела нет', B.dropBody(abcd, 1, 1) === null && B.dropBody(abcd, -1, 1) === null && B.dropBody(abcd, 1, 4) === null && B.dropBody(abcd, 1, -1) === null);
+check('К-10: порядок после броска', B.dropRows(abcd, 0, 2).join() === 'A-2,A-3,A-1,A-4' && B.dropRows(abcd, 3, 0).join() === 'A-4,A-1,A-2,A-3' &&
+  B.dropRows(abcd, 1, 1) === abcd && B.dropRows(abcd, 1, 9) === abcd);
+check('К-10: исходный массив не трогается', abcd.join() === 'A-1,A-2,A-3,A-4');
+const plan = B.planDrop(abcd, 'A-3', 'A-1');
+check('К-10: бросок A-3 на A-1 — before A-1 и новый порядок', eq(plan.body, {before: 'A-1'}) && plan.keys.join() === 'A-3,A-1,A-2,A-4');
+check('К-10: бросок вне группы (over нет или не из группы) — тела нет, порядок прежний', B.planDrop(abcd, 'A-3', null).body === null && B.planDrop(abcd, 'A-3', 'B-9').body === null &&
+  B.planDrop(abcd, 'B-9', 'A-1').body === null && B.planDrop(abcd, 'A-3', 'A-3').body === null && B.planDrop(abcd, 'A-3', undefined).keys === abcd);
+// Сервер: тело применяется к списку — как у меню (rankBody + moveRows) на тех же местах.
+const place = (list, key, body) => {
+  const rest = list.filter((k) => k !== key);
+  if ('position' in body) return body.position === 'top' ? [key, ...rest] : [...rest, key];
+  if ('before' in body) return [...rest.slice(0, rest.indexOf(body.before)), key, ...rest.slice(rest.indexOf(body.before))];
+  return [...rest.slice(0, rest.indexOf(body.after) + 1), key, ...rest.slice(rest.indexOf(body.after) + 1)];
+};
+let same = true;
+for (let from = 0; from < abcd.length; from++) {
+  for (const [kind, to] of [['up', from - 1], ['down', from + 1], ['top', 0], ['bottom', abcd.length - 1]]) {
+    if (to < 0 || to >= abcd.length || to === from) continue;
+    const menu = B.rankBody(kind, abcd, from);
+    const drop = B.dropBody(abcd, from, to);
+    const viaMenu = place(abcd, abcd[from], menu);
+    const viaDrop = place(abcd, abcd[from], drop);
+    const rows = abcd.map((key) => ({key}));
+    const optimistic = B.moveRows(rows, from, kind, abcd.length).map((r) => r.key);
+    if (viaMenu.join() !== viaDrop.join() || optimistic.join() !== viaDrop.join() || B.dropRows(abcd, from, to).join() !== viaDrop.join()) {
+      same = false;
+      console.log('    расхождение', from, kind, viaMenu.join(), viaDrop.join(), optimistic.join());
+    }
+  }
+}
+check('К-10: бросок на то же место, что пункт меню, даёт то же место на сервере и в оптимистичном переносе', same);
+// Все места из каждого в каждое: место на сервере совпадает с оптимистичным.
+let every = true;
+for (let from = 0; from < abcd.length; from++) {
+  for (let to = 0; to < abcd.length; to++) {
+    if (from === to) continue;
+    const body = B.dropBody(abcd, from, to);
+    if (place(abcd, abcd[from], body).join() !== B.dropRows(abcd, from, to).join()) every = false;
+  }
+}
+check('К-10: тело запроса по любому месту ставит строку туда же, где её показал оптимистичный перенос', every);
+check('К-10: клиент ранг не считает — в телах только before, after, position', ['before', 'after'].some((k) => k in B.dropBody(abcd, 0, 2)) && !('rank' in B.dropBody(abcd, 0, 2)));
+
+console.log('датчики и зона броска');
+check('К-7: мышь — 4 px, касание — 200 мс с допуском 5 px', eq(B.DRAG_SENSORS, {mouse: {distance: 4}, touch: {delay: 200, tolerance: 5}}), JSON.stringify(B.DRAG_SENSORS));
+const rect = {left: 100, right: 500, top: 200, bottom: 400};
+check('К-4: точка в зоне и вне неё', B.insideZone({x: 300, y: 300}, rect) && B.insideZone({x: 100, y: 200}, rect) && B.insideZone({x: 500, y: 400}, rect) &&
+  !B.insideZone({x: 99, y: 300}, rect) && !B.insideZone({x: 300, y: 199}, rect) && !B.insideZone({x: 501, y: 300}, rect) && !B.insideZone({x: 300, y: 401}, rect));
+check('зона с запасом по вертикали', B.insideZone({x: 300, y: 195}, rect, 8) && !B.insideZone({x: 300, y: 190}, rect, 8));
+
+console.log('тексты диктора перетаскивания');
+check('К-9: инструкция дословно', B.DRAG_INSTRUCTIONS === 'Чтобы переставить задачу, нажмите пробел на ручке, двигайте стрелками вверх и вниз, пробел — поставить, Escape — отменить.');
+check('К-9: взята, над местом, поставлена, отмена', B.dragTexts.picked('ZZ-12', 3, 12) === 'Взята ZZ-12, место 3 из 12.' && B.dragTexts.over('ZZ-12', 2, 12) === 'ZZ-12 — место 2 из 12.' &&
+  B.dragTexts.dropped('ZZ-12', 2, 12) === 'ZZ-12 поставлена на место 2 из 12.' && B.dragTexts.cancelled('ZZ-12') === 'Перемещение отменено, ZZ-12 на прежнем месте.');
+check('К-1: подпись и подсказка ручки', B.handleLabel('ZZ-12') === 'Переместить ZZ-12' && B.HANDLE_TITLE === 'Перетащите, чтобы изменить порядок');
+
+// ── К-12: одно перечитывание на своё перемещение ─────────────────────────────
+console.log('одно перечитывание на своё перемещение');
+const fake = () => {
+  let t = 0;
+  const timers = new Map();
+  let nextId = 1;
+  return {
+    set: (fn, ms) => { const id = nextId++; timers.set(id, {at: t + ms, fn}); return id; },
+    clear: (id) => { timers.delete(id); },
+    advance: (ms) => {
+      t += ms;
+      for (const [id, tm] of [...timers]) if (tm.at <= t) { timers.delete(id); tm.fn(); }
+    },
+    pending: () => timers.size,
+  };
+};
+{
+  const clock = fake();
+  let n = 0;
+  const g = B.createReloadGate(() => n++, clock);
+  g.echo(B.ECHO_MS);
+  check('К-12: ответ на своё перемещение ждёт событие — сразу не перечитывает', n === 0 && g.held());
+  g.wake();
+  check('К-12: событие этого перемещения — одно перечитывание сразу', n === 1 && !g.held() && clock.pending() === 0);
+  clock.advance(B.ECHO_MS * 2);
+  check('К-12: окно закрыто событием — по таймеру второго чтения нет', n === 1);
+  g.wake();
+  check('К-12: чужое событие после — своё перечитывание', n === 2);
+}
+{
+  const clock = fake();
+  let n = 0;
+  const g = B.createReloadGate(() => n++, clock);
+  g.echo(B.ECHO_MS);
+  clock.advance(B.ECHO_MS - 1);
+  check('К-12: лента молчит — до конца окна ждёт', n === 0);
+  clock.advance(1);
+  check('К-12: лента молчит — по ответу перечитано один раз в конце окна', n === 1 && !g.held());
+  g.wake();
+  check('после окна событие перечитывает как обычно', n === 2);
+}
+{
+  const clock = fake();
+  let n = 0;
+  const g = B.createReloadGate(() => n++, clock);
+  // Своё удержание (запрос) держит перечитывание, событие до ответа и ответ — одно чтение.
+  const release = g.hold();
+  g.wake();
+  g.echo(B.ECHO_MS);
+  release();
+  check('К-12: событие пришло до ответа — окно ещё держит', n === 0 && g.held());
+  g.wake();
+  check('К-12: следом пришло ещё одно — всё равно одно чтение', n === 1);
+}
+{
+  const clock = fake();
+  let n = 0;
+  const g = B.createReloadGate(() => n++, clock);
+  const menu = g.hold();
+  g.echo(B.ECHO_MS);
+  g.wake();
+  check('К-11: открыто меню — событие окно закрывает, но чтение ждёт меню', n === 0 && g.held());
+  menu();
+  check('К-11: меню закрыто — одно чтение', n === 1);
+}
+{
+  const clock = fake();
+  let n = 0;
+  const g = B.createReloadGate(() => n++, clock);
+  g.echo(B.ECHO_MS);
+  g.echo(B.ECHO_MS);
+  g.wake();
+  check('К-12: два перемещения подряд и одно событие — не больше одного чтения за событие', n === 1 && !g.held());
+}
+check('К-12: окно длиннее окна схлопывания ленты (2 с)', B.ECHO_MS > 2000);
+
 // ── К-14: лента ──────────────────────────────────────────────────────────────
 console.log('лента: task.ranked');
 const ranked = (p) => E.eventDetails('task.ranked', p).summary;
@@ -216,7 +357,7 @@ check('К-3: страница не сортирует строки', !/\.sort\(/
 check('К-10: подписка на события — useProjectEvents', /useProjectEvents\(projectKey/.test(page));
 check('страница обёрнута в WorkflowVersionsProvider', /<WorkflowVersionsProvider>/.test(page));
 check('К-15: одна область объявлений на страницу', (page.match(/aria-live="polite"/g) ?? []).length === 1);
-check('К-18: перетаскивания нет', !/onDrag|onDrop|draggable|dnd-kit|GripVertical/.test(page));
+check('К-16: перетаскивание — в components/backlog/dnd.tsx, страница только зовёт его', /from '..\/components\/backlog\/dnd'/.test(page) && !/@dnd-kit/.test(page));
 const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
 check('К-1: маршрут /p/:projectKey/backlog в оболочке «backlog»', /path="\/p\/:projectKey\/backlog"[\s\S]{0,80}<Shell page="backlog">/.test(app));
 check('К-1: пункт «Бэклог» вторым, сразу за «Обзором», значок ListOrdered', /page: "overview",[\s\S]{0,140}\},\s*\{\s*page: "backlog",\s*label: "Бэклог",\s*icon: ListOrdered,/.test(app));

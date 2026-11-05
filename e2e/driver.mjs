@@ -39,6 +39,11 @@ export async function session(url) {
     return r.result?.result?.value;
   };
 
+  const mouseEvent = (type, x, y) =>
+    send('Input.dispatchMouseEvent', {
+      type, x, y, button: type === 'mouseMoved' ? 'none' : 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1,
+    });
+
   await send('Page.enable');
   await evaluate('return 1');
   return {
@@ -98,6 +103,32 @@ export async function session(url) {
     },
     removeInitScript: async (identifier) => {
       await send('Page.removeScriptToEvaluateOnNewDocument', {identifier});
+    },
+    // Мышь: настоящие события браузера, а не синтетические из страницы —
+    // перетаскивание (CLAB-403) слушает mousedown/mousemove/mouseup на ручке и
+    // не отзовётся на dispatchEvent. drag тянет из точки в точку шагами и
+    // отпускает (hold — оставляет кнопку нажатой, отпускает mouseUp).
+    drag: async (from, to, {steps = 12, hold = false} = {}) => {
+      await mouseEvent('mouseMoved', from.x, from.y);
+      await mouseEvent('mousePressed', from.x, from.y);
+      for (let i = 1; i <= steps; i++) {
+        await mouseEvent('mouseMoved', from.x + ((to.x - from.x) * i) / steps, from.y + ((to.y - from.y) * i) / steps);
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      if (hold) return;
+      await new Promise((r) => setTimeout(r, 100));
+      await mouseEvent('mouseReleased', to.x, to.y);
+    },
+    mouseUp: async (x, y) => {
+      await new Promise((r) => setTimeout(r, 100));
+      await mouseEvent('mouseReleased', x, y);
+    },
+    // Касание: события браузера со стороны пальца. Нужна эмуляция касания.
+    touch: async (type, points) => {
+      await send('Input.dispatchTouchEvent', {type, touchPoints: points.map(({x, y}, id) => ({x, y, id}))});
+    },
+    touchMode: async (on) => {
+      await send('Emulation.setTouchEmulationEnabled', {enabled: on, maxTouchPoints: on ? 5 : 0});
     },
     close: () => ws.close(),
   };

@@ -28,7 +28,7 @@ import {EmptyState, Note, Spinner} from '@/components/kit';
 import {cn} from '@/lib/utils';
 
 import {api} from '../api/client';
-import type {ProjectDetail, TaskRow as TaskRowData} from '../api/types';
+import type {ProjectDetail, RankTaskBody, TaskRow as TaskRowData} from '../api/types';
 import {useResource} from '../api/useResource';
 import {Failure} from '../components/Feedback';
 import {NewTaskDialog} from '../components/NewTaskDialog';
@@ -40,12 +40,14 @@ import {LiveIndicator} from '../components/overview/LiveIndicator';
 import {MoreButton, MoreFailed} from '../components/overview/Zone';
 import {defaultNewTaskType} from '../components/overview/zones';
 import {
+  ECHO_MS,
   MOVE_ERRORS,
   MOVE_LABELS,
   PAGE_TEXTS,
   VIEWER_NOTE,
   childrenQuery,
   createReloadGate,
+  dropRows,
   epicListLabel,
   expandLabel,
   expandedKey,
@@ -61,6 +63,7 @@ import {
   moveRows,
   movedAnnouncement,
   needsNextNeighbor,
+  planDrop,
   priorityError,
   priorityLabelFor,
   rankBody,
@@ -70,6 +73,7 @@ import {
   type MoveKind,
   type ReloadGate,
 } from '../components/backlog/rules';
+import {GroupDnd, HandleGap, OverlayGrip, SortableItem} from '../components/backlog/dnd';
 import {useBacklogFocus, type BacklogFocus} from '../components/backlog/useBacklogFocus';
 import {useBacklogGroup, type BacklogGroup} from '../components/backlog/useBacklogGroup';
 import {clockLabel} from '../hooks/liveFeed';
@@ -80,9 +84,11 @@ import {useProjectEvents} from '../hooks/useProjectEvents';
 // Страница «Бэклог» (CLAB-402, эпик CLAB-368, design.spec §2–§8): все
 // неначатые задачи проекта верхнего уровня в порядке ранга сервера, эпики
 // раскрываются на один уровень. Порядок меняет меню строки (POST …/rank),
-// приоритет — выбор прямо в строке (PATCH). Правила — components/backlog/
-// rules.ts; ключей статусов, ролей и типов здесь нет: состав бэклога решает
-// сервер (backlog=true), эпик — строка с детьми.
+// приоритет — выбор прямо в строке (PATCH). Строки переставляются и
+// перетаскиванием за ручку (CLAB-403, components/backlog/dnd.tsx) — тем же
+// запросом. Правила — components/backlog/rules.ts; ключей статусов, ролей и
+// типов здесь нет: состав бэклога решает сервер (backlog=true), эпик — строка
+// с детьми.
 export function Backlog() {
   const {projectKey = ''} = useParams();
   const project = useResource(() => api.getProject(projectKey), [projectKey]);
@@ -296,13 +302,25 @@ function GroupList({
   parent,
   label,
   topLevel,
+  onDragging,
 }: {
   group: BacklogGroup;
   parent: string | null;
   label: string;
   topLevel?: boolean;
+  // Группу начали и закончили перетаскивать (подсветка блока эпика).
+  onDragging?: (dragging: boolean) => void;
 }) {
   const ctx = useBacklogContext();
+  const olRef = useRef<HTMLOListElement>(null);
+  // Зона броска: у детей — блок эпика, у верхнего уровня — весь список.
+  const zone = useCallback(
+    () => olRef.current?.closest<HTMLElement>('[data-backlog-children]') ?? olRef.current,
+    [],
+  );
+  const [draggingKey, setDraggingKey] = useState<string | null>(null);
+  const dragHold = useRef<(() => void) | null>(null);
+  useEffect(() => () => dragHold.current?.(), []);
   const [busy, setBusy] = useState<Record<string, 'move' | 'priority'>>({});
   const mark = (key: string, what: 'move' | 'priority' | null) =>
     setBusy((b) => {
@@ -349,25 +367,76 @@ function GroupList({
         ctx.gate.wake();
         return;
       }
-      const before = rows;
-      group.mutate((cur) => moveRows(cur, cur.findIndex((r) => r.key === key), kind, group.total, next));
-      try {
-        const result = await api.rankTask(key, body);
-        ctx.announce(movedAnnouncement(key, body, result));
-        if (result.changed) ctx.gate.wake();
-        // То же место: событий нет, перечитывать нечего — строка на прежнем.
-        else group.mutate(() => before);
-      } catch (err) {
-        group.mutate(() => before);
-        const failure = moveFailure(err);
-        toast.error(MOVE_ERRORS[failure]);
-        if (failure === 'forbidden') ctx.recheck();
-        if (reloadAfterFailure(failure)) ctx.gate.wake();
-      }
+      await commit(key, body, (cur) => moveRows(cur, cur.findIndex((r) => r.key === key), kind, group.total, next), rows);
     } finally {
       mark(key, null);
       release();
     }
+  };
+
+  // Общий хвост перемещения — из меню и броском: строка встаёт на новое место
+  // до ответа, при отказе возвращается. Удержание перечитывания и пометка
+  // «занята» — у вызывающего.
+  const commit = async (
+    key: string,
+    body: RankTaskBody,
+    apply: (rows: TaskRowData[]) => TaskRowData[],
+    before: TaskRowData[],
+  ) => {
+    group.mutate(apply);
+    try {
+      const result = await api.rankTask(key, body);
+      ctx.announce(movedAnnouncement(key, body, result));
+      // Событие этого же перемещения придёт следом: список перечитывается
+      // один раз — по нему, а нет его — по окончании окна (CLAB-403, К-12).
+      if (result.changed) ctx.gate.echo(ECHO_MS);
+      // То же место: событий нет, перечитывать нечего — строка на прежнем.
+      else group.mutate(() => before);
+    } catch (err) {
+      group.mutate(() => before);
+      const failure = moveFailure(err);
+      toast.error(MOVE_ERRORS[failure]);
+      if (failure === 'forbidden') ctx.recheck();
+      if (reloadAfterFailure(failure)) ctx.gate.wake();
+    }
+  };
+
+  // Бросок строки key на место строки over той же группы.
+  const drop = async (key: string, over: string) => {
+    const rows = group.rows;
+    const plan = planDrop(rows.map((r) => r.key), key, over);
+    if (!plan.body || busy[key]) return;
+    const release = ctx.gate.hold();
+    mark(key, 'move');
+    try {
+      await commit(
+        key,
+        plan.body,
+        (cur) => dropRows(cur, cur.findIndex((r) => r.key === key), cur.findIndex((r) => r.key === over)),
+        rows,
+      );
+    } finally {
+      mark(key, null);
+      release();
+    }
+  };
+
+  const onDragStart = (key: string) => {
+    setDraggingKey(key);
+    // Пока строку тянут, список под курсором не перечитывается.
+    dragHold.current = ctx.gate.hold();
+    onDragging?.(true);
+  };
+  const onDragEnd = (key: string, over: string | null) => {
+    const release = dragHold.current;
+    dragHold.current = null;
+    setDraggingKey(null);
+    onDragging?.(false);
+    // Фокус остаётся на ручке этой строки на новом месте.
+    ctx.focus.expect(key, 'handle');
+    // Своё удержание бросок берёт до того, как отпустится удержание жеста.
+    if (over) void drop(key, over);
+    release?.();
   };
 
   const setPriority = async (row: TaskRowData, value: string) => {
@@ -393,23 +462,55 @@ function GroupList({
 
   const loaded = group.rows.length;
   const more = moreLabel(loaded, group.total);
+  // Ручка — у редактора в группе из двух строк и больше.
+  const sortable = ctx.editable && loaded > 1;
+  const overlay = (key: string) => {
+    const row = group.rows.find((r) => r.key === key);
+    return row ? (
+      <TaskRow
+        task={row}
+        projectKey={ctx.projectKey}
+        project={ctx.project}
+        zone="backlog"
+        density="row"
+        hideEpic
+        showInWork
+        leading={<OverlayGrip />}
+      />
+    ) : null;
+  };
 
   return (
     <div className="space-y-2">
-      <ol aria-label={label} className="space-y-2" data-backlog-list={topLevel ? '' : undefined} data-backlog-group={parent ?? ''}>
-        {group.rows.map((row, index) => (
-          <BacklogRow
-            key={row.key}
-            row={row}
-            parent={parent}
-            edges={moveEdges(index, loaded, group.total)}
-            busy={busy[row.key]}
-            topLevel={Boolean(topLevel)}
-            onMove={(kind) => void move(row.key, kind)}
-            onPriority={(value) => void setPriority(row, value)}
-          />
-        ))}
-      </ol>
+      <GroupDnd
+        keys={group.rows.map((r) => r.key)}
+        enabled={ctx.editable}
+        zone={zone}
+        onStart={onDragStart}
+        onEnd={onDragEnd}
+        overlay={overlay}>
+        <ol
+          ref={olRef}
+          aria-label={label}
+          className="space-y-2"
+          data-backlog-list={topLevel ? '' : undefined}
+          data-backlog-group={parent ?? ''}>
+          {group.rows.map((row, index) => (
+            <BacklogRow
+              key={row.key}
+              row={row}
+              parent={parent}
+              edges={moveEdges(index, loaded, group.total)}
+              busy={busy[row.key]}
+              topLevel={Boolean(topLevel)}
+              sortable={sortable}
+              dragging={draggingKey === row.key}
+              onMove={(kind) => void move(row.key, kind)}
+              onPriority={(value) => void setPriority(row, value)}
+            />
+          ))}
+        </ol>
+      </GroupDnd>
       {group.moreFailed ? <MoreFailed retry={group.more} /> : null}
       {more ? <MoreButton label={more} onClick={group.more} busy={group.moreBusy} /> : null}
     </div>
@@ -424,6 +525,8 @@ function BacklogRow({
   edges,
   busy,
   topLevel,
+  sortable,
+  dragging,
   onMove,
   onPriority,
 }: {
@@ -432,6 +535,10 @@ function BacklogRow({
   edges: Record<MoveKind, boolean>;
   busy?: 'move' | 'priority';
   topLevel: boolean;
+  // У строки есть ручка: редактор, в группе две строки и больше.
+  sortable: boolean;
+  // Строку сейчас тянут: на её месте пунктирная рамка, дети эпика скрыты.
+  dragging: boolean;
   onMove: (kind: MoveKind) => void;
   onPriority: (value: string) => void;
 }) {
@@ -443,7 +550,7 @@ function BacklogRow({
   const childrenId = useId();
   const open = withChildren && expanded;
 
-  const leading = topLevel ? (
+  const chevron = topLevel ? (
     withChildren ? (
       <Button
         type="button"
@@ -464,31 +571,46 @@ function BacklogRow({
       // Место шеврона пустое: ключи строк стоят ровно.
       <span aria-hidden className="block size-6 max-sm:size-8" />
     )
-  ) : undefined;
+  ) : null;
+  // Колонка ручки есть у редактора; в группе из одной строки она пустая —
+  // ключи стоят ровно (design.spec §4.1).
+  const leadingOf = (handle: ReactNode) => {
+    const grip = ctx.editable ? (handle ?? <HandleGap />) : null;
+    return grip || chevron ? (
+      <>
+        {grip}
+        {chevron}
+      </>
+    ) : undefined;
+  };
 
   return (
-    <li>
-      <TaskRow
-        task={row}
-        projectKey={ctx.projectKey}
-        project={ctx.project}
-        zone="backlog"
-        density="row"
-        hideEpic
-        showInWork
-        busy={busy === 'move'}
-        leading={leading}
-        priorityControl={
-          ctx.editable ? (
-            <PriorityPicker row={row} busy={busy === 'priority'} onChange={onPriority} />
-          ) : undefined
-        }
-        trailing={
-          ctx.editable ? <RowMenu rowKey={row.key} parent={parent} edges={edges} busy={busy === 'move'} onMove={onMove} /> : undefined
-        }
-      />
-      {open ? <EpicChildren epic={row.key} id={childrenId} /> : null}
-    </li>
+    <SortableItem rowKey={row.key} enabled={sortable} busy={busy === 'move'}>
+      {(handle) => (
+        <>
+          <TaskRow
+            task={row}
+            projectKey={ctx.projectKey}
+            project={ctx.project}
+            zone="backlog"
+            density="row"
+            hideEpic
+            showInWork
+            busy={busy === 'move'}
+            leading={leadingOf(handle)}
+            priorityControl={
+              ctx.editable ? (
+                <PriorityPicker row={row} busy={busy === 'priority'} onChange={onPriority} />
+              ) : undefined
+            }
+            trailing={
+              ctx.editable ? <RowMenu rowKey={row.key} parent={parent} edges={edges} busy={busy === 'move'} onMove={onMove} /> : undefined
+            }
+          />
+          {open ? <EpicChildren epic={row.key} id={childrenId} hidden={dragging} /> : null}
+        </>
+      )}
+    </SortableItem>
   );
 }
 
@@ -632,8 +754,10 @@ function PriorityPicker({row, busy, onChange}: {row: TaskRowData; busy: boolean;
 
 // ── дети эпика ──────────────────────────────────────────────────────────────
 
-function EpicChildren({epic, id}: {epic: string; id: string}) {
+function EpicChildren({epic, id, hidden}: {epic: string; id: string; hidden: boolean}) {
   const ctx = useBacklogContext();
+  // Ребёнка тянут: блок эпика — зона броска, он подсвечен (design.spec §5.3).
+  const [dragging, setDragging] = useState(false);
   const group = useBacklogGroup(
     (offset, limit) => api.listTasks(ctx.projectKey, childrenQuery(epic, offset, limit)),
     `${ctx.projectKey}:${epic}`,
@@ -667,11 +791,19 @@ function EpicChildren({epic, id}: {epic: string; id: string}) {
       </p>
     );
   } else {
-    body = <GroupList group={group} parent={epic} label={epicListLabel(epic)} />;
+    body = <GroupList group={group} parent={epic} label={epicListLabel(epic)} onDragging={setDragging} />;
   }
 
   return (
-    <div id={id} className="border-border mt-2 ml-[18px] border-l-2 pl-2.5 max-sm:ml-0" data-backlog-children={epic}>
+    <div
+      id={id}
+      className={cn(
+        'border-border mt-2 ml-[18px] border-l-2 pl-2.5 max-sm:ml-0',
+        dragging && 'bg-muted rounded-lg outline-1 outline-dashed outline-border',
+        hidden && 'hidden',
+      )}
+      data-backlog-children={epic}
+      data-backlog-zone={dragging ? '' : undefined}>
       {body}
     </div>
   );
