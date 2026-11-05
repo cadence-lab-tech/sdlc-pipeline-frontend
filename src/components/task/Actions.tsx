@@ -6,12 +6,15 @@ import {cn} from '@/lib/utils';
 import {Button} from '@/components/ui/button';
 import {Card} from '@/components/ui/card';
 import {Collapsible, CollapsibleContent, CollapsibleTrigger} from '@/components/ui/collapsible';
+import {Separator} from '@/components/ui/separator';
 import {EmptyState, Section} from '@/components/kit';
 
 import {ApiError, api} from '../../api/client';
 import type {GateCheck, TaskDetail, TransitionOption, Workflow} from '../../api/types';
 import {Failure} from '../Feedback';
 import {GateRow} from '../Gates';
+import {MoveEntry} from './MoveTaskDialog';
+import {moveAllowed} from './moveRights';
 import {transitionControl} from './stageRights';
 import {
   TRANSITION_UNAVAILABLE_LABEL,
@@ -31,19 +34,45 @@ import {
 // задача доходит по той, на которой начата (решение 0016). Версию грузит
 // карточка — одну на «Действия» и схему цикла; пока её нет, гейты показаны
 // без определений.
+//
+// Перевод в статус вне цикла (CLAB-407) — отдельная строка под переходами цикла,
+// а не часть строки перехода. Её показывает право сервера `actor_rights.move`;
+// из терминального статуса она остаётся единственным действием.
 export function Actions({
   detail,
   workflow,
+  workflowError,
+  workflowReload,
   onChanged,
 }: {
   detail: TaskDetail;
   workflow?: Workflow;
+  // Ошибка загрузки версии цикла и повтор — для диалога перевода.
+  workflowError?: ApiError;
+  workflowReload?: () => void;
   onChanged: () => void;
 }) {
+  const canMove = moveAllowed(detail.actor_rights);
+  const move = canMove ? (
+    <MoveEntry
+      task={detail.task}
+      workflow={workflow}
+      workflowError={workflowError}
+      workflowReload={workflowReload}
+      rights={detail.actor_rights}
+      onChanged={onChanged}
+    />
+  ) : null;
   return (
     <Section title="Действия">
       {detail.transitions.length === 0 ? (
-        <EmptyState title="Дальше некуда" description="Задача в терминальном статусе" />
+        canMove ? (
+          <p className="text-muted-foreground mb-2 text-xs" data-no-transitions>
+            Из этого статуса переходов цикла нет
+          </p>
+        ) : (
+          <EmptyState title="Дальше некуда" description="Задача в терминальном статусе" />
+        )
       ) : (
         <div className="space-y-2">
           {detail.transitions.map((t) => (
@@ -57,6 +86,12 @@ export function Actions({
           ))}
         </div>
       )}
+      {move ? (
+        <>
+          {detail.transitions.length > 0 ? <Separator className="my-3" /> : null}
+          {move}
+        </>
+      ) : null}
     </Section>
   );
 }

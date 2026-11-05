@@ -73,7 +73,7 @@ export function Metrics() {
 
             <Section
               title="По статусам"
-              description="Длительность завершённых попыток этапа за период. Откаты и повторные попытки показывают, где задачи разворачиваются.">
+              description="Длительность завершённых попыток этапа за период. Откаты и повторные попытки показывают, где задачи разворачиваются. Переводов — сколько раз задачу вручную перевели из статуса: такая попытка не считается завершённой и в остальные столбцы не входит.">
               <DataTable<StatusMetric>
                 data={m.statuses}
                 idKey="status"
@@ -104,6 +104,13 @@ export function Metrics() {
                     renderCell: (row) => hours(row.max_hours),
                   },
                   {key: 'rejections', header: 'Откатов', width: 90, align: 'end'},
+                  {
+                    key: 'moves',
+                    header: 'Переводов',
+                    width: 100,
+                    align: 'end',
+                    renderCell: (row) => (typeof row.moves === 'number' ? String(row.moves) : '—'),
+                  },
                   {key: 'repeated_runs', header: 'Повторных', width: 100, align: 'end'},
                   {key: 'expired_leases', header: 'Аренд истекло', width: 120, align: 'end'},
                 ]}

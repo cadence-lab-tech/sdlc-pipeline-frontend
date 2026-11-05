@@ -14,6 +14,7 @@ const EVENT_LABELS: Record<string, string> = {
   'task.scope_updated': 'область задачи изменена',
   'task.workflow_moved': 'переехала на новую версию цикла',
   'task.ranked': 'место в бэклоге изменено',
+  'task.moved': 'перевёл вручную',
   'stage.entered': 'этап начат',
   'stage.skipped': 'этап пропущен',
   'stage.claimed': 'этап забран',
@@ -163,6 +164,24 @@ function updated(payload: Payload, priority: (p: string) => string): EventDetail
   return {summary: parts.join(' · '), long};
 }
 
+// Перевод в статус вне цикла (task.moved, CLAB-407): «из X в Y: причина ·
+// уровень L · токен K». Названия статусов — из версии цикла задачи (nameOf),
+// нет версии или ключа в ней — ключ как пришёл. Части с недостающим значением
+// опускаются, «—» в строку не попадает. Уровень и вид токена — только у этого
+// события (решение Q1); token_kind = none и отсутствие ключа (событие до
+// CLAB-408) части не дают.
+export function moveEventLine(payload: unknown, nameOf: (key: string) => string = (k) => k): string {
+  const {from, to, reason, level, token_kind: kind} = isObject(payload) ? payload : ({} as Payload);
+  const a = text(from);
+  const b = text(to);
+  const way = [a && `из ${nameOf(a)}`, b && `в ${nameOf(b)}`].filter(Boolean).join(' ');
+  const why = text(reason);
+  const main = way && why ? `${way}: ${why}` : way || why || '';
+  const lvl = text(level);
+  const tok = text(kind);
+  return join([main, lvl && `уровень ${lvl}`, tok && tok !== 'none' && `токен ${tok}`]);
+}
+
 // Выбор необязательных этапов (решение 0066): payload несёт полные наборы
 // «ключ → bool» до и после; в строку идут только изменившиеся ключи —
 // «design выкл → вкл». Значение не bool или неполный набор — «—», без
@@ -225,12 +244,15 @@ function money(v: unknown): string | undefined {
 // своём модуле, а этот файл проверяется node без сборщика.
 //
 // actor — handle того, кто записан в событии (event.actor_handle): строка
-// самоапрува называет его словами «решил X».
+// самоапрува называет его словами «решил X». statusName — название статуса
+// версии цикла задачи по ключу (task.moved): снаружи, как priority, чтобы
+// модуль остался без '@/'; нет — ключи как пришли.
 export function eventDetails(
   type: string,
   payload: unknown,
   priority: (p: string) => string = (p) => p,
   actor?: string,
+  statusName?: (key: string) => string,
 ): EventDetails {
   const p: Payload = isObject(payload) ? payload : {};
   const only = (summary: string | undefined): EventDetails => ({summary: summary ?? '', long: []});
@@ -250,6 +272,8 @@ export function eventDetails(
         list(p.skips).length > 0 && `пропущено: ${list(p.skips).join(', ')}`,
         text(p.comment) && `«${text(p.comment)}»`,
       ]));
+    case 'task.moved':
+      return only(moveEventLine(p, statusName));
     case 'task.created':
       return only(join([
         text(p.type) && `тип ${text(p.type)}`,

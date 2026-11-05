@@ -22,6 +22,7 @@ import {isLeaseLive} from './lease';
 import {reasonOf, rightOf} from './taskRights';
 import {
   exitLabel,
+  outcomeLabel,
   hasExecutor,
   returnedFrom,
   returnedTo,
@@ -234,7 +235,7 @@ function StagePanel({
         ))
       )}
 
-      <StageEvents events={events} />
+      <StageEvents events={events} statuses={statuses} />
     </section>
   );
 }
@@ -287,7 +288,7 @@ function NotStarted({workflow, stage, state}: {workflow?: Workflow; stage: strin
 
 // События статуса — тем же видом строки, что в ленте задачи. Ошибка ленты не
 // гасит панель: повтор — в этом блоке.
-function StageEvents({events}: {events?: Resource<TaskEvent[]>}) {
+function StageEvents({events, statuses}: {events?: Resource<TaskEvent[]>; statuses?: Status[]}) {
   return (
     <section className="space-y-2" data-stage-events>
       <h3 className="text-base font-semibold">События этапа</h3>
@@ -298,7 +299,7 @@ function StageEvents({events}: {events?: Resource<TaskEvent[]>}) {
       ) : events.data.length === 0 ? (
         <p className="text-muted-foreground text-sm">Событий нет</p>
       ) : (
-        <Timeline events={events} />
+        <Timeline events={events} statuses={statuses} />
       )}
     </section>
   );
@@ -411,7 +412,7 @@ function StageCard({
             <span>{run.status_key}</span>
             {role ? <Token label={role} /> : null}
             {showAttempt ? <Badge variant="secondary">попытка {run.attempt}</Badge> : null}
-            {run.outcome ? <Badge variant="outline">{run.outcome}</Badge> : null}
+            {run.outcome ? <Badge variant="outline">{outcomeLabel(run.outcome)}</Badge> : null}
             <Timestamp value={run.entered_at} format="relative" className="ml-auto text-xs" />
             <ChevronDown className="text-muted-foreground size-4 -rotate-90 transition-transform group-data-[state=open]:rotate-0" />
           </CollapsibleTrigger>
@@ -566,7 +567,7 @@ function ReviewRun({
         <div className="flex items-center gap-2">
           <StatusDot variant={RUN_VARIANT[run.state] ?? 'neutral'} label={run.state} />
           {role ? <Token label={role} /> : null}
-          {run.outcome ? <Badge variant="secondary">{run.outcome}</Badge> : null}
+          {run.outcome ? <Badge variant="secondary">{outcomeLabel(run.outcome)}</Badge> : null}
         </div>
         <Timestamp value={run.entered_at} format="relative" />
       </div>

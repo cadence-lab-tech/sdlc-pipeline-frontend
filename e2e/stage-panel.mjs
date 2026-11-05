@@ -181,6 +181,8 @@ check('незнакомый статус — ключом', P.returnedTo({...run
 console.log('исход попытки');
 check('вперёд', P.exitLabel(runs[0].exit, statuses) === 'ушла в «Сборка» переходом go', P.exitLabel(runs[0].exit, statuses));
 check('отмена', P.exitLabel({kind: 'cancelled', transition: 'drop', to_status: 'omega'}, statuses) === 'отменена переходом drop');
+check('перевод вручную (CLAB-407) — без перехода, без сырого «moved»', P.exitLabel({kind: 'moved', transition: '', to_status: 'Alpha', comment: 'р'}, statuses) === 'переведена вручную в «Сбор»', P.exitLabel({kind: 'moved', transition: '', to_status: 'Alpha', comment: 'р'}, statuses));
+check('исход moved в бейдже — «переведена вручную», прочие как пришли', P.outcomeLabel('moved') === 'переведена вручную' && P.outcomeLabel('rejected') === 'rejected');
 check('незнакомый вид — как есть', P.exitLabel({kind: 'parked', transition: 'p', to_status: 'Alpha'}, statuses).startsWith('parked'));
 
 console.log('артефакты попытки');
