@@ -163,10 +163,10 @@ check('К-15: подписи кнопок', await run(`
     row('${t1}').querySelector('[data-backlog-priority]').getAttribute('aria-label') === 'Приоритет ${t1}: срочный. Изменить' &&
     row('${epic}').querySelector('[data-backlog-expand]').getAttribute('aria-label') === 'Показать задачи эпика ${epic}' &&
     !row('${t1}').querySelector('[data-backlog-expand]');`));
-check('К-15: Tab в строке — шеврон, ссылка, приоритет, меню', await run(`
+check('К-15: Tab в строке — ручка, шеврон, ссылка, приоритет, меню (CLAB-403)', await run(`
   const r = row('${epic}');
   const order = all('a, button').filter((el) => r.contains(el)).map((el) => el.dataset.rowControl || (el.hasAttribute('data-task-link') ? 'link' : '?'));
-  return order.join() === 'expand,link,priority,menu' || order.join();`) === true);
+  return order.join() === 'handle,expand,link,priority,menu' || order.join();`) === true);
 await shot('1440-light');
 
 // ── эпик ────────────────────────────────────────────────────────────────────
