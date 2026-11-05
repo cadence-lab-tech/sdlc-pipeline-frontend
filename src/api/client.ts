@@ -63,6 +63,7 @@ import type {
   TeamRemoved,
   TeamMember,
   ProjectTeam,
+  MoveResult,
   Transition,
   TransitionOption,
   TransitionResult,
@@ -1347,6 +1348,14 @@ export const api = {
         task: normalizeTask(r.task),
         skips: Array.isArray(r.skips) ? r.skips : [],
       }),
+    ),
+
+  // Перевод в статус вне цикла (CLAB-408): `to` — ключ статуса версии цикла
+  // задачи, `reason` обязателен. Отказы сервера (invalid_input, forbidden,
+  // stage_disabled) приходят ApiError с его кодом и текстом, без переименования.
+  move: (taskKey: string, body: { to: string; reason: string }) =>
+    request<{ task: Task }>(`/tasks/${taskKey}/move`, post(body)).then(
+      (r): MoveResult => ({ task: normalizeTask(r.task) }),
     ),
 
   decideGate: (

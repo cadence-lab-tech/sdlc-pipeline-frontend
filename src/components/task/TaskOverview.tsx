@@ -63,7 +63,7 @@ export function Overview({
             localStorage у них нет, а содержимое монтируется при раскрытии —
             журнал не ходит на сервер, пока его не открыли. */}
         <OverviewSection name="timeline" title="Лента">
-          <Timeline events={events} />
+          <Timeline events={events} statuses={workflow?.statuses} />
         </OverviewSection>
         <OverviewSection name="audit" title="Журнал">
           <AuditLog

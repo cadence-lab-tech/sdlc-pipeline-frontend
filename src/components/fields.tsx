@@ -117,6 +117,7 @@ export function TextArea({
   rows = 4,
   placeholder,
   isRequired,
+  isDisabled,
   id: fixedId,
   className,
 }: {
@@ -127,6 +128,7 @@ export function TextArea({
   rows?: number;
   placeholder?: string;
   isRequired?: boolean;
+  isDisabled?: boolean;
   id?: string;
   className?: string;
 }) {
@@ -138,6 +140,7 @@ export function TextArea({
         id={id}
         rows={rows}
         className={className}
+        disabled={isDisabled}
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}

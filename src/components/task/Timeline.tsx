@@ -3,7 +3,7 @@ import {ChevronDown} from 'lucide-react';
 import {Collapsible, CollapsibleContent, CollapsibleTrigger} from '@/components/ui/collapsible';
 import {CodeBlock, RowList, Timestamp} from '@/components/kit';
 
-import type {TaskEvent} from '../../api/types';
+import type {Status, TaskEvent} from '../../api/types';
 import type {Resource} from '../../api/useResource';
 import {Failure, Loading} from '../Feedback';
 import {priorityLabel} from '../priorities';
@@ -12,7 +12,9 @@ import {eventDetails, eventLabel, hasPayload} from './events';
 // Лента показывает ресурс карточки, а не заводит свой: её перезапрашивает
 // каждое действие на странице (правка постановки, сдача артефакта, переход),
 // и второй экземпляр того же запроса остался бы на прежних событиях.
-export function Timeline({events}: {events: Resource<TaskEvent[]>}) {
+// statuses — статусы версии цикла задачи: по ним task.moved называет статусы
+// (нет версии — ключи как пришли).
+export function Timeline({events, statuses}: {events: Resource<TaskEvent[]>; statuses?: Status[]}) {
   if (events.error) return <Failure error={events.error} reload={events.reload} />;
   if (!events.data) return <Loading />;
 
@@ -23,7 +25,7 @@ export function Timeline({events}: {events: Resource<TaskEvent[]>}) {
           <h3 className="text-muted-foreground text-xs font-medium">{dayLabel(day)}</h3>
           <RowList>
             {list.map((e) => (
-              <EventRow key={e.id} event={e} />
+              <EventRow key={e.id} event={e} statuses={statuses} />
             ))}
           </RowList>
         </div>
@@ -35,8 +37,9 @@ export function Timeline({events}: {events: Resource<TaskEvent[]>}) {
 // Строка события: подпись, кто и короткая строка подробностей из payload.
 // Длинное (было/стало описания) и сырой payload — по раскрытию: строка ленты
 // остаётся строкой, а событие незнакомого типа не теряет того, что в нём есть.
-function EventRow({event}: {event: TaskEvent}) {
-  const details = eventDetails(event.type, event.payload, priorityLabel, event.actor_handle);
+function EventRow({event, statuses}: {event: TaskEvent; statuses?: Status[]}) {
+  const statusName = (key: string) => statuses?.find((s) => s.key === key)?.name ?? key;
+  const details = eventDetails(event.type, event.payload, priorityLabel, event.actor_handle, statusName);
   const expandable = hasPayload(event.payload);
 
   const head = (

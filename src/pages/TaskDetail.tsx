@@ -169,7 +169,13 @@ export function TaskDetail() {
             порядок блоков сохраняет — «Действия» первыми. */}
         <aside className="w-full shrink-0 border-t p-4 xl:w-100 xl:border-t-0 xl:border-l">
           <div className="space-y-6 xl:sticky xl:top-18 xl:max-h-[calc(100svh-5.5rem)] xl:overflow-y-auto">
-            <Actions detail={detail} workflow={workflow.data} onChanged={reload} />
+            <Actions
+              detail={detail}
+              workflow={workflow.data}
+              workflowError={workflow.error}
+              workflowReload={workflow.reload}
+              onChanged={reload}
+            />
             <Details
               detail={detail}
               refs={refs.data ?? []}

@@ -722,7 +722,9 @@ export interface RunGateVerdict {
 // Выход прогона: переход, которым он закончен (событие task.advanced /
 // task.rejected / task.cancelled прогона).
 export interface RunExit {
-  kind: "advanced" | "rejected" | "cancelled";
+  // moved — перевод в статус вне цикла (CLAB-408): перехода нет, to_status —
+  // куда перевели, comment — причина.
+  kind: "advanced" | "rejected" | "cancelled" | "moved";
   transition: string;
   // Ключ статуса, куда ушла задача, — из версии цикла задачи.
   to_status: string;
@@ -832,6 +834,12 @@ export interface TransitionResult {
   skips: string[];
 }
 
+// Результат перевода в статус (CLAB-408): задача уже в новом статусе. Остальные
+// поля ответа (новый и закрытый прогоны) карточке не нужны — она перечитывается.
+export interface MoveResult {
+  task: Task;
+}
+
 // Связь между задачами. blocks задаёт порядок работ и читается гейтом
 // dependencies_closed, остальные отношения — контекст.
 export interface TaskLink {
@@ -864,10 +872,12 @@ export interface UsageSummary {
 
 // Право того, кто спрашивает, на действия с карточкой (CLAB-411, решение 0072,
 // п. 9). Считает сервер, клиент его не вычисляет: булевы — вправе ли актор,
-// actor_deny — почему нет, по имени действия. Поля move нет: перевод в статус
-// появится вместе с CLAB-407/408. Нет объекта у сервера прежней версии.
+// actor_deny — почему нет, по имени действия. move — перевод в статус вне цикла
+// (CLAB-408): поля нет у сервера прежней версии, тогда действия нет. Нет
+// объекта у сервера прежней версии.
 export interface TaskRights {
   edit?: boolean;
+  move?: boolean;
   stage_choice?: boolean;
   create_child?: boolean;
   assign?: boolean;
@@ -1438,6 +1448,8 @@ export interface StatusMetric {
   median_hours: number;
   max_hours: number;
   rejections: number;
+  // Переводов вручную из статуса (CLAB-408); нет поля у сервера прежней версии.
+  moves?: number;
   repeated_runs: number;
   expired_leases: number;
 }

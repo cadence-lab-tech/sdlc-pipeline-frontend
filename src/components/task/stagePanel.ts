@@ -18,6 +18,7 @@ import type {
   Workflow,
 } from '../../api/types';
 import {NO_DATA, billingLabel, costPair, usageState, usageStateLabel} from '../cost';
+import {MOVED_LABEL} from './moveRights';
 
 // Попытка этапа: прогон верхнего уровня и его вложенные перепроверки
 // (решение 0017) — они живут внутри попытки и попытками не считаются.
@@ -144,7 +145,16 @@ const EXIT_LABEL: Record<RunExit['kind'], (transition: string, to: string) => st
   advanced: (transition, to) => `ушла в «${to}» переходом ${transition}`,
   rejected: (transition, to) => `вернула в «${to}» переходом ${transition}`,
   cancelled: (transition) => `отменена переходом ${transition}`,
+  // Перевод вне цикла (CLAB-408): перехода нет, причина — комментарий выхода,
+  // его шапка выводит второй строкой.
+  moved: (_transition, to) => `${MOVED_LABEL} в «${to}»`,
 };
+
+// Исход прогона (`outcome`) для бейджа попытки: «moved» — «переведена вручную»,
+// остальные — как пришли от сервера.
+export function outcomeLabel(outcome: string): string {
+  return outcome === 'moved' ? MOVED_LABEL : outcome;
+}
 
 export function exitLabel(exit: RunExit, statuses: Status[] | undefined): string {
   const to = statusName(statuses, exit.to_status);
