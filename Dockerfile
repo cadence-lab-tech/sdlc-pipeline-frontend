@@ -24,7 +24,7 @@
 # golang:1.26-alpine, тот же, что в backend. От caddy:2-alpine остаётся
 # база: Alpine, mailcap, /data, /config, CMD.
 
-FROM --platform=$BUILDPLATFORM node:24-alpine@sha256:6a1c190e17215d844926b0677f4bf87273ff7d5e54db06d3b5b5863ab0b09a3d AS build
+FROM --platform=$BUILDPLATFORM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS build
 # SBOM образа (release.yml, sbom: true) по умолчанию описывает только
 # финальный этап — Caddy со статикой, без npm-зависимостей, из которых
 # собран бандл. Флаг просит BuildKit просканировать и этот этап: в SBOM
