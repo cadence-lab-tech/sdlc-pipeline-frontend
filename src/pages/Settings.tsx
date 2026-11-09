@@ -31,6 +31,7 @@ import type {
 import {useResource} from '../api/useResource';
 import {Failure, Loaded} from '../components/Feedback';
 import {AuditLog} from '../components/AuditLog';
+import {AgentSettings} from '../components/agentsettings/AgentSettings';
 
 const LEVELS = [
   {value: 'viewer', label: 'viewer — только чтение'},
@@ -67,6 +68,8 @@ export function Settings() {
             <Repositories projectKey={projectKey} />
             <Separator />
             <Tokens projectKey={projectKey} me={who} />
+            <Separator />
+            <AgentSettings projectKey={projectKey} me={who} />
             <Separator />
             <Transfer projectKey={projectKey} />
             <Separator />

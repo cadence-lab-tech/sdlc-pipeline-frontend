@@ -77,6 +77,11 @@ import type {
   AcceptedInvite,
   AgentKit,
   Instance,
+  AgentSettingsActivation,
+  AgentSettingsActive,
+  AgentSettingsDraftBody,
+  AgentSettingsListItem,
+  AgentSettingsView,
 } from "./types";
 import { normalizeRowFields } from "./taskRow";
 import { UPLOAD_ABORTED } from "../components/task/attachmentRules";
@@ -209,6 +214,23 @@ function library<T>(p: Promise<T>): Promise<T> {
       "not_found",
       `сервер не знает библиотеку инструкций (нужна версия ≥ ${LIBRARY_MIN_VERSION})`,
       { library: false },
+      404,
+    );
+  });
+}
+
+// Ручки настройки агентов (CLAB-425): сервер без них отвечает 404 маршрута
+// текстом «404 page not found» — не JSON, и разбор тела падал бы
+// SyntaxError'ом. Такой ответ становится not_found с пометкой agentSettings:
+// false — по ней экран отличает «сервер не знает настройки агентов» от
+// «проекта нет».
+function agentSettingsCall<T>(p: Promise<T>): Promise<T> {
+  return p.catch((err: unknown) => {
+    if (err instanceof ApiError) throw err;
+    throw new ApiError(
+      "not_found",
+      "сервер не знает настройки агентов",
+      { agentSettings: false },
       404,
     );
   });
@@ -756,6 +778,53 @@ export const api = {
       ...s,
       repositories: s.repositories ?? [],
     })),
+
+  // ── настройка агентов проекта ─────────────────────────────────────────────
+  agentSettings: (projectKey: string) =>
+    agentSettingsCall(
+      request<AgentSettingsActive>(`/projects/${projectKey}/agent-settings`),
+    ),
+
+  agentSettingsVersions: (projectKey: string) =>
+    agentSettingsCall(
+      request<{ versions: AgentSettingsListItem[] | null }>(
+        `/projects/${projectKey}/agent-settings/versions`,
+      ),
+    ).then((r) => r.versions ?? []),
+
+  agentSettingsVersion: (projectKey: string, version: number) =>
+    agentSettingsCall(
+      request<AgentSettingsView>(
+        `/projects/${projectKey}/agent-settings/versions/${version}`,
+      ),
+    ),
+
+  agentSettingsCreateDraft: (
+    projectKey: string,
+    body: AgentSettingsDraftBody,
+  ) =>
+    request<AgentSettingsView>(
+      `/projects/${projectKey}/agent-settings/draft`,
+      post(body),
+    ),
+
+  agentSettingsPutDraft: (
+    projectKey: string,
+    body: { document: unknown; changelog?: string },
+  ) =>
+    request<AgentSettingsView>(
+      `/projects/${projectKey}/agent-settings/draft`,
+      put(body),
+    ),
+
+  agentSettingsDiscardDraft: (projectKey: string) =>
+    request<void>(`/projects/${projectKey}/agent-settings/draft`, del()),
+
+  agentSettingsActivate: (projectKey: string, version: number) =>
+    request<AgentSettingsActivation>(
+      `/projects/${projectKey}/agent-settings/draft/activate`,
+      post({ version }),
+    ),
 
   // ── перенос правил ────────────────────────────────────────────────────────
   exportBundle: (projectKey: string) =>

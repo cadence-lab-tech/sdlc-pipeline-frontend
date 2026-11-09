@@ -34,6 +34,8 @@ function Field({
   description,
   isRequired,
   isLabelHidden,
+  error,
+  dataPath,
   children,
 }: {
   id: string;
@@ -41,6 +43,10 @@ function Field({
   description?: React.ReactNode;
   isRequired?: boolean;
   isLabelHidden?: boolean;
+  // Отказ сервера по этому полю: текст под полем, связан с контролом через
+  // aria-describedby (id — errorId(id)). dataPath — опора сценариев.
+  error?: string;
+  dataPath?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -55,8 +61,18 @@ function Field({
       ) : null}
       {children}
       {description ? <p className="text-muted-foreground text-xs">{description}</p> : null}
+      {error ? (
+        <p id={errorId(id)} data-path={dataPath} className="text-destructive text-xs">
+          {error}
+        </p>
+      ) : null}
     </div>
   );
+}
+
+// id подписи ошибки поля: контрол ссылается на него через aria-describedby.
+function errorId(id: string): string {
+  return `${id}-error`;
 }
 
 export function TextInput({
@@ -71,6 +87,9 @@ export function TextInput({
   isDisabled,
   isLabelHidden,
   isInvalid,
+  error,
+  dataPath,
+  inputMode,
   id: fixedId,
   className,
 }: {
@@ -86,6 +105,11 @@ export function TextInput({
   isLabelHidden?: boolean;
   // Поле названо в отказе сервера: aria-invalid и красная рамка.
   isInvalid?: boolean;
+  // Текст отказа под полем; задан — поле и так помечено недопустимым.
+  error?: string;
+  // Серверный путь поля (data-path на контроле и на подписи ошибки).
+  dataPath?: string;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
   // Постоянный id — опора сценариев (#role-doc-name); по умолчанию useId.
   id?: string;
   className?: string;
@@ -93,14 +117,24 @@ export function TextInput({
   const autoId = useId();
   const id = fixedId ?? autoId;
   return (
-    <Field id={id} label={label} description={description} isRequired={isRequired} isLabelHidden={isLabelHidden}>
+    <Field
+      id={id}
+      label={label}
+      description={description}
+      isRequired={isRequired}
+      isLabelHidden={isLabelHidden}
+      error={error}
+      dataPath={dataPath}>
       <Input
         id={id}
         type={type}
         value={value}
         placeholder={placeholder}
         disabled={isDisabled}
-        aria-invalid={isInvalid || undefined}
+        inputMode={inputMode}
+        data-path={dataPath}
+        aria-invalid={isInvalid || Boolean(error) || undefined}
+        aria-describedby={error ? errorId(id) : undefined}
         className={className}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={onEnter ? (e) => e.key === 'Enter' && onEnter() : undefined}
@@ -118,6 +152,9 @@ export function TextArea({
   placeholder,
   isRequired,
   isDisabled,
+  isInvalid,
+  error,
+  dataPath,
   id: fixedId,
   className,
 }: {
@@ -129,18 +166,31 @@ export function TextArea({
   placeholder?: string;
   isRequired?: boolean;
   isDisabled?: boolean;
+  isInvalid?: boolean;
+  error?: string;
+  dataPath?: string;
   id?: string;
   className?: string;
 }) {
   const autoId = useId();
   const id = fixedId ?? autoId;
   return (
-    <Field id={id} label={label} description={description} isRequired={isRequired}>
+    <Field
+      id={id}
+      label={label}
+      description={description}
+      isRequired={isRequired}
+      error={error}
+      dataPath={dataPath}>
       <Textarea
         id={id}
         rows={rows}
         className={className}
         disabled={isDisabled}
+        data-path={dataPath}
+        spellCheck={dataPath === undefined ? undefined : false}
+        aria-invalid={isInvalid || Boolean(error) || undefined}
+        aria-describedby={error ? errorId(id) : undefined}
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
@@ -209,6 +259,8 @@ export function Selector({
   hasClear,
   isRequired,
   isLabelHidden,
+  error,
+  dataPath,
 }: {
   label?: string;
   description?: string;
@@ -220,13 +272,27 @@ export function Selector({
   hasClear?: boolean;
   isRequired?: boolean;
   isLabelHidden?: boolean;
+  error?: string;
+  dataPath?: string;
 }) {
   const id = useId();
   return (
-    <Field id={id} label={label} description={description} isRequired={isRequired} isLabelHidden={isLabelHidden}>
+    <Field
+      id={id}
+      label={label}
+      description={description}
+      isRequired={isRequired}
+      isLabelHidden={isLabelHidden}
+      error={error}
+      dataPath={dataPath}>
       <div className="flex items-center gap-1">
         <Select value={value} onValueChange={onChange} disabled={isDisabled}>
-          <SelectTrigger id={id} className="w-full">
+          <SelectTrigger
+            id={id}
+            className="w-full"
+            data-path={dataPath}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? errorId(id) : undefined}>
             <SelectValue placeholder={placeholder} />
           </SelectTrigger>
           <SelectContent>

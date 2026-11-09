@@ -1437,6 +1437,9 @@ export interface ImportReport {
   // в том же порядке.
   workflows: ImportEntry[];
   workflow_validations: Validation[];
+  // Настройка агентов (CLAB-428): поля нет у сервера прежней версии, поэтому
+  // необязательное. Строки в отчёте для неё интерфейс пока не рисует.
+  agent_settings?: ImportEntry;
 }
 
 export interface StatusMetric {
@@ -1635,4 +1638,72 @@ export interface QueueEntry {
   role_key?: string;
   role_name?: string;
   claimable: boolean;
+}
+
+// ── настройка агентов проекта (CLAB-425, решение 0077) ─────────────────────
+
+export type AgentSettingsState = "draft" | "active" | "retired";
+
+// Форма документа по проверке сервера (internal/workflow/agentsettings.go).
+// Интерфейс читает его осторожно: сервер ничего не нормализует за клиента, а
+// документ из черновика может быть любой формы до первой проверки.
+export interface AgentSettingsLevel {
+  model?: string;
+  effort?: string;
+}
+
+export interface AgentSettingsAgent {
+  models?: string[];
+  levels?: Partial<Record<ModelLevel, AgentSettingsLevel>>;
+}
+
+export interface AgentSettingsPrice {
+  input?: number;
+  output?: number;
+  cache_read?: number;
+  cache_write?: number;
+}
+
+export interface AgentSettingsDocument {
+  agents?: Record<string, AgentSettingsAgent>;
+  pricing?: {as_of?: string; models?: Record<string, AgentSettingsPrice>};
+}
+
+export interface AgentSettingsView {
+  project: string;
+  version: number;
+  state: AgentSettingsState;
+  document: AgentSettingsDocument;
+  changelog: string | null;
+  sha256: string;
+  created_by: string | null;
+  created_at: string;
+  activated_by: string | null;
+  activated_at: string | null;
+  warnings: string[];
+}
+
+export interface AgentSettingsListItem {
+  version: number;
+  state: AgentSettingsState;
+  changelog: string | null;
+  sha256: string;
+  created_by: string | null;
+  created_at: string;
+  activated_by: string | null;
+  activated_at: string | null;
+}
+
+// Активной версии нет — {"version": null}.
+export type AgentSettingsActive = AgentSettingsView | {version: null};
+
+export interface AgentSettingsActivation {
+  activated: AgentSettingsView;
+  retired: number | null;
+}
+
+export interface AgentSettingsDraftBody {
+  from?: "active" | "empty";
+  document?: unknown;
+  changelog?: string;
 }
