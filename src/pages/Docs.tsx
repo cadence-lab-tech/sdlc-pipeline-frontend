@@ -8,20 +8,27 @@ import type {AgentKit} from '../api/types';
 import {useResource} from '../api/useResource';
 import {
   BREW_COMMAND,
+  GUIDE_COMMAND,
   KEY_PLACEHOLDER,
   PLUGIN_COMMAND,
+  agentSettingsHref,
+  codexAddCommand,
+  codexTokenCommand,
   installCommand,
   loginCommand,
+  markerBlock,
   mcpAddCommand,
   mcpJSON,
+  promptCommand,
   releaseVersion,
   setupCommand,
   waitCommand,
 } from '../components/cli';
 import {useInstance} from '../hooks/useInstance';
 
-// Подключение локального проекта к Cadence Lab (CLAB-232, решение 0050):
-// CLI, вход, clab setup, ручной MCP, набор агента и что есть вокруг. Адрес
+// Подключение локального проекта к Cadence Lab (CLAB-232, решение 0050;
+// любой агент — CLAB-423, решение 0077): CLI, вход, clab setup по агентам,
+// ручной MCP по агентам, набор агента и вход в этап, что есть вокруг. Адрес
 // инстанса — тот, с которого открыта страница, ключ — выбранный проект,
 // версия — сервера: одинаково на нашем инстансе и на инстансе компании.
 // Правила команд — в components/cli.ts, без разметки.
@@ -39,13 +46,14 @@ export function Docs() {
   const asked = params.get('project') ?? '';
   const key = asked || list[0]?.key || '';
   const shown = key || KEY_PLACEHOLDER;
+  const settingsHref = agentSettingsHref(key);
   const release = releaseVersion(instance?.version);
 
   return (
     <Page className="max-w-4xl">
       <PageHeader
         title="Подключение"
-        description="Как связать локальный проект с проектом Cadence Lab: поставить CLI, войти, подключить MCP и набор агента одной командой."
+        description="Как связать локальный проект с проектом Cadence Lab: поставить CLI, войти, подключить MCP и набор любому агенту одной командой."
       />
       <div className="space-y-8" data-docs>
         <Section title="Проект">
@@ -88,38 +96,125 @@ export function Docs() {
 
         <Section
           title="3. Связать локальный проект"
-          description="В корне локального клона репозитория проекта. Команда подключает MCP-сервер проекта к Claude Code и кладёт набор агента в .claude/ проекта; токен в файлы не попадает.">
+          description="В корне локального клона репозитория проекта. Команда ставит набор агента и подключает MCP-сервер проекта каждому найденному агенту; агенту, которого она не подключает сама, печатает конфигурацию MCP. Токен в файлы не попадает.">
           <div className="space-y-3">
             <CodeBlock title="clab setup" language="sh" code={setupCommand(key)} />
+            <h3 className="text-sm font-medium">Какому агенту</h3>
+            <ul className="text-muted-foreground list-disc space-y-1 pl-5 text-sm" data-agents>
+              <li>
+                <code>--agent auto</code> — по умолчанию: каждому агенту, найденному в <code>PATH</code>; не нашлось ни
+                одного — как <code>generic</code>.
+              </li>
+              <li>
+                <code>--agent claude</code> — только Claude Code: набор в <code>.claude/skills</code> и{' '}
+                <code>.claude/agents</code>, MCP через <code>claude mcp add</code>.
+              </li>
+              <li>
+                <code>--agent codex</code> — только Codex: набор в <code>.agents/skills</code> и{' '}
+                <code>.codex/agents</code>, MCP через <code>codex mcp add</code>, токен Codex читает из переменной{' '}
+                <code>SDLC_TOKEN</code>.
+              </li>
+              <li>
+                <code>--agent generic</code> — любой другой агент: ядро набора в <code>.agents/skills</code>, MCP не
+                подключается, <code>clab setup</code> печатает конфигурацию MCP.
+              </li>
+              <li>
+                Привязку агента, которого этот <code>clab</code> не знает, команда пропускает с предупреждением.
+              </li>
+            </ul>
+            <h3 className="text-sm font-medium">Флаги</h3>
             <ul className="text-muted-foreground list-disc space-y-1 pl-5 text-sm">
               <li>
                 Повторный запуск безвреден: обновляет набор до версии сервера, файлы, правленные после установки,
                 не трогает (<code>--force</code> — перезаписать).
               </li>
               <li>
-                <code>--scope user</code> — набор в <code>~/.claude/</code> для всех каталогов, MCP везде.
-              </li>
-              <li>
-                <code>--agent other</code> — без Claude Code: печатает конфигурацию MCP для другого агента.
-              </li>
-              <li>
                 <code>--dry-run</code> — показать, что будет сделано, ничего не меняя.
               </li>
+              <li>
+                <code>--scope user</code> у Claude Code — набор в <code>~/.claude/</code> для всех каталогов, MCP везде.
+                У Codex <code>--scope user</code> (по умолчанию) — сервер в <code>~/.codex/config.toml</code>,{' '}
+                <code>--scope project</code> — в <code>.codex/config.toml</code> проекта, без токена.
+              </li>
+              <li>
+                <code>--trust</code> у Codex — записать доверие проекту в <code>~/.codex/config.toml</code>; без флага{' '}
+                <code>clab</code> только подсказывает.
+              </li>
+              <li>
+                <code>--no-marker</code> — не писать строку привязки каталога (ниже).
+              </li>
             </ul>
+            <p className="text-muted-foreground text-sm" data-agent-settings>
+              Какие модели у уровней и какой прайс у команды — в разделе{' '}
+              {settingsHref ? (
+                <Link className="underline underline-offset-4" to={settingsHref}>
+                  Агенты и модели
+                </Link>
+              ) : (
+                <>«Агенты и модели»</>
+              )}{' '}
+              настроек проекта.
+            </p>
+            <div className="space-y-2" data-marker>
+              <h3 className="text-sm font-medium">Строка привязки каталога</h3>
+              <p className="text-muted-foreground text-sm">
+                <code>clab setup</code> пишет этот блок в <code>AGENTS.md</code> и <code>CLAUDE.md</code>, если они
+                есть, а нет ни одного — создаёт <code>AGENTS.md</code>. По нему <code>clab</code> берёт проект в этом
+                каталоге. Секретов в блоке нет; в git его кладёт человек, сам <code>clab setup</code> ничего не
+                коммитит. Образец ниже — для проекта {shown} на этом инстансе, а не рабочий блок: настоящий пишет
+                команда.
+              </p>
+              <CodeBlock title="AGENTS.md / CLAUDE.md" language="markdown" code={markerBlock(origin, key)} />
+            </div>
           </div>
         </Section>
 
         <Section
           title="4. MCP вручную"
-          description="Если clab setup не подходит. Токен подставляет clab auth token; ту же конфигурацию с токеном печатает clab mcp config.">
-          <div className="space-y-3">
-            <CodeBlock title="Claude Code" language="sh" code={mcpAddCommand(origin, key)} />
-            <CodeBlock title="другие агенты (mcpServers)" language="json" code={mcpJSON(origin, key)} />
+          description="Если clab setup не подходит. Токена в командах нет: его подставляет clab auth token или переменная окружения SDLC_TOKEN.">
+          <div className="space-y-4">
+            <div className="space-y-2" data-agent-block="claude">
+              <CodeBlock title="Claude Code" language="sh" code={mcpAddCommand(origin, key)} />
+            </div>
+            <div className="space-y-2" data-agent-block="codex">
+              <CodeBlock title="Codex" language="sh" code={codexAddCommand(origin, key)} />
+              <CodeBlock title="Codex: токен" language="sh" code={codexTokenCommand} />
+              <p className="text-muted-foreground text-sm">
+                Переменная <code>SDLC_TOKEN</code> нужна при запуске Codex: он читает токен из неё, в{' '}
+                <code>config.toml</code> токена нет.
+              </p>
+            </div>
+            <div className="space-y-2" data-agent-block="generic">
+              <CodeBlock title="другой агент (mcpServers)" language="json" code={mcpJSON(origin, key)} />
+              <p className="text-muted-foreground text-sm">
+                Ту же конфигурацию печатает <code>clab setup --agent generic</code>. Агент не раскрывает переменные в
+                конфигурации — конфигурацию с токеном печатает <code>clab mcp config</code>; класть её в репозиторий
+                нельзя.
+              </p>
+            </div>
           </div>
         </Section>
 
-        <Section title="5. Скилы агента" description="Ставит clab setup; набор приходит с этого сервера и той же версии.">
-          <AgentKitList kit={kit.data} failed={!!kit.error} loading={kit.loading} serverVersion={instance?.version} projectKey={shown} />
+        <Section
+          title="5. Скилы и вход в этап"
+          description="Набор ставит clab setup; он приходит с этого сервера и той же версии.">
+          <AgentKitList kit={kit.data} failed={!!kit.error} loading={kit.loading} serverVersion={instance?.version} />
+          <div className="mt-4 space-y-2" data-entry>
+            <h3 className="text-sm font-medium">Вход для любого агента</h3>
+            <p className="text-muted-foreground text-sm">
+              Справка о <code>clab</code>, проекте и порядке работы — <code>clab guide</code>, вход не нужен.
+              Стартовая инструкция этапа — <code>clab prompt work</code> с ключом задачи: тот же текст, что у
+              MCP-промпта. Обе команды работают у любого агента, в том числе без скилов и MCP-промптов.
+            </p>
+            <CodeBlock title="clab guide" language="sh" code={GUIDE_COMMAND} />
+            <CodeBlock title="clab prompt work" language="sh" code={promptCommand(key)} />
+            {!kit.error ? (
+              <p className="text-muted-foreground text-sm" data-skill-call>
+                Скил по имени — способ привязки агента, а не единственный вход: в Claude Code{' '}
+                <code>/clab-work {shown}-12</code>, в Codex <code>$clab-work {shown}-12</code>.
+              </p>
+            ) : null}
+          </div>
           <div className="mt-4 space-y-2" data-wait>
             <h3 className="text-sm font-medium">Ожидание апрува</h3>
             <p className="text-muted-foreground text-sm">
@@ -153,7 +248,7 @@ export function Docs() {
             </li>
             <li>
               MCP-сервер проекта <code>{`${origin}/mcp/projects/${shown}`}</code> работает с любым агентом, который
-              понимает MCP по HTTP.
+              понимает MCP по HTTP: подключение по агентам — в разделе 4.
             </li>
             <li>
               Задачи связываются с тикетами вашего трекера ссылками: <code>clab create --external-ref jira:PROJ-12=https://…</code>,
@@ -171,13 +266,11 @@ function AgentKitList({
   failed,
   loading,
   serverVersion,
-  projectKey,
 }: {
   kit?: AgentKit;
   failed: boolean;
   loading: boolean;
   serverVersion?: string;
-  projectKey: string;
 }) {
   if (failed) {
     return (
@@ -206,10 +299,6 @@ function AgentKitList({
           </div>
         ))}
       </dl>
-      <p className="text-muted-foreground text-sm">
-        В Claude Code скил зовётся по имени: <code>/clab-work {projectKey}-12</code>. Справка о CLI и цикле —
-        скил <code>clab-guide</code>, агент подключает его сам.
-      </p>
     </div>
   );
 }

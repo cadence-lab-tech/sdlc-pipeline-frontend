@@ -49,14 +49,56 @@ export const mcpAddCommand = (origin: string, key?: string) =>
   `claude mcp add --transport http --scope local sdlc ${mcpURL(origin, key)} \\\n` +
   `  --header "Authorization: Bearer $(clab auth token)"`;
 
-// Конфигурация для агентов, понимающих MCP по HTTP. Вместо токена —
-// подсказка: настоящий заголовок печатает clab mcp config.
+// Переменная окружения, из которой токен читают Codex и «другие агенты»: ни в
+// команде, ни в конфигурации самого агента токена нет (CLAB-423, решение 0077,
+// п. 9). Имя то же, что у clab setup (codexTokenEnv в backend/cmd/clab).
+export const TOKEN_ENV = 'SDLC_TOKEN';
+
+// Имя MCP-сервера Codex: адрес проектный, а пользовательский конфиг Codex
+// один на машину, поэтому имя несёт ключ проекта в нижнем регистре — как
+// agentMCPName в backend/cmd/clab/setup_agents.go. Без проекта — заглушка.
+export const codexServerName = (key?: string) => `sdlc-${(key || 'key').toLowerCase()}`;
+
+// Токен в переменную кладёт сам clab; она нужна при запуске Codex.
+export const codexTokenCommand = `export ${TOKEN_ENV}="$(clab auth token)"`;
+
+// Ручное подключение Codex: токен — именем переменной, не значением. Форма
+// та же, что печатает clab setup (codexAddCommand в setup_agents.go).
+export const codexAddCommand = (origin: string, key?: string) =>
+  `codex mcp add ${codexServerName(key)} --url ${mcpURL(origin, key)} --bearer-token-env-var ${TOKEN_ENV}`;
+
+// Конфигурация для агентов, понимающих MCP по HTTP: та же, что печатает
+// clab setup --agent generic. Токена нет — заголовок раскрывает переменная;
+// конфигурацию с настоящим заголовком печатает clab mcp config.
 export const mcpJSON = (origin: string, key?: string) =>
   JSON.stringify(
-    {mcpServers: {sdlc: {type: 'http', url: mcpURL(origin, key), headers: {Authorization: 'Bearer <clab auth token>'}}}},
+    {mcpServers: {sdlc: {type: 'http', url: mcpURL(origin, key), headers: {Authorization: `Bearer \${${TOKEN_ENV}}`}}}},
     null,
     2,
   );
+
+// Блок привязки каталога к проекту (решение 0077, п. 6): его пишет clab setup
+// в AGENTS.md и CLAUDE.md, по нему clab берёт проект в этом каталоге. Четыре
+// строки как markerBlockLines в backend/cmd/clab/setup_marker.go; только ключ
+// и адрес инстанса — ни токена, ни модели, ни путей конфига.
+export const markerBlock = (origin: string, key?: string) => {
+  const k = key || KEY_PLACEHOLDER;
+  return [
+    '<!-- cadence-lab:begin -->',
+    `<!-- cadence-lab: project=${k} host=${origin} -->`,
+    `Cadence Lab: this directory works with project ${k} at ${origin}; the \`clab\` CLI takes the project from this block.`,
+    '<!-- cadence-lab:end -->',
+  ].join('\n');
+};
+
+// Справка механизма для любого агента — тело набора clab-guide; вход не
+// нужен. Требует сервер v0.28.0 или новее.
+export const GUIDE_COMMAND = 'clab guide';
+
+// Стартовая инструкция этапа — тот же текст, что у MCP-промпта work_on_task,
+// для агента без скилов и MCP-промптов. Номер задачи — пример, как у
+// waitCommand: на странице есть только ключ проекта.
+export const promptCommand = (key?: string) => `clab prompt work ${key || KEY_PLACEHOLDER}-12`;
 
 // Ожидание апрува агентом (CLAB-323): clab wait держит долгий опрос событий
 // задачи, а clab heartbeat вокруг — аренду этапа. Номер задачи — пример:
@@ -68,3 +110,7 @@ export const waitCommand = (key?: string) =>
 // Адрес страницы с выбранным проектом: ссылка со страниц проекта приносит
 // его ключ.
 export const docsHref = (key?: string) => (key ? `/docs?project=${encodeURIComponent(key)}` : '/docs');
+
+// Настройки проекта, где раздел «Агенты и модели»: модели уровней и прайс
+// команды. Без проекта ссылки нет.
+export const agentSettingsHref = (key?: string) => (key ? `/p/${encodeURIComponent(key)}/settings` : undefined);
