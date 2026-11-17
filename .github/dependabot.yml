@@ -17,7 +17,21 @@
 # отдельной задачей, поэтому minor и major у node, golang и caddy (образа)
 # и major у модуля Caddy игнорируются.
 #
-# Ещё — actions workflow'ов (CLAB-142, ниже); npm — не в этой политике.
+# Ещё — actions workflow'ов (CLAB-142, ниже).
+#
+# Политика целиком — решение 0051 («Уточнено CLAB-374»). Version updates
+# (PR по расписанию) ведутся только для docker /, gomod /caddy и
+# github-actions /. npm (package.json интерфейса) — без version updates:
+# его покрывают алерты и security updates Dependabot (включены в настройках
+# репозитория), они сами открывают PR с исправлением. Security update gomod
+# /caddy берёт модули только из allow ниже: по остальным (otel и прочие
+# модули Caddy) PR не откроется (all_versions_ignored), и исправление
+# поднимается задачей вручную. Алерт, у которого исправления нет, разбирается
+# по достижимости: попадает ли код в образ; если сканер клиента его видит —
+# утверждение в .github/release/openvex.json и строка «Known scanner
+# findings» в docs/admin.md пакета self-hosted, затем dismiss
+# tolerable_risk с комментарием; если кода нет в образе (сборочная
+# зависимость) — просто dismiss с причиной.
 version: 2
 updates:
   - package-ecosystem: docker
@@ -58,6 +72,12 @@ updates:
       - dependency-name: github.com/caddyserver/caddy/v2
         update-types:
           - version-update:semver-major
+      # golang.org/x/crypto/x509roots/fallback — вложенный модуль без тегов
+      # (только псевдоверсии): Dependabot принимает его за часть
+      # golang.org/x/crypto и просит несуществующую v0.59.0, задание группы
+      # падает с dependency_file_not_resolvable (CLAB-374). Новую
+      # псевдоверсию приносит релиз Caddy, который его требует.
+      - dependency-name: golang.org/x/crypto/x509roots/fallback
 
   # Actions workflow'ов закреплены по SHA (CLAB-142): тег можно
   # переписать, SHA — нет, и сам SHA без обновления протух бы. Dependabot
