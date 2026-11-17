@@ -71,10 +71,10 @@ export function Settings() {
 
 const PANEL_CLASS = 'mt-4 space-y-8 rounded-md focus-visible:ring-[3px] focus-visible:ring-ring/50';
 
-// Подпись «Опасной зоны» — цвет destructive и в неактивной, и в активной
-// вкладке; смысл при этом несёт и текст, и карточка внутри.
-const DANGER_CLASS =
-  'text-destructive hover:text-destructive data-active:text-destructive dark:text-destructive dark:hover:text-destructive dark:data-active:text-destructive';
+// Подпись вкладки «Опасная зона» остаётся цвета по умолчанию: text-destructive
+// на плашке bg-muted в светлой теме даёт контраст 4.38:1, ниже 4.5:1 (замер
+// тестировщика, CLAB-39; так и велит дизайн). Предупреждение несут слова и
+// карточка с рамкой и фоном destructive внутри вкладки.
 
 function SettingsTabs({projectKey, me}: {projectKey: string; me: Me}) {
   const [params, setParams] = useSearchParams();
@@ -115,7 +115,7 @@ function SettingsTabs({projectKey, me}: {projectKey: string; me: Me}) {
               key={t.key}
               value={t.key}
               data-settings-tab={t.key}
-              className={cn('px-3', t.key === 'danger' && DANGER_CLASS)}>
+              className="px-3">
               {t.label}
               {t.key === 'agents' && agentsDirty ? (
                 <>

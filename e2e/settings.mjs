@@ -574,8 +574,9 @@ const danger = await run(`
 check('опасная зона стоит отдельной вкладкой и объясняет цену',
   t.includes('Опасная зона') && t.includes('Удалить проект DELME') && t.includes('Необратимо: восстановления нет') &&
     t.includes('Проект исчезает целиком'), t.slice(-1500));
-check('карточка опасной зоны — рамка и фон по токену destructive, подпись вкладки destructive',
-  danger.classes.includes('border-destructive') && danger.classes.includes('bg-destructive') && danger.tab.includes('text-destructive'), JSON.stringify(danger));
+// Подпись вкладки цвета по умолчанию: text-destructive на bg-muted в светлой теме — 4.38:1 < 4.5:1 (дизайн, Q3).
+check('карточка опасной зоны — рамка и фон по токену destructive, подпись вкладки без destructive',
+  danger.classes.includes('border-destructive') && danger.classes.includes('bg-destructive') && !danger.tab.includes('destructive'), JSON.stringify(danger));
 await run('await clickExact("Удалить проект"); await sleep(500);');
 alert = await run('return alertText();');
 check('диалог называет проект, что исчезнет и что это навсегда',
