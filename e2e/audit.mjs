@@ -258,8 +258,29 @@ check('пункта «Журнал» в меню нет', (await run(`return all
 await s.removeInitScript(denyAudit);
 
 console.log('журнал проекта в настройках');
+// Журнал грузится по открытию вкладки (CLAB-39): пока она не открыта, запроса
+// журнала проекта нет — чтение журнала наблюдателем оставило бы запись-отказ.
+// Запросы считаются в самой странице, глобальный fetch оборачивается до её кода.
+const countAudit = await s.addInitScript(`
+  window.__auditCalls = [];
+  const realFetch = window.fetch;
+  window.fetch = (input, init) => {
+    const url = typeof input === 'string' ? input : input.url;
+    if (/\\/v1\\/projects\\/SDLC\\/audit/.test(url)) window.__auditCalls.push(url);
+    return realFetch(input, init);
+  };
+`);
 await s.goto(BASE + '/p/SDLC/settings');
 await wait(2500);
+for (const tab of ['members', 'teams', 'github', 'tokens', 'agents', 'transfer', 'danger']) {
+  await run(`await openSettingsTab(${JSON.stringify(tab)});`);
+}
+check('на других вкладках запроса журнала проекта нет', (await run('return window.__auditCalls.length;')) === 0,
+  JSON.stringify(await run('return window.__auditCalls;')));
+await run('await openSettingsTab("audit");');
+await wait(1500);
+check('вкладка журнала открыта — запрос ушёл', (await run('return window.__auditCalls.length;')) >= 1);
+await s.removeInitScript(countAudit);
 const section = `
   const h = all('h2').find((x) => x.innerText.trim() === 'Журнал действий');
   return h ? h.closest('section') : null;
@@ -273,13 +294,17 @@ const links = await run(`
 check('у записи задачи — ссылка на карточку',
   links.some((l) => l.tag === 'A' && l.text === KEY && l.href === `/p/SDLC/tasks/${KEY}`), JSON.stringify(links.slice(0, 3)));
 const order = await run(`
-  return all('h2').map((x) => x.innerText.trim()).filter((x) => ['Перенос правил', 'Журнал действий', 'Опасная зона'].includes(x));
+  return {
+    tab: all('[role=tab]').filter((x) => x.getAttribute('aria-selected') === 'true').map((x) => x.getAttribute('data-settings-tab')),
+    h2: all('[data-settings-panel][data-state=active] h2').map((x) => x.innerText.trim()),
+  };
 `);
-check('раздел стоит перед «Опасной зоной»', JSON.stringify(order) === JSON.stringify(['Перенос правил', 'Журнал действий', 'Опасная зона']), JSON.stringify(order));
+check('журнал — своя вкладка, перед вкладкой «Опасная зона»', JSON.stringify(order) === JSON.stringify({tab: ['audit'], h2: ['Журнал действий']}), JSON.stringify(order));
 
 // Импорт связки той же страницы появляется после «Обновить» — проектной
 // записью без задачи.
 await run(`
+  await openSettingsTab("transfer");
   await clickExact("Экспортировать проект");
   await sleep(1500);
   const code = all('.code-block').find((el) => el.innerText.includes('"roles"'));
@@ -290,6 +315,8 @@ await run(`
   return true;
 `);
 await run(`
+  await openSettingsTab("audit");
+  await sleep(1500);
   const sec = (() => { ${section} })();
   Array.from(sec.querySelectorAll('button')).find((b) => b.innerText.trim() === 'Обновить').click();
   await sleep(1500);

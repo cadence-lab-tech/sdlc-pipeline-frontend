@@ -1,5 +1,5 @@
 import {useState} from 'react';
-import {Check, Copy, Loader2} from 'lucide-react';
+import {Check, Copy, Info, Loader2} from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
+import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {TextInput} from '@/components/fields';
 
 // Мелочь, которой в shadcn нет: пустые состояния, метки-жетоны, точки статуса,
@@ -51,15 +52,22 @@ export function PageHeader({
 
 // Section — заголовок с действиями и телом. Заголовок остаётся <h2>: e2e и
 // программы чтения с экрана ищут раздел по тексту, а не по классу.
+//
+// Необязательное `details` (CLAB-39) сокращает описание до подзаголовка в одну
+// строку: `description` режется многоточием, а полный текст открывает кнопка
+// «Подробнее» в поповере (подсказка по наведению не работает на касании и с
+// клавиатуры не открывается). Без `details` вид прежний.
 export function Section({
   title,
   description,
+  details,
   actions,
   className,
   children,
 }: {
   title?: React.ReactNode;
   description?: React.ReactNode;
+  details?: React.ReactNode;
   actions?: React.ReactNode;
   className?: string;
   children: React.ReactNode;
@@ -68,9 +76,31 @@ export function Section({
     <section className={cn('space-y-3', className)}>
       {title || actions ? (
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="space-y-0.5">
+          <div className={cn('space-y-0.5', details ? 'min-w-0 flex-1' : null)}>
             {title ? <h2 className="text-base font-semibold">{title}</h2> : null}
-            {description ? <p className="text-muted-foreground text-sm">{description}</p> : null}
+            {description && details ? (
+              <div className="flex min-w-0 items-center gap-1">
+                <p className="text-muted-foreground min-w-0 truncate text-sm">{description}</p>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      className="shrink-0"
+                      aria-label={`Подробнее: ${typeof title === 'string' ? title : ''}`}
+                      data-section-details="">
+                      <Info />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-80 max-w-[calc(100vw-2rem)] text-sm">
+                    {details}
+                  </PopoverContent>
+                </Popover>
+              </div>
+            ) : description ? (
+              <p className="text-muted-foreground text-sm">{description}</p>
+            ) : null}
           </div>
           {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
         </div>

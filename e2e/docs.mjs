@@ -6,7 +6,9 @@
 // Чего стенд дать не может (сервер без набора, пользователь без проектов),
 // подменяется в браузере ответом одной ручки — остальной бэкенд живой.
 import {session, helpers} from './driver.mjs';
-import {
+// cli.ts тянет модуль вкладок настроек без расширения — см. ts-resolve.mjs.
+await import('./ts-resolve.mjs');
+const {
   BREW_COMMAND,
   GUIDE_COMMAND,
   KEY_PLACEHOLDER,
@@ -23,7 +25,7 @@ import {
   promptCommand,
   setupCommand,
   waitCommand,
-} from '../src/components/cli.ts';
+} = await import('../src/components/cli.ts');
 
 const BASE = process.env.SDLC_UI_URL ?? 'http://localhost:5173';
 const API = process.env.SDLC_API_URL ?? 'http://localhost:8088';
@@ -202,7 +204,8 @@ check('Codex-блок копируется кнопкой дословно', cod
 
 console.log('CLAB-423: ссылка «Агенты и модели» открывает настройки проекта');
 await run('await click("Агенты и модели", "a"); await sleep(1500); return 1;');
-const afterPath = await run('return location.pathname;');
+// Адрес ведёт на вкладку «Агенты и модели»: сравнивается путь вместе с запросом.
+const afterPath = await run('return location.pathname + location.search;');
 check('переход на настройки проекта', afterPath === agentSettingsHref('SDLC'), afterPath);
 check('раздел «Агенты и модели» на странице настроек', (await run('return texts();')).includes('Агенты и модели'), '');
 await s.goto(BASE + '/docs?project=SDLC');

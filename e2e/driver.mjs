@@ -187,6 +187,25 @@ export const helpers = `
     if (b.getAttribute('data-state') !== 'open') { b.click(); await sleep(700); }
     return true;
   };
+  // Вкладка настроек проекта (CLAB-39): нажатие, как мышью, по опоре
+  // data-settings-tab и ожидание aria-selected="true". Страница настроек ждёт
+  // «кто я», поэтому вкладки ждут до пяти секунд. Идемпотентна: выбранную
+  // вкладку повторный вызов не трогает. Те же опоры будут у страницы команды.
+  const openSettingsTab = async (key) => {
+    let el = null;
+    for (let i = 0; i < 50 && !(el = document.querySelector('[data-settings-tab="' + key + '"]')); i++) await sleep(100);
+    if (!el) throw new Error('вкладки настроек нет: ' + key);
+    if (el.getAttribute('aria-selected') !== 'true') {
+      const opts = {bubbles: true, cancelable: true, button: 0};
+      el.dispatchEvent(new MouseEvent('mousedown', opts));
+      el.dispatchEvent(new MouseEvent('mouseup', opts));
+      el.click();
+    }
+    for (let i = 0; i < 50 && el.getAttribute('aria-selected') !== 'true'; i++) await sleep(100);
+    if (el.getAttribute('aria-selected') !== 'true') throw new Error('вкладка не выбралась: ' + key);
+    await sleep(700);
+    return true;
+  };
   const clickExact = async (t, sel = 'button, [role=button]') => {
     const el = all(sel).find((e) => (e.innerText || '').trim() === t);
     if (!el) throw new Error('не найдено точно: ' + t);

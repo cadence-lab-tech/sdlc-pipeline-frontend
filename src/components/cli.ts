@@ -2,6 +2,8 @@
 // сервера, и войти на этот же адрес. Здесь только правила, без разметки, —
 // они проверяются без браузера (e2e/instance.mjs).
 
+import {settingsHref} from './settings/tabs';
+
 export const INSTALL_SCRIPT = 'https://raw.githubusercontent.com/cadence-lab-tech/homebrew-tap/main/install.sh';
 
 // Версия выпуска — по тому же правилу, что parseRelease в CLI
@@ -113,4 +115,5 @@ export const docsHref = (key?: string) => (key ? `/docs?project=${encodeURICompo
 
 // Настройки проекта, где раздел «Агенты и модели»: модели уровней и прайс
 // команды. Без проекта ссылки нет.
-export const agentSettingsHref = (key?: string) => (key ? `/p/${encodeURIComponent(key)}/settings` : undefined);
+// Ведёт на вкладку «Агенты и модели» (CLAB-39); адрес строит settings/tabs.ts.
+export const agentSettingsHref = (key?: string) => (key ? settingsHref(key, 'agents') : undefined);

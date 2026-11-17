@@ -20,6 +20,7 @@ import {
 import type {GitHubConnection, GitHubRepoChoice, GitHubSettings, Me} from '../api/types';
 import {useResource} from '../api/useResource';
 import {Failure, Loaded} from '../components/Feedback';
+import {settingsHref} from '../components/settings/tabs';
 import {InstallationsList} from '../components/Installations';
 
 // Возврат от GitHub (решение 0034). Сюда приходят дважды: с installation_id
@@ -332,7 +333,7 @@ function Picker({
                 startInstall(settings.install_url ?? '', {
                   team: teamKey,
                   project: projectKey,
-                  back: `/p/${projectKey}/settings`,
+                  back: settingsHref(projectKey, 'github'),
                 })
               }>
               Подключить ещё аккаунт

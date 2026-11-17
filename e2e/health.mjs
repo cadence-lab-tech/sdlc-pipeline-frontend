@@ -211,7 +211,7 @@ if (want.settings || want.search) {
 
 console.log('настройки проекта: состояние приложения видно при открытии');
 const gh = (await get('/projects/SDLC/github')).body;
-await s.goto(BASE + '/p/SDLC/settings');
+await s.goto(BASE + '/p/SDLC/settings?tab=github');
 await sleep(2500);
 const appView = `
   const appNote = () => {
@@ -280,6 +280,7 @@ check('счётчик сводки равен числу строк индекс
   counted === unreadable.length, JSON.stringify({counted, rows: unreadable.length}));
 await open('settings')();
 await sleep(1000);
+await run('await openSettingsTab("github");');
 const marked = (sel) => `
   return all('${sel} [data-unreadable]').map((el) => ({repo: el.getAttribute('data-unreadable'), text: el.innerText.replace(/\\s+/g, ' ')}));
 `;
