@@ -19,7 +19,9 @@
 # Caddy собран из исходников (CLAB-234, решение 0056), а не взят из
 # caddy:2-alpine как есть: upstream собирает релиз Caddy один раз и на новом
 # Go его не пересобирает, поэтому исправления Go (net/http, crypto/tls) и
-# golang.org/x/net до бинаря upstream не доходят. Версии Caddy и модулей —
+# golang.org/x/net до бинаря upstream не доходят. Набор модулей — как у
+# официального дистрибутива, кроме ACME-сервера acme_server (caddy/main.go,
+# CLAB-374). Версии Caddy и модулей —
 # caddy/go.mod и caddy/go.sum, их обновляет Dependabot gomod; Go — digest
 # golang:1.26-alpine, тот же, что в backend. От caddy:2-alpine остаётся
 # база: Alpine, mailcap, /data, /config, CMD.
@@ -65,6 +67,15 @@ COPY caddy/*.go ./
 # утверждение ложным молча.
 RUN if go list -deps . | grep -E '^golang\.org/x/crypto/openpgp(/|$)'; then \
       echo "caddy: golang.org/x/crypto/openpgp попал в сборку — утверждение GO-2026-5932 в .github/release/openvex.json больше не верно" >&2; \
+      exit 1; \
+    fi
+# VEX образа утверждает и другое (CLAB-374): ACME-сервера Caddy, директивы
+# acme_server, в бинаре нет, а с ним нет и единственного места, где по сети
+# принимают JWK, JWE и JOSE JSON и где достижим go-jose/v3 (GHSA-mgcc-cww5-fp2q,
+# GHSA-4w3g-jfj2-cw2q, GHSA-vvm8-gf78-28g4: исправления у v3 нет). Список
+# модулей — caddy/main.go. Вернувшийся пакет роняет сборку здесь.
+RUN if go list -deps . | grep -E '^(github\.com/caddyserver/caddy/v2/modules/caddypki/acmeserver|github\.com/smallstep/certificates/acme/api)(/|$)'; then \
+      echo "caddy: ACME-сервер (acme_server) попал в сборку — утверждения о go-jose/v3 в .github/release/openvex.json больше не верны" >&2; \
       exit 1; \
     fi
 RUN go build -trimpath -ldflags "-s -w" -o /out/caddy .
