@@ -24,7 +24,7 @@
 # golang:1.26-alpine, тот же, что в backend. От caddy:2-alpine остаётся
 # база: Alpine, mailcap, /data, /config, CMD.
 
-FROM --platform=$BUILDPLATFORM node:24-alpine@sha256:6a1c190e17215d844926b0677f4bf87273ff7d5e54db06d3b5b5863ab0b09a3d AS build
+FROM --platform=$BUILDPLATFORM node:24-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5 AS build
 # SBOM образа (release.yml, sbom: true) по умолчанию описывает только
 # финальный этап — Caddy со статикой, без npm-зависимостей, из которых
 # собран бандл. Флаг просит BuildKit просканировать и этот этап: в SBOM
@@ -91,7 +91,7 @@ RUN mkdir -p /out/state/data/caddy /out/state/config/caddy
 # на этом же образе запускается от root явным user: "0:0" в compose: его
 # сертификаты в томах существующих установок принадлежат root, а :80 и :443
 # root слушает и без file capability.
-FROM caddy:2-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
+FROM caddy:2-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
 COPY --from=caddy /out/caddy /usr/bin/caddy
 COPY --from=caddy --chown=65532:65532 /out/state/ /
 COPY deploy/Caddyfile /etc/caddy/Caddyfile
