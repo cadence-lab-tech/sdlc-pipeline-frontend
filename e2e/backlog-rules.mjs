@@ -327,7 +327,7 @@ check('in_work из ответа — только true', N.normalizeRowFields({i
   N.normalizeRowFields({}).in_work === false);
 const m = M.buildRowModel(row({in_work: true}), {zone: 'backlog', now: NOW, showInWork: true});
 check('К-4: строка в работе на странице — «в работе» с подсказкой', m.inWork?.text === 'в работе' &&
-  m.inWork?.title === 'Эпик в работе: на странице, пока у него есть неначатые задачи');
+  m.inWork?.title === 'Задача с детьми в работе: на странице, пока у неё есть неначатые дети');
 check('К-16: без пропа (Обзор) пометки нет', M.buildRowModel(row({in_work: true}), {zone: 'backlog', now: NOW}).inWork === null);
 check('не в работе — пометки нет', M.buildRowModel(row(), {zone: 'backlog', now: NOW, showInWork: true}).inWork === null);
 check('имя статуса из данных', m.stage.text === 'Doing');
@@ -362,7 +362,8 @@ const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
 check('К-1: маршрут /p/:projectKey/backlog в оболочке «backlog»', /path="\/p\/:projectKey\/backlog"[\s\S]{0,80}<Shell page="backlog">/.test(app));
 check('К-1: пункт «Бэклог» вторым, сразу за «Обзором», значок ListOrdered', /page: "overview",[\s\S]{0,140}\},\s*\{\s*page: "backlog",\s*label: "Бэклог",\s*icon: ListOrdered,/.test(app));
 check('К-1: заголовок «Бэклог»', /backlog: "Бэклог"/.test(app));
-const zone = readFileSync(new URL('../src/components/overview/BacklogZone.tsx', import.meta.url), 'utf8');
+// С CLAB-488 ссылка стоит в шапке блока «Можно брать сейчас».
+const zone = readFileSync(new URL('../src/components/overview/ReadyZone.tsx', import.meta.url), 'utf8');
 check('К-2: «Весь бэклог» в шапке блока ведёт на /backlog', /Весь бэклог/.test(readFileSync(new URL('../src/components/overview/zones.ts', import.meta.url), 'utf8')) &&
   /to=\{`\/p\/\$\{rowProps\.projectKey\}\/backlog`\}/.test(zone) && /<ArrowRight aria-hidden/.test(zone));
 

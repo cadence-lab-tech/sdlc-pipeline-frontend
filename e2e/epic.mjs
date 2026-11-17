@@ -15,17 +15,20 @@ const s = await session(BASE + '/p/SDLC/overview');
 const run = (body) => s.evaluate(helpers + body);
 await new Promise((r) => setTimeout(r, 2200));
 
-// «Обзор» (CLAB-365): задачи всех типов на одной странице, тип и эпик —
-// фильтры в адресе; нарезка эпика — полоса под шапкой и дети в зонах.
-console.log('«Обзор»: тип и нарезка эпика');
+// «Обзор» (CLAB-365, CLAB-488): задачи всех типов на одной странице, тип и
+// родитель — фильтры в адресе; родитель — полоса под шапкой и дети в блоках.
+console.log('«Обзор»: тип и родитель');
 let t = await run('return texts();');
 check('выбор типа есть: в проекте больше одного типа', await run(`return Boolean(document.querySelector('[data-filter-type]'));`));
 await s.goto(BASE + '/p/SDLC/overview?parent=SDLC-4');
 await new Promise((r) => setTimeout(r, 2200));
-const strip = await run(`return (document.querySelector('[data-epic-strip]')?.innerText || '').replace(/\\s+/g, ' ');`);
-check('полоса нарезки: ключ и заголовок эпика', strip.includes('Нарезка эпика') && strip.includes('SDLC-4') && strip.includes('Скелет системы'), strip);
+const strip = await run(`return (document.querySelector('[data-parent-strip]')?.innerText || '').replace(/\\s+/g, ' ');`);
+check('полоса «Внутри задачи»: ключ и заголовок родителя (CLAB-488)', strip.includes('Внутри задачи') && strip.includes('SDLC-4') && strip.includes('Скелет системы'), strip);
+// На узком окне «Можно брать сейчас» — в панели «Дальше»: открыть её.
+await run(`document.querySelector('[data-next-button]')?.click(); await sleep(800); return 1;`);
 t = await run('return texts();');
-check('в зонах — дети эпика', t.includes('SDLC-1'), t.slice(0, 600));
+check('в блоках — дети родителя', t.includes('SDLC-1'), t.slice(0, 600));
+await s.key('Escape', 'Escape', 27);
 check('токен эпика на строках скрыт', !(await run(`return all('[data-zone] [data-density]').some((r) => (r.innerText || '').includes('SDLC-4'));`)));
 
 console.log('карточка эпика');

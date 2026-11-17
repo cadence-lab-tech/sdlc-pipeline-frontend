@@ -83,6 +83,7 @@ import { Settings } from "./pages/Settings";
 import { TaskDetail } from "./pages/TaskDetail";
 import { NotFound } from "./pages/NotFound";
 import { Overview } from "./pages/Overview";
+import { TaskList } from "./pages/TaskList";
 import { Backlog } from "./pages/Backlog";
 
 export function App() {
@@ -214,6 +215,16 @@ export function App() {
               element={
                 <Shell page="settings">
                   <Settings />
+                </Shell>
+              }
+            />
+            {/* Список по счётчику «Сводки» «Обзора» (CLAB-488): отбор в
+                адресе, в меню пункта нет — подсвечен «Обзор». */}
+            <Route
+              path="/p/:projectKey/tasks"
+              element={
+                <Shell page="overview">
+                  <TaskList />
                 </Shell>
               }
             />
