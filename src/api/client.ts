@@ -45,6 +45,7 @@ import type {
   RoleVersion,
   RoleWithVersions,
   Plan,
+  ReparentResult,
   Session,
   Status,
   Task,
@@ -1279,6 +1280,14 @@ export const api = {
     request<Task>(`/tasks/${taskKey}/assignee`, put({ assignee })).then(
       normalizeTask,
     ),
+
+  // Смена родителя (CLAB-196): null снимает родителя. Право, вложенность и
+  // тексты отказа — сервера.
+  setTaskParent: (taskKey: string, parentKey: string | null) =>
+    request<ReparentResult>(
+      `/tasks/${taskKey}/parent`,
+      put({ parent_key: parentKey }),
+    ).then((r) => ({ ...r, task: normalizeTask(r.task) })),
 
   // Лента задачи; со status — только события прогонов этого статуса вместе
   // с перепроверками (CLAB-283). Ключ — как в версии цикла: сервер сравнивает

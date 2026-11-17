@@ -28,6 +28,7 @@ import {
   stageToggles,
 } from '../optionalStage';
 import {priorityClass, priorityLabel} from '../priorities';
+import {parentCandidates, parentEdit} from './parentRules';
 import {denyOf, reasonOf, rightOf} from './taskRights';
 
 // Подсказка ползунка уровня задачи для сервера без права: он решает по уровню
@@ -124,15 +125,9 @@ export function Details({
         <DetailRow label="Исполнитель">
           <Assignee task={task} canAssign={rightOf(rights, 'assign', true)} deny={denyOf(rights, 'assign')} onChanged={onChanged} />
         </DetailRow>
-        {task.parent_key ? (
-          <DetailRow label="Родитель">
-            <Link
-              to={`/p/${task.project_key}/tasks/${task.parent_key}`}
-              className="underline underline-offset-4">
-              {task.parent_key}
-            </Link>
-          </DetailRow>
-        ) : null}
+        <DetailRow label="Родитель">
+          <Parent task={task} childCount={detail.children.length} rights={rights} onChanged={onChanged} />
+        </DetailRow>
         <DetailRow label="Область">
           <Repositories task={task} refs={refs} />
         </DetailRow>
@@ -505,6 +500,123 @@ function Assignee({
       ) : (
         <ReadOnlyReason text={deny} data="assign" />
       )}
+    </div>
+  );
+}
+
+// Родитель задачи (CLAB-196): ссылка или «—», правка — по праву сервера
+// (actor_rights.reparent). Новый родитель выбирается поиском среди задач
+// верхнего уровня проекта без самой задачи; у задачи с детьми выбора нет —
+// вложенность один уровень, остаётся «Снять с родителя». Отказ сервера —
+// его текстом, строка прежняя; успех перечитывает карточку, а с ней и
+// ссылку «↑» в шапке и ленту.
+function Parent({
+  task,
+  childCount,
+  rights,
+  onChanged,
+}: {
+  task: Task;
+  childCount: number;
+  rights?: TaskRights;
+  onChanged: () => void;
+}) {
+  const edit = parentEdit(rights, task.parent_key, childCount);
+  const [editing, setEditing] = useState(false);
+  const [query, setQuery] = useState('');
+  const [choice, setChoice] = useState('');
+  const [error, setError] = useState<ApiError>();
+  const [busy, setBusy] = useState(false);
+  const picking = editing && edit.mode === 'edit' && edit.canPick;
+  const found = useResource(
+    () =>
+      picking
+        ? api.listTasks(task.project_key, {top_level: true, q: query.trim(), limit: 20})
+        : Promise.resolve(undefined),
+    [task.project_key, picking, query.trim()],
+  );
+  const options = parentCandidates(found.data?.tasks ?? [], task.key, task.parent_key);
+
+  const apply = async (next: string | null) => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      await api.setTaskParent(task.key, next);
+      setEditing(false);
+      setChoice('');
+      setQuery('');
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err : new ApiError('internal', String(err)));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-1.5" data-parent-row>
+      <p>
+        {task.parent_key ? (
+          <Link to={`/p/${task.project_key}/tasks/${task.parent_key}`} className="underline underline-offset-4">
+            {task.parent_key}
+          </Link>
+        ) : (
+          '—'
+        )}
+      </p>
+      {error ? <Failure error={error} title="Родитель не изменён" /> : null}
+      {edit.mode === 'denied' ? <ReadOnlyReason text={edit.reason} data="reparent" /> : null}
+      {edit.mode === 'edit' && !editing ? (
+        <Button size="sm" variant="ghost" className="-ml-2" onClick={() => setEditing(true)} data-parent-edit>
+          Изменить
+        </Button>
+      ) : null}
+      {edit.mode === 'edit' && editing ? (
+        <div className="space-y-2">
+          {edit.canPick ? (
+            <>
+              <div data-parent-search>
+                <TextInput
+                  label="Найти родителя"
+                  isLabelHidden
+                  placeholder="Ключ или слово заголовка"
+                  value={query}
+                  onChange={setQuery}
+                />
+              </div>
+              <Selector
+                label="Новый родитель"
+                isLabelHidden
+                placeholder={found.loading ? 'Ищем…' : options.length > 0 ? 'Выберите задачу верхнего уровня' : 'Ничего не найдено'}
+                options={options}
+                value={choice}
+                onChange={setChoice}
+                isDisabled={options.length === 0}
+              />
+              {found.error ? <Failure error={found.error} title="Задачи не загрузились" /> : null}
+            </>
+          ) : (
+            <p className="text-muted-foreground text-xs" data-parent-hint>
+              {edit.pickHint}
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            {edit.canPick ? (
+              <Button size="sm" variant="secondary" disabled={!choice || busy} onClick={() => apply(choice)} data-parent-submit>
+                Перенести
+              </Button>
+            ) : null}
+            {edit.canDetach ? (
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => apply(null)} data-parent-detach>
+                Снять с родителя
+              </Button>
+            ) : null}
+            <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+              Отмена
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
