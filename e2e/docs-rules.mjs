@@ -6,7 +6,10 @@
 // Строки блока привязки и форма команды Codex записаны здесь явно, по
 // решению 0077 и по backend/cmd/clab (markerBlockLines, codexAddCommand), а
 // не вычисляются теми же функциями: расхождение с clab должно краснеть.
-import * as C from '../src/components/cli.ts';
+// cli.ts импортирует модуль вкладок настроек без расширения: node получает его
+// хуком, поэтому импорт динамический, после подключения хука.
+await import('./ts-resolve.mjs');
+const C = await import('../src/components/cli.ts');
 
 let ok = 0, fail = 0;
 const check = (name, cond, extra = '') => {
@@ -73,8 +76,8 @@ check('без проекта — <KEY>', C.promptCommand() === `clab prompt work
 
 // ── настройки проекта ───────────────────────────────────────────────────────
 console.log('ссылка на «Агенты и модели»');
-check('адрес настроек проекта', C.agentSettingsHref('ACME') === '/p/ACME/settings', String(C.agentSettingsHref('ACME')));
-check('ключ экранируется', C.agentSettingsHref('A/B') === '/p/A%2FB/settings');
+check('адрес настроек проекта — вкладка «Агенты и модели»', C.agentSettingsHref('ACME') === '/p/ACME/settings?tab=agents', String(C.agentSettingsHref('ACME')));
+check('ключ экранируется', C.agentSettingsHref('A/B') === '/p/A%2FB/settings?tab=agents');
 check('без проекта ссылки нет', C.agentSettingsHref() === undefined && C.agentSettingsHref('') === undefined);
 
 // ── токена нет нигде, имён нашей настройки нет ──────────────────────────────

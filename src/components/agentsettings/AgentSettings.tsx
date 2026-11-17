@@ -33,7 +33,17 @@ import {
 const DESCRIPTION =
   'Какие модели доступны команде по агентам, какая модель и усилие стоят на уровнях low, medium и high и по какому прайсу считаются суммы. Версии идут по цепочке: черновик, активна, снята. Идущие прогоны остаются на своей версии настройки, новые захваты берут активную.';
 
-export function AgentSettings({projectKey, me}: {projectKey: string; me: Me | undefined}) {
+export function AgentSettings({
+  projectKey,
+  me,
+  onDirtyChange,
+}: {
+  projectKey: string;
+  me: Me | undefined;
+  // Есть ли несохранённые правки черновика: страница настроек ставит по нему
+  // метку на вкладке (CLAB-39), раздел при этом остаётся смонтированным.
+  onDirtyChange?: (dirty: boolean) => void;
+}) {
   const active = useResource(() => api.agentSettings(projectKey), [projectKey]);
   const versions = useResource(() => api.agentSettingsVersions(projectKey), [projectKey]);
   const draftItem = draftOf(versions.data);
@@ -56,6 +66,7 @@ export function AgentSettings({projectKey, me}: {projectKey: string; me: Me | un
   const [orphan, setOrphan] = useState<Orphan | null>(null);
   const [dirty, setDirty] = useState(false);
   const guard = useLeaveGuard(dirty);
+  useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange]);
 
   // Фокус после действия: заголовок нужного блока, когда чтение закончилось.
   const pendingFocus = useRef<string | null>(null);
@@ -161,7 +172,8 @@ export function AgentSettings({projectKey, me}: {projectKey: string; me: Me | un
     <div id="agent-settings">
       <Section
         title="Агенты и модели"
-        description={DESCRIPTION}
+        description="Модели по уровням и прайс команды"
+        details={DESCRIPTION}
         actions={
           <Button type="button" variant="outline" size="sm" onClick={reload} aria-label="Обновить настройку агентов">
             <RefreshCw /> Обновить

@@ -7,7 +7,9 @@
 // версия у локальной сборки dev), подменяется в браузере ответом одной ручки
 // /v1/instance: остальной бэкенд живой.
 import {session, helpers} from './driver.mjs';
-import {INSTALL_SCRIPT, installCommand, loginCommand, releaseVersion} from '../src/components/cli.ts';
+// cli.ts тянет модуль вкладок настроек без расширения — см. ts-resolve.mjs.
+await import('./ts-resolve.mjs');
+const {INSTALL_SCRIPT, installCommand, loginCommand, releaseVersion} = await import('../src/components/cli.ts');
 
 const BASE = process.env.SDLC_UI_URL ?? 'http://localhost:5173';
 const API = process.env.SDLC_API_URL ?? 'http://localhost:8088';

@@ -1,14 +1,15 @@
-import {useState} from 'react';
-import {useNavigate, useParams} from 'react-router-dom';
+import {useEffect, useRef, useState} from 'react';
+import {useNavigate, useParams, useSearchParams} from 'react-router-dom';
 import {toast} from 'sonner';
 
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Card} from '@/components/ui/card';
-import {Separator} from '@/components/ui/separator';
+import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {FormLayout, MultiSelector, NumberInput, Selector, TextArea, TextInput} from '@/components/fields';
 import {DataTable} from '@/components/DataTable';
 import {CodeBlock, ConfirmButton, EmptyState, Note, Page, PageHeader, Section, Timestamp, Token} from '@/components/kit';
+import {cn} from '@/lib/utils';
 
 import {ApiError, api} from '../api/client';
 import {startInstall, startReauth} from '../api/github';
@@ -32,17 +33,18 @@ import {useResource} from '../api/useResource';
 import {Failure, Loaded} from '../components/Feedback';
 import {AuditLog} from '../components/AuditLog';
 import {AgentSettings} from '../components/agentsettings/AgentSettings';
+import {IssueTokenDialog} from '../components/settings/IssueTokenDialog';
+import {LevelDialog} from '../components/settings/LevelDialog';
+import {LEVELS, roleOptions} from '../components/settings/options';
+import {SETTINGS_TABS, type SettingsTab, settingsHref, settingsTab} from '../components/settings/tabs';
 
-const LEVELS = [
-  {value: 'viewer', label: 'viewer — только чтение'},
-  {value: 'agent', label: 'agent — работа над задачами'},
-  {value: 'maintainer', label: 'maintainer — роли, цикл, апрувы, импорт'},
-  {value: 'admin', label: 'admin — участники и токены'},
-];
-
-// Настройки проекта: участники и уровни прав, токены, перенос связки.
-// Уровни участия — фиксированный перечень схемы (project_members.role), в
-// отличие от ролей специалистов, которые придумывает проект.
+// Настройки проекта (CLAB-39): участники и уровни прав, команды, GitHub,
+// токены, агенты и модели, перенос связки, журнал, опасная зона — вкладками.
+// Вкладка живёт в адресе (`?tab=`, ключи — components/settings/tabs.ts):
+// переключение пишет историю, незнакомая и пустая — первая вкладка, адрес при
+// этом не переписывается. Уровни участия — фиксированный перечень схемы
+// (project_members.role), в отличие от ролей специалистов, которые придумывает
+// проект; уровень вкладки и кнопки не прячет (решение 0021).
 export function Settings() {
   const {projectKey = ''} = useParams();
   const me = useResource(() => api.me(), []);
@@ -59,23 +61,7 @@ export function Settings() {
                 description="Бэкенд запущен с SDLC_AUTH_MODE=header — актор берётся из заголовка. Участники и токены заводятся, но действуют только в режиме токенов."
               />
             ) : null}
-            <Members projectKey={projectKey} />
-            <Separator />
-            <Teams projectKey={projectKey} />
-            <Separator />
-            <GitHubAccess projectKey={projectKey} />
-            <Separator />
-            <Repositories projectKey={projectKey} />
-            <Separator />
-            <Tokens projectKey={projectKey} me={who} />
-            <Separator />
-            <AgentSettings projectKey={projectKey} me={who} />
-            <Separator />
-            <Transfer projectKey={projectKey} />
-            <Separator />
-            <ProjectAudit projectKey={projectKey} />
-            <Separator />
-            <DangerZone projectKey={projectKey} />
+            <SettingsTabs projectKey={projectKey} me={who} />
           </div>
         )}
       </Loaded>
@@ -83,14 +69,108 @@ export function Settings() {
   );
 }
 
-// ── роли специалистов ───────────────────────────────────────────────────────
+const PANEL_CLASS = 'mt-4 space-y-8 rounded-md focus-visible:ring-[3px] focus-visible:ring-ring/50';
 
-// Роли, которые участник может забирать, задаются на участии, а токен их
-// только сужает (решение 0030). Пустой выбор — любые роли проекта: та же
-// договорённость, что у токена.
-function roleOptions(roles: Role[]) {
-  return roles.filter((r) => !r.archived_at).map((r) => ({value: r.key, label: `${r.name} (${r.key})`}));
+// Подпись вкладки «Опасная зона» остаётся цвета по умолчанию: text-destructive
+// на плашке bg-muted в светлой теме даёт контраст 4.38:1, ниже 4.5:1 (замер
+// тестировщика, CLAB-39; так и велит дизайн). Предупреждение несут слова и
+// карточка с рамкой и фоном destructive внутри вкладки.
+
+function SettingsTabs({projectKey, me}: {projectKey: string; me: Me}) {
+  const [params, setParams] = useSearchParams();
+  const tab = settingsTab(params.get('tab'));
+  const listRef = useRef<HTMLDivElement>(null);
+  // Вкладка агентов монтируется при первом открытии и дальше остаётся в
+  // дереве: правки черновика живут в её состоянии, а размонтирование скрытой
+  // вкладки потеряло бы их молча. Остальные вкладки размонтируются — журнал
+  // запрашивается только открытой вкладкой.
+  const [agentsOpened, setAgentsOpened] = useState(false);
+  const [agentsDirty, setAgentsDirty] = useState(false);
+  if (tab === 'agents' && !agentsOpened) setAgentsOpened(true);
+
+  // Выбранная вкладка докручивается в видимую область полосы: ссылка
+  // `?tab=audit` на узком экране иначе открывала бы вкладку за краем.
+  useEffect(() => {
+    listRef.current
+      ?.querySelector<HTMLElement>(`[data-settings-tab="${tab}"]`)
+      ?.scrollIntoView({inline: 'center', block: 'nearest'});
+  }, [tab]);
+
+  const select = (next: string) =>
+    setParams((prev) => {
+      const q = new URLSearchParams(prev);
+      q.set('tab', next);
+      return q;
+    });
+
+  return (
+    // Активация ручная: стрелки двигают фокус, Enter и пробел выбирают. Иначе
+    // каждая стрелка писала бы запись в историю и открывала проходную вкладку
+    // (журнал — запросом, который у наблюдателя оставляет запись-отказ).
+    <Tabs value={tab} onValueChange={select} activationMode="manual">
+      <div ref={listRef} className="overflow-x-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <TabsList className="w-max">
+          {SETTINGS_TABS.map((t) => (
+            <TabsTrigger
+              key={t.key}
+              value={t.key}
+              data-settings-tab={t.key}
+              className="px-3">
+              {t.label}
+              {t.key === 'agents' && agentsDirty ? (
+                <>
+                  <span aria-hidden className="bg-primary size-1.5 rounded-full" data-settings-dirty="" />
+                  <span className="sr-only">, есть несохранённые правки</span>
+                </>
+              ) : null}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </div>
+      <Panel value="members">
+        <Members projectKey={projectKey} />
+      </Panel>
+      <Panel value="teams">
+        <Teams projectKey={projectKey} />
+      </Panel>
+      <Panel value="github">
+        <GitHubAccess projectKey={projectKey} />
+        <Repositories projectKey={projectKey} />
+      </Panel>
+      <Panel value="tokens">
+        <Tokens projectKey={projectKey} me={me} />
+      </Panel>
+      <TabsContent
+        value="agents"
+        forceMount
+        data-settings-panel="agents"
+        className={cn(PANEL_CLASS, 'data-[state=inactive]:hidden')}>
+        {agentsOpened ? (
+          <AgentSettings projectKey={projectKey} me={me} onDirtyChange={setAgentsDirty} />
+        ) : null}
+      </TabsContent>
+      <Panel value="transfer">
+        <Transfer projectKey={projectKey} />
+      </Panel>
+      <Panel value="audit">
+        <ProjectAudit projectKey={projectKey} />
+      </Panel>
+      <Panel value="danger">
+        <DangerZone projectKey={projectKey} />
+      </Panel>
+    </Tabs>
+  );
 }
+
+function Panel({value, children}: {value: SettingsTab; children: React.ReactNode}) {
+  return (
+    <TabsContent value={value} data-settings-panel={value} className={PANEL_CLASS}>
+      {children}
+    </TabsContent>
+  );
+}
+
+// ── роли специалистов ───────────────────────────────────────────────────────
 
 function RoleKeys({keys}: {keys: string[] | null}) {
   if (keys === null) return <span className="text-muted-foreground text-xs">любые</span>;
@@ -109,9 +189,6 @@ function RoleKeys({keys}: {keys: string[] | null}) {
 function Members({projectKey}: {projectKey: string}) {
   const members = useResource(() => api.listMembers(projectKey), [projectKey]);
   const roles = useResource(() => api.listRoles(projectKey), [projectKey]);
-  const [principal, setPrincipal] = useState('');
-  const [level, setLevel] = useState('viewer');
-  const [roleKeys, setRoleKeys] = useState<string[]>([]);
   const [error, setError] = useState<ApiError>();
 
   const act = async (fn: () => Promise<unknown>) => {
@@ -127,7 +204,23 @@ function Members({projectKey}: {projectKey: string}) {
   return (
     <Section
       title="Участники"
-      description="Уровень — про права, роли специалистов — про то, какие этапы участник может забирать. Без ролей забирает любые; токен агента может только сузить этот набор.">
+      description="Уровни доступа и роли специалистов"
+      details="Уровень — про права, роли специалистов — про то, какие этапы участник может забирать. Без ролей забирает любые; токен агента может только сузить этот набор."
+      actions={
+        <LevelDialog
+          trigger="Добавить участника"
+          title="Добавить участника или изменить уровень"
+          description="Принципал, который уже в проекте, получит новый уровень и роли."
+          failTitle="Участник не сохранён"
+          targetLabel="Принципал"
+          targetHint="user:alice — коллега, который уже входил; agent:reviewer-bot заводится на месте"
+          rolesHint="какие этапы участник может забирать; пусто — любые"
+          roleOptions={roleOptions(roles.data ?? [])}
+          save={(who, level, roleKeys) => api.setMember(projectKey, who, level, roleKeys)}
+          savedText={(who) => `Уровень ${who} сохранён`}
+          onSaved={members.reload}
+        />
+      }>
       {error ? <Failure error={error} /> : null}
       <Loaded resource={members}>
         {(list) => (
@@ -180,42 +273,9 @@ function Members({projectKey}: {projectKey: string}) {
           />
         )}
       </Loaded>
-      <ProjectInvites projectKey={projectKey} roles={roles.data ?? []} />
-      <Card className="gap-3 p-4">
-        <h3 className="text-base font-semibold">Добавить или изменить уровень</h3>
-        <FormLayout>
-          <TextInput
-            label="Принципал"
-            description="user:alice — коллега, который уже входил; agent:reviewer-bot заводится на месте"
-            value={principal}
-            onChange={setPrincipal}
-          />
-          <Selector label="Уровень" options={LEVELS} value={level} onChange={setLevel} />
-          <MultiSelector
-            label="Роли специалиста"
-            description="какие этапы участник может забирать; пусто — любые"
-            options={roleOptions(roles.data ?? [])}
-            value={roleKeys}
-            onChange={setRoleKeys}
-            placeholder="Любые роли"
-          />
-        </FormLayout>
-        <div>
-          <Button
-            disabled={principal.trim() === ''}
-            onClick={() =>
-              act(async () => {
-                const who = principal.trim();
-                await api.setMember(projectKey, who, level, roleKeys);
-                toast.success(`Уровень ${who} сохранён`);
-                setPrincipal('');
-                setRoleKeys([]);
-              })
-            }>
-            Сохранить
-          </Button>
-        </div>
-      </Card>
+      <div className="pt-3">
+        <ProjectInvites projectKey={projectKey} roles={roles.data ?? []} />
+      </div>
     </Section>
   );
 }
@@ -277,9 +337,6 @@ function Teams({projectKey}: {projectKey: string}) {
   const teams = useResource(() => api.listProjectTeams(projectKey), [projectKey]);
   const project = useResource(() => api.getProject(projectKey), [projectKey]);
   const roles = useResource(() => api.listRoles(projectKey), [projectKey]);
-  const [team, setTeam] = useState('');
-  const [level, setLevel] = useState('viewer');
-  const [roleKeys, setRoleKeys] = useState<string[]>([]);
   const [error, setError] = useState<ApiError>();
 
   const act = async (fn: () => Promise<unknown>) => {
@@ -297,9 +354,25 @@ function Teams({projectKey}: {projectKey: string}) {
   return (
     <Section
       title="Команды"
-      description={`Команда получает уровень в проекте так же, как человек. Её участники приходят с этим уровнем, даже если поимённо в проекте не состоят.${
+      description="Команда получает уровень, как человек"
+      details={`Команда получает уровень в проекте так же, как человек. Её участники приходят с этим уровнем, даже если поимённо в проекте не состоят.${
         ownerTeam ? ` Проект завела команда ${ownerTeam}: её лид — администратор проекта.` : ''
-      }`}>
+      }`}
+      actions={
+        <LevelDialog
+          trigger="Пустить команду"
+          title="Пустить команду в проект или изменить уровень"
+          description="Участники команды получат этот уровень в проекте, даже если поимённо в нём не состоят."
+          failTitle="Команда не сохранена"
+          targetLabel="Ключ команды"
+          targetHint="как в разделе «Команды»: platform"
+          rolesHint="для всех участников команды; пусто — любые"
+          roleOptions={roleOptions(roles.data ?? [])}
+          save={(key, level, roleKeys) => api.setProjectTeam(projectKey, key, level, roleKeys)}
+          savedText={(key) => `Уровень команды ${key} сохранён`}
+          onSaved={teams.reload}
+        />
+      }>
       {error ? <Failure error={error} /> : null}
       <Loaded resource={teams}>
         {(list) => (
@@ -349,41 +422,6 @@ function Teams({projectKey}: {projectKey: string}) {
           />
         )}
       </Loaded>
-      <Card className="gap-3 p-4">
-        <h3 className="text-base font-semibold">Пустить команду или изменить уровень</h3>
-        <FormLayout>
-          <TextInput
-            label="Ключ команды"
-            description="как в разделе «Команды»: platform"
-            value={team}
-            onChange={setTeam}
-          />
-          <Selector label="Уровень" options={LEVELS} value={level} onChange={setLevel} />
-          <MultiSelector
-            label="Роли специалиста"
-            description="для всех участников команды; пусто — любые"
-            options={roleOptions(roles.data ?? [])}
-            value={roleKeys}
-            onChange={setRoleKeys}
-            placeholder="Любые роли"
-          />
-        </FormLayout>
-        <div>
-          <Button
-            disabled={team.trim() === ''}
-            onClick={() =>
-              act(async () => {
-                const key = team.trim();
-                await api.setProjectTeam(projectKey, key, level, roleKeys);
-                toast.success(`Уровень команды ${key} сохранён`);
-                setTeam('');
-                setRoleKeys([]);
-              })
-            }>
-            Сохранить
-          </Button>
-        </div>
-      </Card>
     </Section>
   );
 }
@@ -416,12 +454,13 @@ function GitHubAccess({projectKey}: {projectKey: string}) {
       setBusy(false);
     }
   };
-  const back = `/p/${projectKey}/settings`;
+  const back = settingsHref(projectKey, 'github');
 
   return (
     <Section
       title="Доступ к GitHub"
-      description="Репозитории читает установка приложения на аккаунте или организации GitHub. Установка записана на команду-владельца проекта; подключается кнопкой, репозитории выбираются из списка. Учётные данные берутся от частного к общему: секрет репозитория, установка репозитория, установка проекта, секрет проекта, общий токен инстанса.">
+      description="Установка приложения и секреты доступа"
+      details="Репозитории читает установка приложения на аккаунте или организации GitHub. Установка записана на команду-владельца проекта; подключается кнопкой, репозитории выбираются из списка. Учётные данные берутся от частного к общему: секрет репозитория, установка репозитория, установка проекта, секрет проекта, общий токен инстанса.">
       {error ? <Failure error={error} /> : null}
       <Loaded resource={github}>
         {(gh) => {
@@ -607,7 +646,8 @@ function Repositories({projectKey}: {projectKey: string}) {
   return (
     <Section
       title="Репозитории"
-      description="Область проекта по репозиториям: по ним идёт индексация, из них приходят документы, на них ссылаются ветки и PR задач. Привязываются они через доступ к GitHub или связку правил.">
+      description="Область проекта по репозиториям"
+      details="Область проекта по репозиториям: по ним идёт индексация, из них приходят документы, на них ссылаются ветки и PR задач. Привязываются они через доступ к GitHub или связку правил.">
       {error ? <Failure error={error} /> : null}
       <Loaded resource={project}>
         {(detail) => (
@@ -686,7 +726,8 @@ function ProjectAudit({projectKey}: {projectKey: string}) {
   return (
     <Section
       title="Журнал действий"
-      description="Кто, каким токеном, через MCP или REST и каким вызовом действовал в проекте, с каким исходом — включая отказы. Успешные чтения не пишутся."
+      description="Кто и что делал в проекте, включая отказы"
+      details="Кто, каким токеном, через MCP или REST и каким вызовом действовал в проекте, с каким исходом — включая отказы. Успешные чтения не пишутся."
       actions={
         <Button variant="outline" size="sm" onClick={() => setVersion((v) => v + 1)}>
           Обновить
@@ -738,7 +779,8 @@ function DangerZone({projectKey}: {projectKey: string}) {
   return (
     <Section
       title="Опасная зона"
-      description="Действия отсюда необратимы: восстановления и корзины у сервиса нет.">
+      description="Необратимо: восстановления нет"
+      details="Действия отсюда необратимы: восстановления и корзины у сервиса нет.">
       {error ? <Failure error={error} /> : null}
       <Card className="border-destructive/40 bg-destructive/5 gap-3 p-4">
         <div className="space-y-1">
@@ -775,37 +817,8 @@ function Tokens({projectKey, me}: {projectKey: string; me: Me}) {
     () => api.listTokens(isProjectAdmin ? projectKey : undefined),
     [projectKey, isProjectAdmin],
   );
-  const [name, setName] = useState('');
-  const [principal, setPrincipal] = useState('');
-  const [roles, setRoles] = useState('');
-  const [days, setDays] = useState('');
-  const [issued, setIssued] = useState<string>();
+  const roles = useResource(() => api.listRoles(projectKey), [projectKey]);
   const [error, setError] = useState<ApiError>();
-
-  const issue = async () => {
-    setError(undefined);
-    setIssued(undefined);
-    try {
-      const res = await api.issueToken({
-        name: name.trim(),
-        principal: principal.trim() || undefined,
-        project: projectKey,
-        role_keys: roles
-          .split(',')
-          .map((r) => r.trim())
-          .filter(Boolean),
-        expires_in_days: days ? Number(days) : undefined,
-      });
-      setIssued(res.token);
-      toast.success(`Токен ${name.trim()} выдан`);
-      setName('');
-      setPrincipal('');
-      setRoles('');
-      tokens.reload();
-    } catch (err) {
-      setError(err instanceof ApiError ? err : new ApiError('internal', String(err)));
-    }
-  };
 
   const revoke = async (token: AccessToken) => {
     setError(undefined);
@@ -821,13 +834,10 @@ function Tokens({projectKey, me}: {projectKey: string; me: Me}) {
   return (
     <Section
       title="Токены"
-      description="Токен показывается один раз при выдаче; в базе лежит только хеш. Токен агента привязан к проекту и может быть ограничен ролями, которые он вправе забирать.">
+      description="Токены для агентов, показываются один раз"
+      details="Токен показывается один раз при выдаче; в базе лежит только хеш. Токен агента привязан к проекту и может быть ограничен ролями, которые он вправе забирать."
+      actions={<IssueTokenDialog projectKey={projectKey} roles={roles} onIssued={tokens.reload} />}>
       {error ? <Failure error={error} /> : null}
-      {issued ? (
-        <Note tone="success" title="Токен выдан — скопируйте его сейчас">
-          <CodeBlock code={issued} />
-        </Note>
-      ) : null}
       <Loaded resource={tokens}>
         {(list) => (
           <DataTable<AccessToken>
@@ -875,41 +885,6 @@ function Tokens({projectKey, me}: {projectKey: string; me: Me}) {
           />
         )}
       </Loaded>
-      <Card className="gap-3 p-4">
-        <h3 className="text-base font-semibold">Выдать токен</h3>
-        <FormLayout>
-          <TextInput
-            label="Имя"
-            description="по нему токен потом отзывают"
-            value={name}
-            onChange={setName}
-            isRequired
-          />
-          <TextInput
-            label="Кому"
-            description="пусто — себе; agent:reviewer-bot — агенту (нужен уровень admin в проекте)"
-            value={principal}
-            onChange={setPrincipal}
-          />
-          <TextInput
-            label="Роли специалистов"
-            description="через запятую; агент с этим токеном сможет забирать только их этапы"
-            value={roles}
-            onChange={setRoles}
-          />
-          <TextInput
-            label="Срок в днях"
-            description="пусто — бессрочно"
-            value={days}
-            onChange={setDays}
-          />
-        </FormLayout>
-        <div>
-          <Button disabled={name.trim() === ''} onClick={issue}>
-            Выдать
-          </Button>
-        </div>
-      </Card>
     </Section>
   );
 }
@@ -946,7 +921,8 @@ function Transfer({projectKey}: {projectKey: string}) {
   return (
     <Section
       title="Перенос правил"
-      description="Связка — репозитории, роли с инструкциями, документы и цикл одним JSON. Импорт идемпотентен: роль с другой инструкцией получает новую версию, документ с тем же названием обновляется, изменённый цикл приходит черновиком, а совпадающий с действующей версией или черновиком отчитывается unchanged. Агенту тот же перенос доступен промптом /mcp__sdlc__import_rules.">
+      description="Связка проекта одним JSON"
+      details="Связка — репозитории, роли с инструкциями, документы и цикл одним JSON. Импорт идемпотентен: роль с другой инструкцией получает новую версию, документ с тем же названием обновляется, изменённый цикл приходит черновиком, а совпадающий с действующей версией или черновиком отчитывается unchanged. Агенту тот же перенос доступен промптом /mcp__sdlc__import_rules.">
       {error ? <Failure error={error} /> : null}
       <div>
         <Button

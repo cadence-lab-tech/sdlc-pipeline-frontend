@@ -172,21 +172,41 @@ t = await run('return texts();');
 check('поиск сузил список', t.includes('e2e-lead') && !t.includes('system:'), t.slice(0, 600));
 
 console.log('команда в проекте');
-await s.goto(BASE + '/p/SDLC/settings');
+await s.goto(BASE + '/p/SDLC/settings?tab=teams');
 await new Promise((r) => setTimeout(r, 2500));
+t = await run('return texts();');
+check('карточки «Пустить команду или изменить уровень» на вкладке нет', !t.includes('Пустить команду или изменить уровень'), t.slice(0, 400));
+// Форма — диалог по кнопке (CLAB-39). Отказ сервера на неизвестной команде —
+// Failure внутри открытого диалога, введённое на месте, тоста нет.
 await run(`
-  await fill("Ключ команды", "e2e-team");
-  await sleep(200);
-  await clickIn("Пустить команду или изменить уровень", "Сохранить");
+  await clickExact("Пустить команду");
+  await sleep(500);
+  await fillIn("Ключ команды", "e2e-no-such-team");
+  await clickExact("Сохранить");
   await sleep(1500);
 `);
+let teamDialog = await run('return dialogText();');
+check('отказ в диалоге «Пустить команду»: Failure, поле на месте, тоста нет',
+  teamDialog.includes('Команда не сохранена') && teamDialog.includes('Пустить команду в проект или изменить уровень') &&
+    (await run('return Array.from(dialog().querySelectorAll("input")).some((i) => i.value === "e2e-no-such-team");')) &&
+    (await run('return toasts();')).length === 0, teamDialog);
+await run(`
+  await fillIn("Ключ команды", "e2e-team");
+  await sleep(200);
+  await clickExact("Сохранить");
+  await sleep(1500);
+`);
+check('диалог закрылся после сохранения', (await run('return Boolean(dialog());')) === false);
 t = await run('return texts();');
 check('команда пущена в проект', t.includes('Команда e2e') && t.includes('viewer'), t.slice(0, 1500));
+check('тост называет ключ команды', (await run('return toasts();')).some((x) => x.includes('Уровень команды e2e-team сохранён')));
 
 console.log('доступ к GitHub');
 // Установка больше не вписывается руками: настройки показывают установки
 // команды-владельца и кнопки подключения и выбора (решение 0034). Запасной
 // путь — именованный секрет — остался и сохраняется.
+t = await run('return texts();');
+await run('await openSettingsTab("github");');
 t = await run('return texts();');
 check('секция GitHub показывает установки владельца',
   t.includes('Установки команды') && t.includes('Подключить GitHub') && t.includes('Выбрать репозитории'),

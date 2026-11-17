@@ -33,7 +33,8 @@ const PK = `AS${Math.floor(Math.random() * 9000 + 1000)}`;
 const created = await call('POST', '/projects', {key: PK, name: `Агенты ${PK}`});
 check('свой проект заведён (API)', created.status === 201, JSON.stringify(created).slice(0, 200));
 const AS = `/projects/${PK}/agent-settings`;
-const url = `${BASE}/p/${PK}/settings`;
+// Раздел живёт на вкладке «Агенты и модели» настроек (CLAB-39).
+const url = `${BASE}/p/${PK}/settings?tab=agents`;
 
 const s = await session(url);
 await s.addInitScript(`
@@ -139,7 +140,11 @@ console.log('настройки нет: пустое состояние и фо�
 await setup();
 await open();
 let t = await run(`return sec();`);
-check('заголовок и описание раздела', t.includes('Агенты и модели') && t.includes('Версии идут по цепочке: черновик, активна, снята'), t.slice(0, 200));
+// Описание — подзаголовком в одну строку; полный текст по «Подробнее» (CLAB-39).
+check('заголовок и подзаголовок раздела', t.includes('Агенты и модели') && t.includes('Модели по уровням и прайс команды'), t.slice(0, 200));
+await run(`document.querySelector('[data-section-details][aria-label="Подробнее: Агенты и модели"]').click(); await sleep(500); return true;`);
+check('«Подробнее» несёт прежнее описание целиком', await run(`return (document.querySelector('[data-slot=popover-content]')?.innerText || '').includes('Версии идут по цепочке: черновик, активна, снята');`));
+await run(`document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true})); await sleep(400); return true;`);
 check('«Настройки агентов нет» и что берут агенты', t.includes('Настройки агентов нет') && t.includes('агенты берут таблицу привязки по умолчанию') && t.includes('суммы считаются так, как их сообщил агент'));
 check('три строки умолчаний', t.includes('claude: low → haiku, medium → sonnet, high → opus') && t.includes('codex: таблицы нет') && t.includes('generic: таблицы нет'));
 check('ошибки нет', !t.includes('не загрузилась'));
@@ -326,6 +331,20 @@ await run(`document.querySelector('a[href^="/p/${PK}/"]:not([href*="settings"])'
 check('перехват ссылки меню: «Уйти без сохранения?»', (await run(`return dlg();`)).includes('Уйти без сохранения?') && (await run(`return dlg();`)).includes('Несохранённые правки черновика агентов пропадут.'));
 await run(`await confirm('Остаться'); return true;`);
 check('«Остаться» — страница та же, правка на месте', (await s.evaluate(`return location.pathname;`)) === `/p/${PK}/settings` && await run(`return field('changelog').value === 'несохранённая правка';`));
+// Смена вкладки правок не теряет и вопроса не задаёт (AC-13): вкладка агентов
+// остаётся смонтированной, на ней метка несохранённых правок.
+await run(`await openSettingsTab('members'); return true;`);
+check('смена вкладки: вопроса нет, адрес сменился', (await run(`return dlg();`)) === '' && (await s.evaluate(`return location.search;`)) === '?tab=members');
+check('на вкладке агентов метка несохранённых правок со скрытым текстом', await run(`
+  const t = document.querySelector('[data-settings-tab="agents"]');
+  return Boolean(t.querySelector('[data-settings-dirty]')) && t.textContent.includes('есть несохранённые правки');
+`));
+check('раздел агентов скрыт, но в дереве', await run(`const el = document.querySelector('#agent-settings'); return Boolean(el) && el.offsetParent === null;`));
+await run(`document.querySelector('a[href^="/p/${PK}/"]:not([href*="settings"])').click(); await sleep(700); return true;`);
+check('со вкладки «Участники» уход по ссылке меню тоже спрашивает', (await run(`return dlg();`)).includes('Уйти без сохранения?'));
+await run(`await confirm('Остаться'); return true;`);
+await run(`await openSettingsTab('agents'); return true;`);
+check('возврат на вкладку агентов: правка на месте', await run(`return field('changelog').value === 'несохранённая правка';`));
 await run(`document.querySelector('a[href^="/p/${PK}/"]:not([href*="settings"])').click(); await sleep(700); await confirm('Уйти'); await sleep(800); return true;`);
 check('«Уйти» — ушли со страницы', (await s.evaluate(`return location.pathname;`)) !== `/p/${PK}/settings`);
 await open();

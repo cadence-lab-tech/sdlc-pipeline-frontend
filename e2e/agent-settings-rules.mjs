@@ -196,7 +196,10 @@ check('нет сырых цветов вне оттенков темы', files.e
 check('сообщение без вырезки и в формате «, ..."»', !R.parseJsonDocument('{\n  "agents": {\n    "claude": }\n}').detail.includes('claude'));
 check('нет разбора пути по точкам', files.every((f) => !/path\.split\(['"]\./.test(code(f))));
 const settings = readFileSync(new URL('../src/pages/Settings.tsx', import.meta.url), 'utf8');
-check('в Settings.tsx только подключение раздела', /<AgentSettings projectKey=\{projectKey\} me=\{who\} \/>/.test(settings) && /from '..\/components\/agentsettings\/AgentSettings'/.test(settings));
+// CLAB-39: раздел стоит вкладкой настроек и сообщает странице о несохранённых
+// правках свойством onDirtyChange (метка на вкладке), — это единственное, что
+// страница знает о нём сверх подключения.
+check('в Settings.tsx только подключение раздела', /<AgentSettings projectKey=\{projectKey\} me=\{me\} onDirtyChange=\{setAgentsDirty\} \/>/.test(settings) && /from '..\/components\/agentsettings\/AgentSettings'/.test(settings));
 const types = readFileSync(new URL('../src/api/types.ts', import.meta.url), 'utf8');
 check('ImportReport: необязательное agent_settings?: ImportEntry', /agent_settings\?: ImportEntry;/.test(types));
 
