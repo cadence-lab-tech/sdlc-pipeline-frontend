@@ -538,6 +538,23 @@ e2e/           сквозные проверки в headless-Chrome поверх
   `data-move-effect`, `data-move-warning`, `data-move-loading`,
   `data-move-load-error`, `data-move-stages-link`.
 
+- **Родитель задачи — строка «Деталей», право и правило уровня от сервера**
+  (CLAB-196). Строка «Родитель» есть всегда: ссылка или «—». «Изменить» —
+  только при `actor_rights.reparent === true`; `false` — текст
+  `actor_deny.reparent` дословно (`data-right-deny="reparent"`), нет поля
+  (сервер до CLAB-196) — ни правки, ни текста. Новый родитель — поиск
+  `GET …/tasks?top_level=true&q=` и выбор без самой задачи и её нынешнего
+  родителя; у задачи с детьми (`detail.children`) выбора нет, вместо него
+  пояснение про один уровень, «Снять с родителя» — если родитель есть.
+  `PUT /tasks/:key/parent` с `parent_key` (null — снять), успех перечитывает
+  карточку (ссылка «↑» в шапке и лента), отказ — `Failure` текстом сервера.
+  Событие `task.reparented` — «родитель изменён», строка «КЛЮЧ: из → в»
+  («верхний уровень» вместо null). Правила — `task/parentRules.ts` без
+  React, проверка — `e2e/parent-rules.mjs`; экран — `e2e/task-parent.mjs`
+  на своём проекте. Опоры — `data-parent-row`, `data-parent-edit`,
+  `data-parent-search`, `data-parent-submit`, `data-parent-detach`,
+  `data-parent-hint`.
+
 - **Обзор задачи отвечает «что держит», «Действия» остаются справа**
   (CLAB-286). Без `?stage=` под схемой цикла — обзор (`components/task/
   TaskOverview.tsx`): описание, «Что держит» (статус из версии цикла,

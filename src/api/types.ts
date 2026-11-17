@@ -878,12 +878,25 @@ export interface UsageSummary {
 export interface TaskRights {
   edit?: boolean;
   move?: boolean;
+  // Смена родителя (CLAB-196): только право; правило одного уровня — о
+  // данных, его решает запрос.
+  reparent?: boolean;
   stage_choice?: boolean;
   create_child?: boolean;
   assign?: boolean;
   link?: boolean;
   scope?: boolean;
   actor_deny?: Record<string, ActorDenial>;
+}
+
+// Ответ PUT /tasks/:key/parent (CLAB-196): задача после переноса, ключи
+// прежнего и нового родителя (null — верхний уровень) и changed=false, если
+// родитель уже был этим.
+export interface ReparentResult {
+  task: Task;
+  from: string | null;
+  to: string | null;
+  changed: boolean;
 }
 
 export interface TaskDetail {

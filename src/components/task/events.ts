@@ -15,6 +15,7 @@ const EVENT_LABELS: Record<string, string> = {
   'task.workflow_moved': 'переехала на новую версию цикла',
   'task.ranked': 'место в бэклоге изменено',
   'task.moved': 'перевёл вручную',
+  'task.reparented': 'родитель изменён',
   'stage.entered': 'этап начат',
   'stage.skipped': 'этап пропущен',
   'stage.claimed': 'этап забран',
@@ -230,6 +231,21 @@ export function rankedSummary(payload: Payload): string {
   return join([`над ${below}`, `под ${above}`, parent ? `в эпике ${parent}` : undefined]);
 }
 
+// Смена родителя (task.reparented, CLAB-196): нагрузка {task, from, to} —
+// ключ перенесённой задачи и ключи прежнего и нового родителя (null — верхний
+// уровень). Одна запись лежит в лентах задачи и обоих родителей, поэтому
+// строка называет и задачу. Нет ключа task или from/to не строки и не null —
+// нагрузка незнакомая, строки нет.
+export function reparentedSummary(payload: Payload): string {
+  const task = text(payload.task);
+  const side = (v: unknown) => (v === null ? 'верхний уровень' : typeof v === 'string' ? text(v) : undefined);
+  if (!task || !('from' in payload) || !('to' in payload)) return '';
+  const from = side(payload.from);
+  const to = side(payload.to);
+  if (!from || !to) return '';
+  return `${task}: ${from} → ${to}`;
+}
+
 // Исходы гейта, которые переход не держат (GateOutcome.Passed на бэкенде).
 const PASSING = ['passed', 'waived', 'skipped'];
 
@@ -296,6 +312,8 @@ export function eventDetails(
     }
     case 'task.ranked':
       return only(rankedSummary(p));
+    case 'task.reparented':
+      return only(reparentedSummary(p));
     case 'stage.skipped':
       return only(join([
         text(p.status),
