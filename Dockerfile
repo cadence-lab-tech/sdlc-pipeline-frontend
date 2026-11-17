@@ -91,7 +91,7 @@ RUN mkdir -p /out/state/data/caddy /out/state/config/caddy
 # на этом же образе запускается от root явным user: "0:0" в compose: его
 # сертификаты в томах существующих установок принадлежат root, а :80 и :443
 # root слушает и без file capability.
-FROM caddy:2-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
+FROM caddy:2-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
 COPY --from=caddy /out/caddy /usr/bin/caddy
 COPY --from=caddy --chown=65532:65532 /out/state/ /
 COPY deploy/Caddyfile /etc/caddy/Caddyfile
