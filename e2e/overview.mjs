@@ -1,6 +1,6 @@
 // Проекты и «Обзор» (CLAB-365): адрес и старые закладки /board, меню, зоны
 // с рамкой и сворачиванием, очередь со своей задачей, фильтры в адресе и
-// поиск, состояния (тип и эпик, которых нет, пустой результат), ошибка одной
+// поиск, состояния (тип и родитель, которых нет, пустой результат), ошибка одной
 // зоны и скелетоны, запросы только с limit, панель «Дальше» на 390 px и
 // колонка на 1440, тёмная тема. SDLC_E2E_SHOTS=<каталог> — снимки в обеих
 // темах на 1440 и 390 px.
@@ -102,7 +102,7 @@ const zones = async () => run(`
   }));
 `);
 let zs = await zones();
-check('зоны «Обзора» на месте, блок «Приоритетные из бэклога» между очередью и завершённым', zs.map((z) => z.zone).join() === 'decisions,stuck,work,queue,backlog,done', JSON.stringify(zs.map((z) => z.zone)));
+check('блоки «Обзора» на месте (CLAB-488): сводка, решения, заблокировано, делается, можно брать, завершено', zs.map((z) => z.zone).join() === 'summary,decisions,blocked,work,ready,done', JSON.stringify(zs.map((z) => z.zone)));
 check('каждая зона — section с h2 и кнопкой aria-expanded', zs.every((z) => z.labelledby === 'H2' && (z.expanded === 'true' || z.expanded === 'false')), JSON.stringify(zs));
 check('счётчик с подписью «<Зона>, N»', zs.every((z) => /^[^,]+, (\d+\+?|—)$/.test(z.label || '')), JSON.stringify(zs.map((z) => z.label)));
 check('по умолчанию свёрнута только «Завершено недавно»', zs.filter((z) => z.expanded === 'false').map((z) => z.zone).join() === 'done', JSON.stringify(zs));
@@ -130,26 +130,26 @@ check('после создания открылась карточка зада�
 check('свойство сохранилось', t.includes('Мультирепозиторная'), t.slice(0, 600));
 const KEY = (await run('return location.pathname;')).split('/').pop();
 
-// Задача уходит в работу — этап с ролью ждёт исполнителя: она в «Очереди».
+// Задача уходит в работу — этап с ролью ждёт исполнителя: она в «Можно брать сейчас».
 await fetch(`${API}/v1/tasks/${KEY}/transitions/start`, {
   method: 'POST', headers: {'Content-Type': 'application/json', 'X-SDLC-Actor': 'e2e'}, body: '{}',
 });
 await s.goto(BASE + '/p/SDLC/overview');
 await sleep(2000);
-const queueText = await run(`return (document.querySelector('[data-zone=queue]')?.innerText || '').replace(/\\s+/g, ' ');`);
-check('начатая задача — в «Очереди», «можно забрать»', queueText.includes(KEY) && queueText.includes('можно забрать'), queueText.slice(0, 400));
+const queueText = await run(`return (document.querySelector('[data-ready-group=stages]')?.innerText || '').replace(/\\s+/g, ' ');`);
+check('начатая задача — в «Этапы ждут исполнителя»', queueText.includes(KEY) && queueText.includes('Этапы ждут исполнителя'), queueText.slice(0, 400));
 const inZones = await run(`return all('section[data-zone] [data-density]').filter((r) => (r.innerText || '').includes(${JSON.stringify(KEY)})).length;`);
 check('одна задача — одна зона', inZones === 1, String(inZones));
 
 console.log('сворачивание помнит браузер');
-await run(`document.querySelector('[data-zone=stuck] h2 button').click(); await sleep(400); return true;`);
+await run(`document.querySelector('[data-zone=blocked] h2 button').click(); await sleep(400); return true;`);
 await s.goto(BASE + '/p/SDLC/overview');
 await sleep(1800);
 zs = await zones();
-check('свёрнутая «Застряло» осталась свёрнутой после перезагрузки', zs.find((z) => z.zone === 'stuck').expanded === 'false', JSON.stringify(zs));
-check('у свёрнутой зоны счётчик на месте', /^Застряло, /.test(zs.find((z) => z.zone === 'stuck').label || ''));
-await run(`document.querySelector('[data-zone=stuck] h2 button').click(); await sleep(400); return true;`);
-check('развернулась', (await zones()).find((z) => z.zone === 'stuck').expanded === 'true');
+check('свёрнутое «Заблокировано» осталось свёрнутым после перезагрузки', zs.find((z) => z.zone === 'blocked').expanded === 'false', JSON.stringify(zs));
+check('у свёрнутого блока счётчик на месте', /^Заблокировано, /.test(zs.find((z) => z.zone === 'blocked').label || ''));
+await run(`document.querySelector('[data-zone=blocked] h2 button').click(); await sleep(400); return true;`);
+check('развернулось', (await zones()).find((z) => z.zone === 'blocked').expanded === 'true');
 
 console.log('фильтры в адресе');
 await s.goto(BASE + '/p/SDLC/overview?type=incident-nope');
@@ -161,7 +161,7 @@ check('сброс убрал тип из адреса', (await loc()) === '/p/SD
 await s.goto(BASE + '/p/SDLC/overview?parent=NOPE-999');
 await sleep(2200);
 t = await run('return texts();');
-check('эпика нет — заметка, зон нет', t.includes('Эпика NOPE-999 в проекте нет') && (await zones()).length === 0, t.slice(0, 400));
+check('родителя нет — заметка, блоков нет', t.includes('Задачи NOPE-999 в проекте нет') && (await zones()).length === 0, t.slice(0, 400));
 await s.goto(BASE + '/p/SDLC/overview?q=zzzz-ничего');
 await sleep(2000);
 t = await run('return texts();');
@@ -209,7 +209,7 @@ await sleep(2500);
 const urls = await run('return window.__tasksUrls;');
 const listUrls = urls.filter((u) => u.includes('/projects/SDLC/tasks'));
 check('ни одного запроса списка без limit', listUrls.length >= 6 && listUrls.every((u) => /[?&]limit=\d+/.test(u)), JSON.stringify(listUrls));
-check('список эпиков — не больше 200', listUrls.some((u) => u.includes('top_level=true') && u.includes('limit=200')), JSON.stringify(listUrls));
+check('список задач с детьми для фильтра — не больше 200', listUrls.some((u) => u.includes('top_level=true') && u.includes('limit=200')), JSON.stringify(listUrls));
 await s.removeInitScript(seen);
 
 console.log('ошибка одной зоны');
@@ -222,20 +222,20 @@ await run(`
   await sleep(1500);
   return true;
 `);
-let stuckText = await run(`return (document.querySelector('[data-zone=stuck]')?.innerText || '').replace(/\\s+/g, ' ');`);
-const queueAfter = await run(`return (document.querySelector('[data-zone=queue]')?.innerText || '').replace(/\\s+/g, ' ');`);
-check('упавшая зона — «Не получилось загрузить» и «Повторить»', stuckText.includes('Не получилось загрузить «Застряло»') && stuckText.includes('Повторить'), stuckText);
-check('счётчик упавшей зоны — «—»', (await zones()).find((z) => z.zone === 'stuck').label === 'Застряло, —');
+let stuckText = await run(`return (document.querySelector('[data-zone=blocked]')?.innerText || '').replace(/\\s+/g, ' ');`);
+const queueAfter = await run(`return (document.querySelector('[data-zone=ready]')?.innerText || '').replace(/\\s+/g, ' ');`);
+check('упавший блок — «Не получилось загрузить» и «Повторить»', stuckText.includes('Не получилось загрузить «Заблокировано»') && stuckText.includes('Повторить'), stuckText);
+check('счётчик упавшего блока — «—»', (await zones()).find((z) => z.zone === 'blocked').label === 'Заблокировано, —');
 check('остальные зоны работают', queueAfter.includes(KEY), queueAfter.slice(0, 300));
 await run(`window.fetch = window.__origFetch; await clickIn('Не получилось загрузить', 'Повторить'); await sleep(1500); return true;`);
-stuckText = await run(`return (document.querySelector('[data-zone=stuck]')?.innerText || '').replace(/\\s+/g, ' ');`);
-check('«Повторить» вернул зону', !stuckText.includes('Не получилось'), stuckText);
+stuckText = await run(`return (document.querySelector('[data-zone=blocked]')?.innerText || '').replace(/\\s+/g, ' ');`);
+check('«Повторить» вернул блок', !stuckText.includes('Не получилось'), stuckText);
 
 console.log('колонка «Дальше» и панель');
 await s.resize(1440, 900);
 await s.goto(BASE + '/p/SDLC/overview');
 await sleep(2000);
-let next = await run(`return {column: Boolean(document.querySelector('[data-next-column] [data-zone=queue]')), button: Boolean(document.querySelector('[data-next-button]'))};`);
+let next = await run(`return {column: Boolean(document.querySelector('[data-next-column] [data-zone=ready]')), button: Boolean(document.querySelector('[data-next-button]'))};`);
 check('1440 px: «Дальше» — колонка, кнопки нет', next.column && !next.button, JSON.stringify(next));
 if (SHOTS) {
   const {writeFileSync} = await import('node:fs');
@@ -249,7 +249,7 @@ await sleep(800);
 next = await run(`return {
   column: Boolean(document.querySelector('[data-next-column]')),
   button: Boolean(document.querySelector('[data-next-button]')),
-  queue: all('[data-zone=queue]').length,
+  queue: all('[data-zone=ready]').length,
   hscroll: document.documentElement.scrollWidth > window.innerWidth,
   refresh: document.querySelector('[data-refresh]')?.getAttribute('aria-label'),
 };`);
@@ -266,14 +266,14 @@ const sheet = await run(`
   return {
     open: Boolean(p),
     title: p ? (p.innerText || '').split('\\n')[0] : '',
-    queue: p ? Boolean(p.querySelector('[data-zone=queue]')) : false,
-    h2: all('h2').filter((h) => (h.innerText || '').includes('Очередь')).length,
+    queue: p ? Boolean(p.querySelector('[data-zone=ready]')) : false,
+    h2: all('h2').filter((h) => (h.innerText || '').includes('Можно брать сейчас')).length,
     key: p ? (p.innerText || '').includes(${JSON.stringify(KEY)}) : false,
     width: p ? Math.round(p.getBoundingClientRect().width) : 0,
     close: p ? Boolean(p.querySelector('[aria-label="Закрыть"]')) : false,
   };
 `);
-check('панель «Дальше» с очередью и своей задачей', sheet.open && sheet.title === 'Дальше' && sheet.queue && sheet.key, JSON.stringify(sheet));
+check('панель «Дальше» с «Можно брать сейчас» и своей задачей', sheet.open && sheet.title === 'Дальше' && sheet.queue && sheet.key, JSON.stringify(sheet));
 check('зона в DOM один раз', sheet.h2 === 1, JSON.stringify(sheet));
 check('ширина панели — вся минус 3rem', sheet.width === 390 - 48, JSON.stringify(sheet));
 check('крестик подписан «Закрыть»', sheet.close);
@@ -291,14 +291,14 @@ check('Esc закрывает панель, фокус — на кнопке «�
 await run(`document.querySelector('[data-next-button]').click(); await sleep(700); return true;`);
 await s.resize(1440, 900);
 await sleep(900);
-next = await run(`return {sheet: Boolean(document.querySelector('[data-next-sheet]')), column: Boolean(document.querySelector('[data-next-column] [data-zone=queue]'))};`);
+next = await run(`return {sheet: Boolean(document.querySelector('[data-next-sheet]')), column: Boolean(document.querySelector('[data-next-column] [data-zone=ready]'))};`);
 check('расширение окна закрывает панель, колонка на месте', !next.sheet && next.column, JSON.stringify(next));
 await s.resize(1360, 900);
 
 console.log('тёмная тема');
 await run(`document.documentElement.classList.add('dark'); await sleep(300); return true;`);
 const dark = await run(`
-  const c = document.querySelector('[data-zone=queue] [data-zone-count]');
+  const c = document.querySelector('[data-zone=ready] [data-zone-count]');
   return {bg: getComputedStyle(document.body).backgroundColor, count: c ? getComputedStyle(c).color : ''};
 `);
 check('тёмная тема применяется к странице', dark.bg !== 'rgb(255, 255, 255)' && dark.count !== '', JSON.stringify(dark));

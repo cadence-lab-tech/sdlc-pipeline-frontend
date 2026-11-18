@@ -7,6 +7,7 @@
 // Подписи гейтов и переходов приходят из версии цикла задачи; нет в версии —
 // ключ, как пришёл. Тип гейта в подпись не превращается.
 import type {Attention} from '../../api/types';
+import {gateLabel} from '../pipeline/labels';
 import {agoText, exactTime, sinceText} from './format';
 
 export type ReasonTone = 'default' | 'blue' | 'orange' | 'red';
@@ -34,9 +35,21 @@ export interface Reason {
   known: boolean;
 }
 
-// Версия цикла задачи в объёме, который нужен подписям.
+// Версия цикла задачи в объёме, который нужен подписям. Тип гейта и признаки
+// статуса — у полной версии цикла (Workflow); их может не быть.
 export interface VersionLabels {
-  transitions: {key: string; name: string; gates?: {key: string; name: string}[]}[];
+  transitions: {key: string; name: string; gates?: {key: string; name: string; type?: string}[]}[];
+  statuses?: {key: string; name: string; is_optional?: boolean}[];
+}
+
+// Подписи гейта ожидания из записи /approvals: имена из версии цикла задачи,
+// которые сервер уже подставил, и тип гейта.
+export interface GateHint {
+  transition: string;
+  gate: string;
+  gateName?: string;
+  gateType?: string;
+  transitionName?: string;
 }
 
 export interface ReasonContext {
@@ -54,6 +67,8 @@ export interface ReasonContext {
   // Куда приведёт переход по апруву — только из записи /approvals: клиент
   // пропуски этапов сам не вычисляет, это правило движка (решение 0066).
   landsIn?: (transitionKey: string) => string | undefined;
+  // Подписи гейтов из записей /approvals: важнее версии, она не нужна.
+  gateHints?: GateHint[];
   blockedBy: string[];
 }
 
@@ -99,6 +114,21 @@ function gateName(v: VersionLabels | null | undefined, transition: string, key: 
   return t?.gates?.find((g) => g.key === key)?.name ?? key;
 }
 
+function gateType(v: VersionLabels | null | undefined, transition: string, key: string): string | undefined {
+  const t = v?.transitions.find((x) => x.key === transition);
+  return t?.gates?.find((g) => g.key === key)?.type;
+}
+
+// Имя гейта по ключу без перехода (предел этапа знает только гейт): первый
+// гейт версии с этим ключом; нет — ключ как пришёл.
+export function gateNameAnywhere(v: VersionLabels | null | undefined, key: string): string {
+  for (const t of v?.transitions ?? []) {
+    const g = t.gates?.find((x) => x.key === key);
+    if (g) return g.name;
+  }
+  return key;
+}
+
 function more(n: number): string {
   return n > 0 ? ` и ещё ${n}` : '';
 }
@@ -123,8 +153,16 @@ export function describeReason(a: Attention, ctx: ReasonContext): Reason {
       }
       const gates = gateRefs(a);
       if (gates.length === 0) return build(a.code, 'UserCheck', 'blue', 'ждёт решения человека', true);
-      const label = (g: GateRef) =>
-        `${gateName(ctx.version, g.transition, g.gate)} · «${transitionName(ctx.version, g.transition)}»`;
+      // Подписи: запись /approvals, иначе версия цикла задачи, иначе ключи.
+      // Тип гейта известен — «<тип словарём> «<имя>»» (design.spec CLAB-488
+      // §4.3); нет — имя, как раньше.
+      const label = (g: GateRef) => {
+        const hint = ctx.gateHints?.find((h) => h.transition === g.transition && h.gate === g.gate);
+        const name = hint?.gateName || gateName(ctx.version, g.transition, g.gate);
+        const type = hint?.gateType ?? gateType(ctx.version, g.transition, g.gate);
+        const transition = hint?.transitionName || transitionName(ctx.version, g.transition);
+        return `${type ? `${gateLabel(type)} «${name}»` : name} · «${transition}»`;
+      };
       const first = gates[0];
       const lands = ctx.landsIn?.(first.transition);
       const text = `${label(first)}${lands ? ` → ${lands}` : ''}${more(gates.length - 1)}`;
@@ -145,7 +183,7 @@ export function describeReason(a: Attention, ctx: ReasonContext): Reason {
       if (gates.length === 0) return build(a.code, 'XCircle', 'red', 'Гейт отклонён', true);
       const first = gates[0];
       const name = gateName(ctx.version, first.transition, first.gate);
-      const text = `${name} отклонён${first.reason ? `: ${first.reason}` : ''}${more(gates.length - 1)}`;
+      const text = `«${name}» отклонён${first.reason ? `: ${first.reason}` : ''}${more(gates.length - 1)}`;
       return build(a.code, 'XCircle', 'red', text, true);
     }
     case 'blocked': {

@@ -520,6 +520,10 @@ export interface ListTasksQuery {
   parent?: string;
   // Подстрока ключа или заголовка, регистр не важен.
   q?: string;
+  // Ключ статуса: совпадение по ключу на любой версии цикла задачи.
+  status?: string;
+  // Категории статуса через запятую (перечень схемы).
+  category?: string;
   limit?: number;
   offset?: number;
   order?: "updated" | "backlog";

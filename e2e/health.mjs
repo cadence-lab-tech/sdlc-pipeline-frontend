@@ -125,8 +125,9 @@ await run(`
   await sleep(1500);
   return true;
 `);
+const afterMove = await run('return healthRequests();');
 check('переход между страницами проекта — один запрос сводки',
-  (await run('return healthRequests();')) === before + 1, String(before));
+  afterMove === before + 1, JSON.stringify({before, after: afterMove}));
 
 console.log('меню, свёрнутое до иконок');
 const collapse = async () => {

@@ -1,16 +1,16 @@
-import {useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode} from 'react';
+import {Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode} from 'react';
 import {Link, useLocation, useParams, useSearchParams} from 'react-router-dom';
-import {AlertTriangle, ChevronLeft, ChevronRight, Layers, PanelRight, Plus, RefreshCw, Search, UserCheck, X} from 'lucide-react';
+import {AlertTriangle, ArrowRight, ChevronLeft, ChevronRight, PanelRight, Plus, RefreshCw, Search, UserCheck, Users, X} from 'lucide-react';
 
 import {Button} from '@/components/ui/button';
 import {InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput} from '@/components/ui/input-group';
 import {Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue} from '@/components/ui/select';
 import {Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger} from '@/components/ui/sheet';
-import {EmptyState, Note} from '@/components/kit';
+import {EmptyState, Note, Token} from '@/components/kit';
 import {cn} from '@/lib/utils';
 
 import {api} from '../api/client';
-import type {ProjectDetail, TaskListPage, TaskRow as TaskRowData} from '../api/types';
+import type {ProjectDetail, TaskListPage, Workflow} from '../api/types';
 import {useResource} from '../api/useResource';
 import {Failure} from '../components/Feedback';
 import {NewTaskDialog} from '../components/NewTaskDialog';
@@ -21,41 +21,48 @@ import {progressOf} from '../components/taskrow/rules';
 import {WorkflowVersionsProvider} from '../components/taskrow/versions';
 import {clockLabel} from '../hooks/liveFeed';
 import {useProjectEvents} from '../hooks/useProjectEvents';
-import {BacklogZone} from '../components/overview/BacklogZone';
+import {blockedAction, decisionAction, type RowAction} from '../components/overview/actions';
 import {LiveIndicator} from '../components/overview/LiveIndicator';
+import {ReadyZone, type RowProps} from '../components/overview/ReadyZone';
+import {StatusColorDot, SummaryZone} from '../components/overview/SummaryZone';
+import {headOf} from '../components/overview/summary';
 import {MoreButton, MoreFailed, Zone} from '../components/overview/Zone';
 import {useFocusKeeper} from '../components/overview/useFocusKeeper';
-import {useOverview, type EpicInfo, type OverviewData} from '../components/overview/useOverview';
+import {useOverview, type OverviewData, type ParentInfo} from '../components/overview/useOverview';
 import {
   CAPS,
+  NO_ROLE_GROUP,
   ZONE_EMPTY,
   decisionRows,
+  cycleTypes,
   defaultNewTaskType,
-  epicOptions,
   filterApprovals,
   filterSummary,
   isFiltered,
   nextContainer,
   pageState,
-  queueModel,
+  parentOptions,
+  freeCount,
+  readyCount,
   readFilters,
-  visibleQueue,
+  showParentFilter,
+  stagesModel,
+  unstartedModel,
   withFilter,
   withoutFilters,
-  workLanes,
+  workGroups,
   type OverviewFilters,
 } from '../components/overview/zones';
 
-// Значение «все» у выбора типа и эпика: у Radix Select пустого значения
+// Значение «все» у выбора типа и родителя: у Radix Select пустого значения
 // пункта нет, а в адрес оно не попадает — снимает параметр.
 const ALL = '__all__';
 
-// «Обзор» (CLAB-365, вариант B «Зоны карточек» с поправками): что ждёт
-// решения, что застряло и почему, что идёт и что дальше — по смыслу
-// состояния, а не колонками статусов одного цикла. Задачи всех типов на
-// одной странице; тип, эпик и поиск — фильтры в адресе. Зону задачи
-// определяет сервер (components/overview/zones.ts), страница её только
-// рисует; ни одного сравнения с ключами статусов, ролей и типов здесь нет.
+// «Обзор» (CLAB-365, переработка CLAB-488): что можно брать, сколько задач в
+// каких статусах, что делается, что ждёт решения и что заблокировано — на
+// любом цикле. Блок задачи определяют данные движка (components/overview/
+// zones.ts), страница его только рисует; ни одного сравнения с ключами
+// статусов, ролей и типов здесь нет.
 export function Overview() {
   const {projectKey = ''} = useParams();
   const project = useResource(() => api.getProject(projectKey), [projectKey]);
@@ -84,17 +91,20 @@ function OverviewPage({projectKey, project}: {projectKey: string; project?: Proj
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
   const filters = readFilters(searchParams);
-  const types = project ? taskTypes(project) : [];
-  const unknownType = Boolean(project && filters.type && !types.includes(filters.type));
+  const declared = project ? taskTypes(project) : [];
+  const unknownType = Boolean(project && filters.type && !declared.includes(filters.type));
+  const types = project
+    ? cycleTypes(declared, project.active_workflows.flatMap((w) => w.task_types ?? []), filters.type)
+    : [];
 
   // Живое обновление (CLAB-367): событие проекта будит ту же функцию, что
-  // «Обновить», — reloadAll. Зоны читаются после рукопожатия с лентой, чтобы
+  // «Обновить», — reloadAll. Блоки читаются после рукопожатия с лентой, чтобы
   // событие между чтением и подпиской не потерялось.
   const reloadRef = useRef<() => void>(() => {});
   const live = useProjectEvents(projectKey, () => reloadRef.current());
-  const data = useOverview(projectKey, filters, !unknownType && live.ready);
-  // Строка в фокусе при переезде между зонами пересоздаётся: фокус
-  // возвращается на строку той же задачи (AC-14.13).
+  const data = useOverview(projectKey, project, filters, !unknownType && live.ready);
+  // Строка в фокусе при переезде между блоками пересоздаётся: фокус
+  // возвращается на строку той же задачи.
   useFocusKeeper(data.loading);
   useEffect(() => {
     reloadRef.current = data.reloadAll;
@@ -104,9 +114,9 @@ function OverviewPage({projectKey, project}: {projectKey: string; project?: Proj
     if (live.ready && !data.loading) reloadResult(!data.unreachable);
   }, [live.ready, data.loading, data.unreachable, reloadResult]);
   const updatedClock = clockLabel(data.updatedAt);
-  const epicMissing = Boolean(filters.parent) && data.epic.data === null && !data.epic.loading && !data.epic.error;
+  const parentMissing = Boolean(filters.parent) && data.parent.data === null && !data.parent.loading && !data.parent.error;
 
-  // Контейнер «Дальше» — по ширине области страницы, а не окна (Д-1): с
+  // Контейнер «Дальше» — по ширине области страницы, а не окна: с
   // развёрнутым меню область уже. Первое измерение — до отрисовки.
   const wrapRef = useRef<HTMLDivElement>(null);
   const [mode, setMode] = useState<'column' | 'sheet'>(() => nextContainer(window.innerWidth));
@@ -133,18 +143,28 @@ function OverviewPage({projectKey, project}: {projectKey: string; project?: Proj
   const resetFilters = () => setSearchParams(withoutFilters(searchParams));
 
   const filtered = isFiltered(filters);
-  const queue = queueModel(data.queue.data?.tasks ?? [], data.queue.data?.total ?? 0, data.roleKeys);
+  const inParent = Boolean(filters.parent);
+  const stagesData = data.stages.data;
+  const stages = stagesData
+    ? stagesModel(stagesData.page.tasks, stagesData.page.total, data.roleKeys, stagesData.fallback)
+    : null;
+  const unstarted = data.unstarted.data ? unstartedModel(data.unstarted.data.top.tasks, data.unstarted.data.kids, inParent) : null;
+  const ready =
+    data.stages.error || data.unstarted.error || !data.unstarted.data
+      ? null
+      : readyCount(stages, freeCount(data.unstarted.data.freeTotal, unstarted ?? {held: 0}), unstarted?.free.length ?? 0);
 
   const canDecide = data.approvals.data?.can_decide;
   const decisionsTotal = decisionsCount(data, filters);
   const zoneTotals = [
     decisionsTotal,
-    data.stuck.error ? null : (data.stuck.data?.total ?? null),
+    data.blocked.error ? null : (data.blocked.data?.total ?? null),
     data.work.error ? null : (data.work.data?.total ?? null),
-    data.queue.error ? null : (data.queue.data?.tasks.length ?? null),
-    // Блок бэклога: задачи, которых нет ни в одной зоне (эпик с детьми только
-    // в бэклоге, тип, все задачи которого не начаты), — не «ничего не найдено».
-    data.backlog.error ? null : (data.backlog.data?.total ?? null),
+    // «Можно брать» целиком: этапы (и назначенные другому), свободные и
+    // ждущие блокирующих — пусто только при нулях везде.
+    stagesData && unstarted && data.unstarted.data && !data.stages.error && !data.unstarted.error
+      ? stagesData.page.tasks.length + (freeCount(data.unstarted.data.freeTotal, unstarted) ?? unstarted.free.length) + unstarted.waiting.length
+      : null,
     data.done.error ? null : (data.done.data?.total ?? null),
   ];
   const state = pageState(filtered, zoneTotals, undefined);
@@ -173,16 +193,23 @@ function OverviewPage({projectKey, project}: {projectKey: string; project?: Proj
     ) : null;
 
   const onPickEpic = (key: string) => setFilter('parent', key);
-  const rowProps = {projectKey, project, onPickEpic, hideEpic: Boolean(filters.parent)};
+  const rowProps: RowProps = {projectKey, project, onPickEpic, hideEpic: inParent};
+  const versionOf = (type: string): Workflow | undefined => {
+    const head = project ? headOf(project, type) : undefined;
+    return head ? (data.versions.get(head.id) ?? undefined) : undefined;
+  };
 
-  // Зоны «Дальше» монтируются один раз: колонкой на широкой области или
-  // содержимым панели на узкой, но не обеими сразу (К-9).
+  // Блоки «Дальше» монтируются один раз: колонкой на широкой области или
+  // содержимым панели на узкой, но не обеими сразу.
   const next = (
-    <NextZones data={data} queue={queue} rowProps={rowProps} inEpic={Boolean(filters.parent)} newTask={newTask(true)} />
+    <>
+      <ReadyZone data={data} stages={stages} count={ready} rowProps={rowProps} inParent={inParent} />
+      <DoneZone data={data} rowProps={rowProps} />
+    </>
   );
 
-  const nextCount = data.queue.data ? queue.claimable : null;
-  const showZones = !unknownType && !epicMissing && finalState !== 'empty-project';
+  const nextCount = ready;
+  const showZones = !unknownType && !parentMissing && finalState !== 'empty-project';
 
   let body: ReactNode;
   if (unknownType) {
@@ -190,30 +217,35 @@ function OverviewPage({projectKey, project}: {projectKey: string; project?: Proj
       <Note
         tone="error"
         title={`Типа ${filters.type} в проекте нет`}
-        description="Доступные типы — в списке «Все типы». Зоны не показаны.">
+        description="Доступные типы — в списке «Все типы». Блоки не показаны.">
         <Button variant="outline" size="sm" onClick={() => setFilter('type', '')}>
           Сбросить фильтр
         </Button>
       </Note>
     );
-  } else if (epicMissing) {
+  } else if (parentMissing) {
     body = (
       <Note
         tone="error"
-        title={`Эпика ${filters.parent} в проекте нет`}
-        description="Ссылка устарела или ключ набран с ошибкой. Зоны не показаны, чтобы не принять пустую страницу за пустой проект.">
+        title={`Задачи ${filters.parent} в проекте нет`}
+        description="Ссылка устарела или ключ набран с ошибкой. Блоки не показаны, чтобы не принять пустую страницу за пустой проект.">
         <Button variant="outline" size="sm" onClick={() => setFilter('parent', '')}>
           Сбросить фильтр
         </Button>
       </Note>
     );
-  } else if (filters.parent && data.epic.data && !data.epic.data.hasChildren) {
-    body = <EmptyState title="У эпика ещё нет задач" description="Нарезку делает аналитик эпика на этапе анализа." />;
+  } else if (filters.parent && data.parent.data && !data.parent.data.hasChildren) {
+    body = (
+      <EmptyState
+        title={`У задачи ${filters.parent} пока нет дочерних задач`}
+        description={`Дочерние задачи заводят в карточке задачи или командой clab create --parent ${filters.parent}.`}
+      />
+    );
   } else if (finalState === 'empty-project') {
     body = (
       <EmptyState
         title="В проекте пока нет задач"
-        description="Заведите первую задачу — агент возьмёт её в работу. Чтобы агенты забирали этапы, подключите их на странице «Подключение»."
+        description="Заведите первую задачу. Этапы с ролью забирают исполнители — люди или агенты, подключённые на странице «Подключение»; этапы без роли ведут участники проекта."
         action={
           <div className="flex flex-wrap justify-center gap-2">
             {newTask(true)}
@@ -228,7 +260,7 @@ function OverviewPage({projectKey, project}: {projectKey: string; project?: Proj
     body = (
       <EmptyState
         title="Ничего не найдено по фильтрам"
-        description={`${filterSummary(filters)}. Ни в одной зоне нет подходящих задач — это не пустой проект.`}
+        description={`${filterSummary(filters)}. Ни в одном блоке и в сводке нет подходящих задач — это не пустой проект.`}
         action={
           <Button variant="outline" onClick={resetFilters}>
             Сбросить
@@ -239,12 +271,17 @@ function OverviewPage({projectKey, project}: {projectKey: string; project?: Proj
   } else {
     body = (
       <div className={cn('grid gap-6', mode === 'column' && 'grid-cols-[minmax(0,1fr)_340px]')}>
-        <div className="@container min-w-0 space-y-8">
-          <div className="grid gap-6 @min-[700px]:grid-cols-2">
-            <DecisionsZone data={data} filters={filters} canDecide={canDecide} rowProps={rowProps} />
-            <StuckZone data={data} rowProps={rowProps} />
-          </div>
-          <WorkZone data={data} rowProps={rowProps} />
+        <div className="min-w-0 space-y-8">
+          <SummaryZone data={data} projectKey={projectKey} filters={filters} narrow={mode === 'sheet'} />
+          <DecisionsZone data={data} filters={filters} canDecide={canDecide} rowProps={rowProps} />
+          <BlockedZone data={data} rowProps={rowProps} />
+          <WorkZone
+            data={data}
+            rowProps={rowProps}
+            types={types}
+            versionOf={versionOf}
+            showType={types.length > 1 && !filters.type}
+          />
         </div>
         {mode === 'column' ? (
           <aside aria-label="Дальше" className="min-w-0 space-y-8" data-next-column>
@@ -261,7 +298,7 @@ function OverviewPage({projectKey, project}: {projectKey: string; project?: Proj
         <div className="min-w-0 space-y-1">
           <h1 className="text-2xl font-semibold tracking-tight">Обзор</h1>
           <p className="text-muted-foreground text-sm">
-            {project?.project.name ?? projectKey} · что требует решения, что идёт и что дальше
+            {project?.project.name ?? projectKey} · что можно брать, что идёт и что ждёт решения
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -272,12 +309,12 @@ function OverviewPage({projectKey, project}: {projectKey: string; project?: Proj
                   <PanelRight aria-hidden />
                   Дальше
                   <span
-                    aria-label={`можно забрать: ${nextCount ?? '—'}`}
+                    aria-label={`можно брать: ${nextCount ? (nextCount.partial ? `${nextCount.n}+` : nextCount.n) : '—'}`}
                     className={cn(
                       'rounded-full px-1.5 text-xs tabular-nums',
-                      nextCount ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
+                      nextCount?.n ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
                     )}>
-                    {nextCount === null ? '—' : queue.partial ? `${nextCount}+` : nextCount}
+                    {nextCount === null ? '—' : nextCount.partial ? `${nextCount.n}+` : nextCount.n}
                   </span>
                 </Button>
               </SheetTrigger>
@@ -288,7 +325,7 @@ function OverviewPage({projectKey, project}: {projectKey: string; project?: Proj
                 data-next-sheet>
                 <SheetHeader className="border-b pr-12">
                   <SheetTitle>Дальше</SheetTitle>
-                  <SheetDescription>Очередь, приоритетные из бэклога и завершённые</SheetDescription>
+                  <SheetDescription>Можно брать сейчас и завершённые</SheetDescription>
                   <SheetClose asChild>
                     <Button variant="ghost" size="icon-sm" className="absolute top-3 right-3" aria-label="Закрыть">
                       <X aria-hidden />
@@ -309,9 +346,11 @@ function OverviewPage({projectKey, project}: {projectKey: string; project?: Proj
             variant="outline"
             onClick={() => {
               // Не disabled: заблокированная кнопка теряет фокус при каждом
-              // автообновлении (AC-14.13). Повторное нажатие во время чтения
-              // не нужно — чтение уже идёт.
-              if (!data.refreshing) live.refresh();
+              // автообновлении. Повторное нажатие во время чтения не нужно —
+              // чтение уже идёт. Сводка по кнопке — сразу, без окна.
+              if (data.refreshing) return;
+              data.refreshNow();
+              live.refresh();
             }}
             aria-busy={data.refreshing || undefined}
             aria-label="Обновить"
@@ -329,19 +368,20 @@ function OverviewPage({projectKey, project}: {projectKey: string; project?: Proj
         <FiltersBar
           filters={filters}
           types={types}
-          epics={data.epics.data}
+          parents={data.parents.data}
+          parentInfo={data.parent.data ?? null}
           onType={(v) => setFilter('type', v)}
-          onEpic={(v) => setFilter('parent', v)}
+          onParent={(v) => setFilter('parent', v)}
           onQuery={(v) => setFilter('q', v, true)}
           onReset={resetFilters}
         />
       ) : null}
 
-      {filters.parent && data.epic.data ? (
-        <EpicStrip projectKey={projectKey} info={data.epic.data} onReset={() => setFilter('parent', '')} />
+      {filters.parent && data.parent.data ? (
+        <ParentStrip projectKey={projectKey} info={data.parent.data} onReset={() => setFilter('parent', '')} />
       ) : null}
-      {filters.parent && data.epic.error ? (
-        <Failure error={data.epic.error} title={`Эпик ${filters.parent} не прочитался`} reload={data.epic.retry} />
+      {filters.parent && data.parent.error ? (
+        <Failure error={data.parent.error} title={`Задача ${filters.parent} не прочиталась`} reload={data.parent.retry} />
       ) : null}
 
       {body}
@@ -349,8 +389,8 @@ function OverviewPage({projectKey, project}: {projectKey: string; project?: Proj
   );
 }
 
-// Число задач в «Ждут решения»: у того, кто решает, — разные задачи записей
-// /approvals после фильтров; у наблюдателя — total списка.
+// Число задач в «Требуют решения»: у того, кто решает, — разные задачи
+// записей /approvals после фильтров; у наблюдателя — total списка.
 function decisionsCount(data: OverviewData, f: OverviewFilters): number | null {
   const a = data.approvals;
   if (a.error || !a.data) return null;
@@ -361,18 +401,46 @@ function decisionsCount(data: OverviewData, f: OverviewFilters): number | null {
   return data.decisionsList.data.total;
 }
 
-type RowProps = {
-  projectKey: string;
-  project?: ProjectDetail;
-  onPickEpic: (key: string) => void;
-  hideEpic: boolean;
-};
-
 function Rows({children}: {children: ReactNode}) {
   return <div className="space-y-2">{children}</div>;
 }
 
-// ── Ждут решения ────────────────────────────────────────────────────────────
+// Строка «кто и что делает»: стрелка, части текста, ключи блокирующих —
+// ссылками в карточки (после ссылки строки по Tab).
+function ActionLine({action, projectKey}: {action: RowAction; projectKey: string}) {
+  return (
+    <p className="flex items-start gap-1.5" data-row-action-code={action.code}>
+      <ArrowRight aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+      <span className="min-w-0">
+        {action.parts.map((p, i) =>
+          'keys' in p ? (
+            <Fragment key={i}>
+              {p.keys.map((k, j) => (
+                <Fragment key={k}>
+                  {j > 0 ? ', ' : null}
+                  <Link
+                    to={`/p/${projectKey}/tasks/${k}`}
+                    className="focus-visible:ring-ring/50 relative z-10 rounded-sm underline underline-offset-2 focus-visible:ring-[3px] focus-visible:outline-none"
+                    data-action-key>
+                    {k}
+                  </Link>
+                </Fragment>
+              ))}
+            </Fragment>
+          ) : p.strong ? (
+            <strong key={i} className="font-semibold">
+              {p.text}
+            </strong>
+          ) : (
+            <Fragment key={i}>{p.text}</Fragment>
+          ),
+        )}
+      </span>
+    </p>
+  );
+}
+
+// ── Требуют решения ─────────────────────────────────────────────────────────
 
 function DecisionsZone({
   data,
@@ -393,8 +461,8 @@ function DecisionsZone({
       ? (list.data?.tasks ?? []).map((task) => ({task, approvals: []}))
       : decisionRows(filterApprovals(a.data.approvals, filters), list.data?.tasks ?? [])
     : [];
-  // У того, кто решает, набор зоны — записи /approvals: упавший список строк
-  // не роняет зону, строки тогда строятся из записей.
+  // У того, кто решает, набор блока — записи /approvals: упавший список строк
+  // не роняет блок, строки тогда строятся из записей.
   const error = a.error ?? (viewer ? list.error : undefined);
   // Пока список не пришёл, строки строились бы из записей — ждём оба ответа.
   const pending = !a.data || (!list.data && !list.error);
@@ -417,7 +485,7 @@ function DecisionsZone({
       }}
       busy={a.loading || list.loading}
       isEmpty={rows.length === 0}
-      emptyText={ZONE_EMPTY.decisions}
+      emptyText={viewer ? ZONE_EMPTY.decisionsViewer : ZONE_EMPTY.decisions}
       note={
         viewer ? (
           <p className="text-muted-foreground flex items-center gap-1.5 text-sm" data-viewer-note>
@@ -436,6 +504,7 @@ function DecisionsZone({
               density="card"
               approvals={r.approvals}
               canDecide={canDecide !== false}
+              action={<ActionLine action={decisionAction(r.approvals, canDecide !== false)} projectKey={rowProps.projectKey} />}
               {...rowProps}
             />
           ))}
@@ -469,16 +538,19 @@ function DecisionsZone({
   );
 }
 
-// ── Застряло ────────────────────────────────────────────────────────────────
+// ── Заблокировано ───────────────────────────────────────────────────────────
 
-function StuckZone({data, rowProps}: {data: OverviewData; rowProps: RowProps}) {
-  const z = data.stuck;
-  const rows = z.data?.tasks ?? [];
+function BlockedZone({data, rowProps}: {data: OverviewData; rowProps: RowProps}) {
+  const z = data.blocked;
+  const all = z.data?.tasks ?? [];
+  // Две выборки по CAPS строк: видимых — не больше потолка, пока не нажато
+  // «Ещё N».
+  const rows = data.view.blockedMore ? all : all.slice(0, CAPS.blocked);
   const total = z.data?.total ?? 0;
   const hidden = total - rows.length;
   return (
     <Zone
-      zone="stuck"
+      zone="blocked"
       count={z.error && !z.moreFailed ? null : z.data ? total : null}
       tone="red"
       pending={!z.data && !z.error}
@@ -486,22 +558,29 @@ function StuckZone({data, rowProps}: {data: OverviewData; rowProps: RowProps}) {
       retry={z.retry}
       busy={z.loading}
       isEmpty={rows.length === 0}
-      emptyText={ZONE_EMPTY.stuck}>
+      emptyText={ZONE_EMPTY.blocked}>
       {rows.length > 0 ? (
         <Rows>
           {rows.map((t) => (
-            <TaskRow key={t.key} task={t} zone="stuck" density="card" {...rowProps} />
+            <TaskRow
+              key={t.key}
+              task={t}
+              zone="stuck"
+              density="card"
+              action={<ActionLine action={blockedAction(t, data.versions.get(t.workflow_id) ?? null)} projectKey={rowProps.projectKey} />}
+              {...rowProps}
+            />
           ))}
         </Rows>
       ) : null}
       <ZoneMore
         hidden={hidden}
-        expanded={data.view.stuckMore}
+        expanded={data.view.blockedMore}
         busy={z.loading}
         label={(n) => `Ещё ${n}`}
-        onMore={() => data.setView({stuckMore: true})}
-        onLess={() => data.setView({stuckMore: false})}
-        canLess={rows.length > CAPS.stuck}
+        onMore={() => data.setView({blockedMore: true})}
+        onLess={() => data.setView({blockedMore: false})}
+        canLess={rows.length > CAPS.blocked}
       />
       {z.moreFailed ? <MoreFailed retry={z.retry} /> : null}
     </Zone>
@@ -531,36 +610,61 @@ function ZoneMore({
   return null;
 }
 
-// ── В работе ────────────────────────────────────────────────────────────────
+// ── Что делается сейчас ─────────────────────────────────────────────────────
 
-function WorkZone({data, rowProps}: {data: OverviewData; rowProps: RowProps}) {
+function WorkZone({
+  data,
+  rowProps,
+  types,
+  versionOf,
+  showType,
+}: {
+  data: OverviewData;
+  rowProps: RowProps;
+  types: string[];
+  versionOf: (type: string) => Workflow | undefined;
+  showType: boolean;
+}) {
   const z = data.work;
-  const rows = z.data?.tasks ?? [];
+  const all = z.data?.tasks ?? [];
+  const rows = data.view.workMore ? all : all.slice(0, CAPS.work);
   const total = z.data?.total ?? 0;
-  const lanes = workLanes(rows);
+  const groups = workGroups(rows, {types, versionOf, showType});
   return (
     <Zone
       zone="work"
       count={z.error && !z.moreFailed ? null : z.data ? total : null}
+      aside="по статусам циклов"
       pending={!z.data && !z.error}
       error={z.moreFailed ? undefined : z.error}
       retry={z.retry}
       busy={z.loading}
       isEmpty={rows.length === 0}
       emptyText={ZONE_EMPTY.work}>
-      {lanes.length > 0 ? (
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-x-6 gap-y-5">
-          {lanes.map((lane) => (
-            <div key={lane.id} className="min-w-0 space-y-2" data-lane={lane.kind}>
-              <h3 className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
-                {lane.kind === 'epics' ? <Layers aria-hidden className="size-4 shrink-0" /> : null}
-                <span className="truncate" title={lane.label}>
-                  {lane.label}
-                </span>
-                <span className="text-muted-foreground shrink-0">· {lane.rows.length}</span>
-              </h3>
+      {groups.length > 0 ? (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(min(340px,100%),1fr))] gap-x-6 gap-y-5">
+          {groups.map((g) => (
+            <div key={g.id} className="min-w-0 space-y-2" data-work-group={g.id}>
+              <div className="space-y-0.5">
+                <h3 className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
+                  <StatusColorDot color={g.color} category={g.category} />
+                  <span className="min-w-0 truncate" title={g.name}>
+                    {g.name}
+                  </span>
+                  {g.showType ? <span className="text-muted-foreground shrink-0 font-normal">· {g.type}</span> : null}
+                  <span className="text-muted-foreground shrink-0 font-normal">· {g.rows.length}</span>
+                  {g.optional ? <Token label="необязательный" className="shrink-0 border-dashed" /> : null}
+                  {g.old ? <Token label="прежняя версия цикла" color="orange" className="shrink-0" /> : null}
+                </h3>
+                <p className="text-muted-foreground flex items-center gap-1 text-xs" data-work-group-roles>
+                  <Users aria-hidden className="size-3 shrink-0" />
+                  <span className="truncate" title={g.roles ?? NO_ROLE_GROUP}>
+                    {g.roles ?? NO_ROLE_GROUP}
+                  </span>
+                </p>
+              </div>
               <Rows>
-                {lane.rows.map((t) => (
+                {g.rows.map((t) => (
                   <TaskRow key={t.key} task={t} zone="working" density="card" {...rowProps} />
                 ))}
               </Rows>
@@ -582,94 +686,7 @@ function WorkZone({data, rowProps}: {data: OverviewData; rowProps: RowProps}) {
   );
 }
 
-// ── Дальше: очередь, слот приоритетных, завершённое ─────────────────────────
-
-function NextZones({
-  data,
-  queue,
-  rowProps,
-  inEpic,
-  newTask,
-}: {
-  data: OverviewData;
-  queue: ReturnType<typeof queueModel>;
-  rowProps: RowProps;
-  inEpic: boolean;
-  newTask: ReactNode;
-}) {
-  return (
-    <>
-      <QueueZone data={data} queue={queue} rowProps={rowProps} />
-      <BacklogZone data={data} rowProps={rowProps} inEpic={inEpic} newTask={newTask} />
-      <DoneZone data={data} rowProps={rowProps} />
-    </>
-  );
-}
-
-function QueueZone({
-  data,
-  queue,
-  rowProps,
-}: {
-  data: OverviewData;
-  queue: ReturnType<typeof queueModel>;
-  rowProps: RowProps;
-}) {
-  const z = data.queue;
-  const v = visibleQueue(queue, data.view.queueMore);
-  const all = queue.own.length + queue.other.length + queue.assigned.length;
-  const sub = (text: string) => <p className="text-muted-foreground text-xs">{text}</p>;
-  const list = (rows: TaskRowData[], mark?: 'own_role' | 'assigned_other') => (
-    <Rows>
-      {rows.map((t) => (
-        <TaskRow key={t.key} task={t} zone="queue" density="row" queueMark={mark} {...rowProps} />
-      ))}
-    </Rows>
-  );
-  return (
-    <Zone
-      zone="queue"
-      count={z.error ? null : z.data ? queue.claimable : null}
-      partial={queue.partial}
-      aside="можно забрать"
-      pending={!z.data && !z.error}
-      error={z.error}
-      retry={z.retry}
-      busy={z.loading}
-      density="row"
-      isEmpty={all === 0}
-      emptyText={ZONE_EMPTY.queue}>
-      {queue.grouped && v.own.length > 0 ? (
-        <div className="space-y-2" data-queue-group="own">
-          {sub('Ваши роли')}
-          {list(v.own, 'own_role')}
-        </div>
-      ) : null}
-      {queue.grouped && v.other.length > 0 ? (
-        <div className="space-y-2" data-queue-group="other">
-          {sub('Остальные роли')}
-          {list(v.other)}
-        </div>
-      ) : null}
-      {!queue.grouped && v.own.length > 0 ? list(v.own) : null}
-      {queue.claimable === 0 && all > 0 ? (
-        <p className="text-muted-foreground text-sm" data-zone-empty>
-          {ZONE_EMPTY.queue}
-        </p>
-      ) : null}
-      {v.assigned.length > 0 ? (
-        <div className="space-y-2" data-queue-group="assigned">
-          {sub('Назначены другому · не входят в счётчик')}
-          {list(v.assigned, 'assigned_other')}
-        </div>
-      ) : null}
-      {v.hidden > 0 ? <MoreButton label={`Ещё ${v.hidden}`} onClick={() => data.setView({queueMore: true})} /> : null}
-      {data.view.queueMore && visibleQueue(queue, false).hidden > 0 ? (
-        <MoreButton label="Показать меньше" onClick={() => data.setView({queueMore: false})} />
-      ) : null}
-    </Zone>
-  );
-}
+// ── Завершено недавно ───────────────────────────────────────────────────────
 
 function DoneZone({data, rowProps}: {data: OverviewData; rowProps: RowProps}) {
   const z = data.done;
@@ -742,25 +759,30 @@ function DoneZone({data, rowProps}: {data: OverviewData; rowProps: RowProps}) {
 function FiltersBar({
   filters,
   types,
-  epics,
+  parents,
+  parentInfo,
   onType,
-  onEpic,
+  onParent,
   onQuery,
   onReset,
 }: {
   filters: OverviewFilters;
   types: string[];
-  epics: TaskListPage | undefined;
+  parents: TaskListPage | undefined;
+  parentInfo: ParentInfo | null;
   onType: (v: string) => void;
-  onEpic: (v: string) => void;
+  onParent: (v: string) => void;
   onQuery: (v: string) => void;
   onReset: () => void;
 }) {
-  const {epics: options, truncated} = epicOptions(epics?.tasks ?? [], epics?.total ?? 0);
-  // Эпик из адреса, которого нет среди открытых с детьми (завершённый, без
-  // детей), остаётся выбранным значением, а не пропадает из поля.
+  const {parents: options, truncated} = parentOptions(parents?.tasks ?? [], parents?.total ?? 0);
+  // Родитель из адреса, которого нет среди открытых с детьми (завершённый,
+  // без детей), остаётся выбранным значением, а не пропадает из поля.
   const current = filters.parent && !options.some((e) => e.key === filters.parent) ? filters.parent : null;
   const selectedOutline = 'border-ring';
+  const parentTitle = filters.parent
+    ? `Родитель: ${filters.parent}${parentInfo?.title ? ` ${parentInfo.title}` : ''}`
+    : 'Родитель: любой';
 
   return (
     <div className="flex flex-wrap items-center gap-2" data-filters>
@@ -780,42 +802,46 @@ function FiltersBar({
           </SelectContent>
         </Select>
       ) : null}
-      <Select
-        value={filters.parent || ALL}
-        onValueChange={(v) => onEpic(v === ALL ? '' : v)}
-        disabled={options.length === 0 && !current}>
-        <SelectTrigger aria-label="Эпик" className={cn('w-auto max-w-72 min-w-32', filters.parent && selectedOutline)} data-filter-epic>
-          <SelectValue placeholder="Все эпики" />
-        </SelectTrigger>
-        <SelectContent className="max-w-sm">
-          <SelectItem value={ALL}>Все эпики</SelectItem>
-          {options.length > 0 || current ? <SelectSeparator /> : null}
-          <SelectGroup>
-            {options.length > 0 ? <SelectLabel>Открытые эпики</SelectLabel> : null}
-            {current ? (
-              <SelectItem value={current}>
-                <span className="font-mono text-xs">{current}</span>
-              </SelectItem>
+      {showParentFilter(options, filters.parent) ? (
+        <Select value={filters.parent || ALL} onValueChange={(v) => onParent(v === ALL ? '' : v)}>
+          <SelectTrigger
+            aria-label="Родительская задача"
+            className={cn('w-auto max-w-72 min-w-32', filters.parent && selectedOutline)}
+            data-filter-parent>
+            <SelectValue>
+              <span className="truncate">{parentTitle}</span>
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent className="max-w-sm">
+            <SelectItem value={ALL}>Любой родитель</SelectItem>
+            {options.length > 0 || current ? <SelectSeparator /> : null}
+            <SelectGroup>
+              {options.length > 0 ? <SelectLabel>Открытые задачи с детьми</SelectLabel> : null}
+              {current ? (
+                <SelectItem value={current}>
+                  <span className="font-mono text-xs">{current}</span>
+                </SelectItem>
+              ) : null}
+              {options.map((e) => (
+                <SelectItem key={e.key} value={e.key}>
+                  <span className="text-muted-foreground font-mono text-xs">{e.key}</span>
+                  <span className="truncate">{e.title}</span>
+                </SelectItem>
+              ))}
+            </SelectGroup>
+            {truncated ? (
+              <>
+                <SelectSeparator />
+                <p className="flex gap-1.5 px-2 py-1.5 text-xs text-amber-700 dark:text-amber-300" data-parents-truncated>
+                  <AlertTriangle aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+                  Показаны задачи с детьми среди первых 200 задач верхнего уровня. Другую откройте по адресу ?parent=КЛЮЧ;
+                  завершённые здесь не показаны.
+                </p>
+              </>
             ) : null}
-            {options.map((e) => (
-              <SelectItem key={e.key} value={e.key}>
-                <span className="text-muted-foreground font-mono text-xs">{e.key}</span>
-                <span className="truncate">{e.title}</span>
-              </SelectItem>
-            ))}
-          </SelectGroup>
-          {truncated ? (
-            <>
-              <SelectSeparator />
-              <p className="flex gap-1.5 px-2 py-1.5 text-xs text-amber-700 dark:text-amber-300" data-epics-truncated>
-                <AlertTriangle aria-hidden className="mt-0.5 size-3.5 shrink-0" />
-                Показаны эпики среди первых 200 задач верхнего уровня. Эпик за пределами списка откройте по адресу
-                ?parent=КЛЮЧ; завершённые эпики здесь не показаны.
-              </p>
-            </>
-          ) : null}
-        </SelectContent>
-      </Select>
+          </SelectContent>
+        </Select>
+      ) : null}
       {isFiltered(filters) ? (
         <Button variant="link" size="sm" className="px-1" onClick={onReset} data-filters-reset>
           Сбросить
@@ -887,23 +913,15 @@ function SearchField({value, onChange}: {value: string; onChange: (v: string) =>
   );
 }
 
-// Полоса нарезки эпика под шапкой (?parent=).
-function EpicStrip({
-  projectKey,
-  info,
-  onReset,
-}: {
-  projectKey: string;
-  info: EpicInfo;
-  onReset: () => void;
-}) {
+// Полоса родителя под шапкой (?parent=): какие задачи сейчас на странице.
+function ParentStrip({projectKey, info, onReset}: {projectKey: string; info: ParentInfo; onReset: () => void}) {
   const progress = info.row ? progressOf(info.row.child_counts) : null;
   const pct = (n: number) => (progress ? `${(n / progress.total) * 100}%` : '0');
   return (
     <div
       className="bg-muted/40 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border px-3 py-2 text-sm"
-      data-epic-strip>
-      <span className="text-muted-foreground">Нарезка эпика</span>
+      data-parent-strip>
+      <span className="text-muted-foreground">Внутри задачи</span>
       <Link to={`/p/${projectKey}/tasks/${info.key}`} className="font-mono text-xs hover:underline">
         {info.key}
       </Link>

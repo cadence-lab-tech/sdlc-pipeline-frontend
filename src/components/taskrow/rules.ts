@@ -22,6 +22,12 @@ export type RowZone = 'decisions' | 'stuck' | 'working' | 'queue' | 'backlog' | 
 export interface ApprovalHint {
   transition_key: string;
   lands_in_name?: string;
+  // Подписи записи: имена перехода и гейта из версии цикла задачи и тип
+  // гейта (перечень схемы). Нет — подписи берутся из версии цикла.
+  transition_name?: string;
+  gate_key?: string;
+  gate_name?: string;
+  gate_type?: string;
   // Может ли смотрящий решить этот гейт (элемент /approvals, решение 0072);
   // поля нет у сервера прежней версии.
   can_decide?: boolean;
@@ -54,7 +60,7 @@ export interface RowOptions {
   // Вправе ли смотрящий решать гейты; по умолчанию да. Наблюдатель вместо
   // гейта видит «ждёт решения человека».
   canDecide?: boolean;
-  // Не показывать токен эпика — страница уже внутри нарезки этого эпика.
+  // Не показывать токен родителя — страница уже внутри этого родителя.
   hideEpic?: boolean;
   // Показывать пометку «в работе» по in_work сервера (страница бэклога,
   // CLAB-368). По умолчанию нет: на «Обзоре» зона уже говорит, что в работе.
@@ -101,6 +107,12 @@ export interface RowModel {
   epic: string | null;
   oldVersion: boolean;
   versionFailed: boolean;
+  // Статус задачи — необязательный этап версии её цикла (известно, только
+  // когда версия прочитана).
+  optional: boolean;
+  // Исполнитель строки «Что делается сейчас» без живой аренды: назначенный
+  // или «этап ведут люди» (design.spec CLAB-488 §4.6).
+  executor: {text: string; title: string} | null;
   // Главная причина строки (значок, текст) — в зонах с заголовком.
   primary: Reason | null;
   // Пометка «в работе» (страница бэклога): строка сама в работе.
@@ -122,8 +134,13 @@ export interface RowModel {
 // странице такая строка бывает только эпиком с неначатыми детьми.
 export const IN_WORK = {
   text: 'в работе',
-  title: 'Эпик в работе: на странице, пока у него есть неначатые задачи',
+  title: 'Задача с детьми в работе: на странице, пока у неё есть неначатые дети',
 } as const;
+
+// Подпись этапа без роли в блоках решения и блокировки.
+export const NO_ROLE_STAGE = 'этап без роли';
+// Исполнитель этапа без роли и без назначенного.
+export const NO_EXECUTOR = 'исполнителя нет — этап ведут люди';
 
 export interface ProgressModel {
   done: number;
@@ -151,7 +168,7 @@ export function isOldVersion(
   return head !== undefined && head.id !== task.workflow_id;
 }
 
-// Прогресс эпика: готово = done, в работе = active + waiting, в бэклоге =
+// Прогресс задачи с детьми: готово = done, в работе = active + waiting, в бэклоге =
 // backlog. Отменённые в прогресс не входят (решение человека 2026-11-02).
 export function progressOf(counts: Record<string, number> | undefined): ProgressModel | null {
   if (!counts) return null;
@@ -172,8 +189,8 @@ export function progressOf(counts: Record<string, number> | undefined): Progress
 }
 
 // Стоимость задачи одной цифрой — сумма по всем её этапам (решение человека
-// 2026-11-02): без деления на деньги и условную стоимость. У эпика без
-// собственного учёта — сумма по нарезке. Учёта нет совсем — «нет учёта», а
+// 2026-11-02): без деления на деньги и условную стоимость. У задачи с детьми
+// без собственного учёта — сумма по детям. Учёта нет совсем — «нет учёта», а
 // не ноль: «не вели» и «бесплатно» — разные ответы.
 export function costOf(
   task: Pick<TaskRow, 'cost' | 'subtree_cost_usd'>,
@@ -183,8 +200,8 @@ export function costOf(
   }
   if (typeof task.subtree_cost_usd === 'number' && task.subtree_cost_usd > 0) {
     return {
-      text: `в нарезке ${dollars(task.subtree_cost_usd)}`,
-      title: 'У эпика нет собственного учёта: сумма по его нарезке',
+      text: `по детям ${dollars(task.subtree_cost_usd)}`,
+      title: 'У задачи нет собственного учёта: сумма по её детям',
       hasData: true,
     };
   }
@@ -224,6 +241,15 @@ export function buildRowModel(task: TaskRow, o: RowOptions): RowModel {
     canDecide,
     restricted,
     landsIn,
+    gateHints: approvals
+      .filter((a) => a.gate_key)
+      .map((a) => ({
+        transition: a.transition_key,
+        gate: a.gate_key!,
+        gateName: a.gate_name,
+        gateType: a.gate_type,
+        transitionName: a.transition_name,
+      })),
     blockedBy: task.blocked_by ?? [],
   });
   let shown: Reason[];
@@ -235,7 +261,15 @@ export function buildRowModel(task: TaskRow, o: RowOptions): RowModel {
 
   const types = o.projectTypes ?? [];
   const roleName = run?.role_name ?? null;
-  const stageText = roleName ? `${task.status_name} · ${roleName}` : task.status_name;
+  // В блоках решения и блокировки этап без роли назван словами: прогон есть,
+  // а роли у статуса нет (design.spec CLAB-488 §4.3).
+  const named = (o.zone === 'decisions' || o.zone === 'stuck') && run !== null && !run.role_key;
+  const stageText = roleName
+    ? `${task.status_name} · ${roleName}`
+    : named
+      ? `${task.status_name} · ${NO_ROLE_STAGE}`
+      : task.status_name;
+  const optional = o.version?.statuses?.find((st) => st.key === task.status_key)?.is_optional === true;
 
   const hasChildren = progressOf(task.child_counts) !== null;
   const movedAt = hasChildren ? latest(task.last_moved_at, task.subtree_last_moved_at) : task.last_moved_at;
@@ -270,6 +304,15 @@ export function buildRowModel(task: TaskRow, o: RowOptions): RowModel {
   const attempt = run && run.attempt > 1 && !shown.some((r) => r.code === 'returned') ? run.attempt : null;
   const handle = run?.claimed_by_handle;
 
+  let executor: RowModel['executor'] = null;
+  if (o.zone === 'working' && !(handle && run?.lease_alive)) {
+    if (task.assignee_handle) {
+      executor = {text: `назначена: ${task.assignee_handle}`, title: `Назначена: ${task.assignee_handle}`};
+    } else if (!run?.role_key && !hasChildren) {
+      executor = {text: NO_EXECUTOR, title: 'У статуса нет роли: этап ведут участники проекта'};
+    }
+  }
+
   return {
     key: task.key,
     title: task.title,
@@ -282,11 +325,13 @@ export function buildRowModel(task: TaskRow, o: RowOptions): RowModel {
     epic: !o.hideEpic && task.parent_key ? task.parent_key : null,
     oldVersion: isOldVersion(task, o.activeWorkflows),
     versionFailed: o.versionFailed === true,
+    optional,
+    executor,
     primary,
     inWork: o.showInWork && task.in_work === true ? IN_WORK : null,
     reasons: tokens,
     stage: {text: stageText, title: stageText},
-    holder: handle ? {handle, live: run?.lease_alive === true} : null,
+    holder: handle && !(executor && !run?.lease_alive) ? {handle, live: run?.lease_alive === true} : null,
     review: run?.kind === 'review',
     attempt,
     onStage,

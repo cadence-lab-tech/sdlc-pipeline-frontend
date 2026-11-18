@@ -101,9 +101,9 @@ check('аренда истекла у <хэндл> <N> назад', r.text === '
 r = d({code: 'over_stage_limit', since: null, max_duration: '4h'});
 check('этап дольше предела', r.text === 'Этап дольше предела 4h' && r.icon === 'TimerOff' && r.tone === 'orange', r.text);
 r = d({code: 'gate_rejected', since: null, gates: [{transition: 'ship', gate: 'ok', reason: 'нет тестов'}]});
-check('гейт отклонён: причина', r.text === 'Апрув владельца отклонён: нет тестов' && r.icon === 'XCircle' && r.tone === 'red', r.text);
+check('гейт отклонён: «имя» и причина (CLAB-488)', r.text === '«Апрув владельца» отклонён: нет тестов' && r.icon === 'XCircle' && r.tone === 'red', r.text);
 r = d({code: 'gate_rejected', since: null, gates: [{transition: 'ship', gate: 'ok', reason: null}]});
-check('гейт отклонён без причины', r.text === 'Апрув владельца отклонён', r.text);
+check('гейт отклонён без причины', r.text === '«Апрув владельца» отклонён', r.text);
 r = d({code: 'blocked', since: null});
 check('блокирующий: «Ждёт CLAB-357»', r.text === 'Ждёт CLAB-357' && r.icon === 'Lock' && r.tone === 'orange', r.text);
 r = d({code: 'blocked', since: null}, {blockedBy: ['A-1', 'A-2', 'A-3']});
@@ -202,7 +202,7 @@ check('одна цифра: сумма по всем этапам, без дел
 check('сообщённый ноль — $0.00', M.costOf({cost: {cost_usd: 0, api_cost_usd: 0, subscription_cost_usd: 0, reports: 1}}).text === '$0.00');
 check('меньше цента, но не ноль', F.dollars(0.004) === '<$0.01' && F.dollars(0) === '$0.00' && F.dollars(12.5) === '$12.50');
 c = M.costOf({cost: null, subtree_cost_usd: 7.5});
-check('эпик без своего учёта — сумма по нарезке', c.text === 'в нарезке $7.50' && c.hasData === true, c.text);
+check('задача с детьми без своего учёта — сумма по детям (CLAB-488)', c.text === 'по детям $7.50' && c.title === 'У задачи нет собственного учёта: сумма по её детям' && c.hasData === true, c.text);
 check('эпик без учёта и без стоимости детей — «нет учёта»', M.costOf({cost: null, subtree_cost_usd: 0}).text === 'нет учёта');
 check('собственный учёт эпика важнее суммы по нарезке', M.costOf({cost: {cost_usd: 1, api_cost_usd: 1, subscription_cost_usd: 0, reports: 1}, subtree_cost_usd: 9}).text === '$1.00');
 check('стоимость только в «В работе»', model(task({current_run: run()}), 'working').cost !== null &&
@@ -247,7 +247,7 @@ for (const z of ['decisions', 'stuck', 'working', 'queue', 'backlog', 'done']) {
 check('чужой цикл во всех зонах — без падения', all);
 m = model(alien, 'stuck', {version, projectTypes: ['task', 'bug'], activeWorkflows: active});
 check('чужой цикл: все поля выведены', m.stage.text === 'Отгружено · Сборщик' && m.type === 'bug' && m.epic === 'ZZ-0' && m.priority.label === 'срочный' &&
-  m.primary.text === 'Апрув владельца отклонён: красный' && m.progress.total === 2 && m.oldVersion === true);
+  m.primary.text === '«Апрув владельца» отклонён: красный' && m.progress.total === 2 && m.oldVersion === true);
 
 // ── AC-16, AC-17: старый сервер и плотность ──────────────────────────────────
 console.log('старый сервер и плотность');
@@ -260,6 +260,28 @@ for (const z of ['decisions', 'stuck', 'working', 'queue', 'backlog', 'done']) {
 check('«нет учёта» у «В работе» на старом сервере — не падает', model(old, 'working').cost.text === 'нет учёта');
 check('задача без прогона — нет блока этапа в работе и ожидания', model(old, 'working').onStage === null && model(old, 'queue').waiting === null);
 check('модель не зависит от плотности — плотность в разметке', !('density' in model(old, 'working')));
+
+// ── CLAB-488: тексты строки на любом цикле ───────────────────────────────────
+console.log('CLAB-488: тексты строки на любом цикле');
+const typed = {
+  statuses: [{key: 'inbox', name: 'Входящие', is_optional: true}, {key: 'build', name: 'Сборка', is_optional: false}],
+  transitions: [{key: 'ship', name: 'Выпустить', gates: [{key: 'ok', name: 'Апрув владельца', type: 'human_approval'}]}],
+};
+const waits = task({attention: [{code: 'awaits_human', since: ago(HOUR), gates: [{transition: 'ship', gate: 'ok'}]}]});
+m = model(waits, 'decisions', {version: typed});
+check('тип гейта известен — «Апрув человеком «имя» · «переход»»', m.primary.text === 'Апрув человеком «Апрув владельца» · «Выпустить»', m.primary.text);
+m = model(waits, 'decisions', {approvals: [{transition_key: 'ship', gate_key: 'ok', gate_name: 'Release approval', gate_type: 'checklist', transition_name: 'Ship', lands_in_name: 'Rollout'}]});
+check('подписи из записи /approvals без версии', m.primary.text === 'Чек-лист «Release approval» · «Ship» → Rollout', m.primary.text);
+check('необязательный этап — по версии цикла', model(waits, 'decisions', {version: typed}).optional === true && model(waits, 'decisions').optional === false);
+m = model(task({current_run: run({role_key: null, role_name: null})}), 'stuck');
+check('этап без роли в «Заблокировано» — «<статус> · этап без роли»', m.stage.text === 'Входящие · этап без роли', m.stage.text);
+check('на «Бэклоге» подписи «этап без роли» нет', model(task({current_run: run({role_key: null, role_name: null})}), 'backlog').stage.text === 'Входящие');
+m = model(task({current_run: run({role_key: null, role_name: null, claimed_by_handle: null, lease_alive: false})}), 'working');
+check('«Что делается»: без роли и без назначенного — «исполнителя нет — этап ведут люди»', m.executor?.text === 'исполнителя нет — этап ведут люди' && m.holder === null);
+m = model(task({assignee_handle: 'kate', current_run: run({role_key: null, role_name: null, claimed_by_handle: null})}), 'working');
+check('«Что делается»: без аренды с назначенным — «назначена: kate»', m.executor?.text === 'назначена: kate');
+check('живая аренда — держатель, без подписи исполнителя', model(task({current_run: run()}), 'working').executor === null && model(task({current_run: run()}), 'working').holder.live);
+check('пометка «в работе» без слова «эпик»', M.IN_WORK.title === 'Задача с детьми в работе: на странице, пока у неё есть неначатые дети');
 
 // ── AC-12, AC-13: ключи проекта и сырые цвета в новом коде ───────────────────
 console.log('ключи и цвета в коде строки');
@@ -276,7 +298,7 @@ check('сырых цветов без пары для тёмной темы не
 check('задача не лезёт в ключи сравнением: нет === с status_key/role_key', !sources.some(([, s]) => /(status_key|role_key)\s*[!=]==/.test(s)));
 const tsx = sources.find(([n]) => n === 'TaskRow.tsx')[1];
 check('вся строка — ссылка на карточку задачи', /to=\{`\/p\/\$\{projectKey\}\/tasks\/\$\{task\.key\}`\}/.test(tsx));
-check('внутри строки один <button> — токен эпика', (tsx.match(/<button/g) ?? []).length === 1);
+check('внутри строки один <button> — токен родителя', (tsx.match(/<button/g) ?? []).length === 1);
 check('значки причин скрыты от чтения с экрана', /<Icon aria-hidden/.test(tsx) && /<PrimaryIcon[^>]*aria-hidden/.test(tsx));
 
 console.log(`\n${ok} ✓, ${fail} ✗`);

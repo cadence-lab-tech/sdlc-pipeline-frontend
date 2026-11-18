@@ -8,6 +8,7 @@ import {
   Lock,
   MessageCircleQuestion,
   RotateCcw,
+  Users,
   Timer,
   TimerOff,
   Unplug,
@@ -72,8 +73,8 @@ export interface TaskRowProps {
   approvals?: ApprovalHint[];
   // Право решать гейты; наблюдатель видит «ждёт решения человека».
   canDecide?: boolean;
-  // Нажатие на токен эпика: страница ставит фильтр по эпику. Нет колбэка —
-  // токен просто метка.
+  // Нажатие на токен родителя: страница ставит фильтр по родителю. Нет
+  // колбэка — токен просто метка.
   onPickEpic?: (epicKey: string) => void;
   hideEpic?: boolean;
   // «Сейчас» для относительного времени; по умолчанию — часы строки, раз в минуту.
@@ -95,6 +96,13 @@ export interface TaskRowProps {
   // Строка ждёт ответа на своё действие (перемещение): aria-busy,
   // содержимое приглушено.
   busy?: boolean;
+  // Строка «кто и что делает» (design.spec CLAB-488 §4.3–4.4) — последней в
+  // карточке; ссылки в ней подняты над ссылкой строки и идут после неё по Tab.
+  action?: ReactNode;
+  // Подстрока под строкой бэклога («↳ внутри KEY — она уже в работе»),
+  // номер места в порядке бэклога — слева от ключа.
+  note?: ReactNode;
+  index?: number;
 }
 
 function ReasonToken({reason}: {reason: Reason}) {
@@ -153,10 +161,15 @@ export function TaskRow({
   trailing,
   showInWork,
   busy,
+  action,
+  note,
+  index,
 }: TaskRowProps) {
   const tick = useNow();
   const now = nowProp ?? tick;
-  const versionNeeded = needsVersion(task.attention, canDecide);
+  // В блоках решения и блокировки версия нужна и ради признака
+  // «необязательный» у статуса; читается один раз на цикл.
+  const versionNeeded = needsVersion(task.attention, canDecide) || zone === 'decisions' || zone === 'stuck';
   const version = useWorkflowVersion(task.workflow_id, versionNeeded);
   const m = buildRowModel(task, {
     zone,
@@ -183,6 +196,7 @@ export function TaskRow({
     ...m.reasons.map((r) => r.title),
     m.stage.title,
     m.waiting?.title,
+    m.executor?.title,
     m.onStage?.title,
     m.movement?.title,
     m.cost?.title,
@@ -199,7 +213,7 @@ export function TaskRow({
           label={
             <>
               <UserX aria-hidden />
-              назначена другому
+              {task.assignee_handle ? `назначена: ${task.assignee_handle}` : 'назначена другому'}
             </>
           }
         />
@@ -222,7 +236,7 @@ export function TaskRow({
           <button
             type="button"
             onClick={() => onPickEpic(m.epic!)}
-            title={`Только задачи эпика ${m.epic}`}
+            title={`Только задачи внутри ${m.epic}`}
             className="relative z-10 cursor-pointer rounded-full focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none">
             <Token
               className="hover:bg-muted"
@@ -245,6 +259,7 @@ export function TaskRow({
           />
         )
       ) : null}
+      {m.optional ? <Token label="необязательный" className="border-dashed" /> : null}
       {m.oldVersion ? <Token label="прежняя версия цикла" color="orange" /> : null}
       {m.versionFailed ? <Token label="версия цикла не прочиталась" /> : null}
       {m.review ? <Token label="перепроверка" color="blue" /> : null}
@@ -272,6 +287,12 @@ export function TaskRow({
       </span>
       {m.holder ? (
         <StatusDot variant={m.holder.live ? 'accent' : 'neutral'} label={<span className="text-xs">{m.holder.handle}</span>} />
+      ) : null}
+      {m.executor ? (
+        <span className="text-muted-foreground inline-flex items-center gap-1" title={m.executor.title} data-row-executor>
+          <Users className="size-3" aria-hidden />
+          {m.executor.text}
+        </span>
       ) : null}
       {m.waiting ? (
         <span className="text-muted-foreground" title={m.waiting.title}>
@@ -333,14 +354,21 @@ export function TaskRow({
         )}>
         {link}
         <div className="pointer-events-none relative flex min-w-0 flex-col gap-2 px-(--card-spacing)">
-          {primaryLine}
+          {/* Ключ и заголовок, затем причина, этап и «кто и что»
+              (design.spec CLAB-488 §4.3). */}
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-muted-foreground font-mono text-xs tabular-nums">{m.key}</span>
             <span className="contents [&_button]:pointer-events-auto">{tokens}</span>
           </div>
           <p className="line-clamp-2 text-sm font-medium">{m.title}</p>
+          {primaryLine}
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">{facts}</div>
           {m.progress ? <ProgressBar progress={m.progress} /> : null}
+          {action ? (
+            <div className="text-sm [&_a]:pointer-events-auto [&_button]:pointer-events-auto" data-row-action>
+              {action}
+            </div>
+          ) : null}
         </div>
       </Card>
     );
@@ -352,6 +380,11 @@ export function TaskRow({
     <div
       className={cn('pointer-events-none relative flex min-w-0 flex-col gap-1', slotted && 'flex-1', busy && 'opacity-60')}>
       <div className="flex min-w-0 items-start gap-2">
+        {index !== undefined ? (
+          <span className="text-muted-foreground w-4 shrink-0 pt-0.5 text-right text-xs tabular-nums" data-row-index>
+            {index}
+          </span>
+        ) : null}
         <span className="text-muted-foreground shrink-0 pt-0.5 font-mono text-xs tabular-nums">{m.key}</span>
         <p className="line-clamp-2 min-w-0 flex-1 text-sm font-medium sm:line-clamp-1">{m.title}</p>
       </div>
@@ -361,6 +394,7 @@ export function TaskRow({
       </div>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">{facts}</div>
       {m.progress ? <ProgressBar progress={m.progress} /> : null}
+      {note ? <div className="text-muted-foreground text-xs" data-row-note>{note}</div> : null}
     </div>
   );
 

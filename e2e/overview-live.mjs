@@ -110,7 +110,7 @@ const live = () => run(`
 `);
 // Задача в первых 10 строках бэклога прогона по ответу сервера — ровно как
 // читает блок «Обзора» (limit 10, поиск по метке).
-const inBlock = async (key) => (await call('GET', `/projects/SDLC/tasks?terminal=false&in_work=false&top_level=true&order=backlog&limit=10&q=${tag}`)).tasks.some((t) => t.key === key);
+const inBlock = async (key) => (await call('GET', `/projects/SDLC/tasks?backlog=true&top_level=true&order=backlog&limit=10&q=${tag}`)).tasks.some((t) => t.key === key);
 const waitFor = async (expr, ms = 8000) => {
   const t0 = Date.now();
   while (Date.now() - t0 < ms) {
@@ -119,10 +119,15 @@ const waitFor = async (expr, ms = 8000) => {
   }
   return null;
 };
+// Место строки: блок и подраздел «Можно брать сейчас» (CLAB-488: «Очередь»
+// и «Приоритетные из бэклога» стали подразделами одного блока).
 const zoneOf = (title) => run(`
-  const z = Array.from(document.querySelectorAll('section[data-zone]')).find((e) => (e.innerText || '').includes(${JSON.stringify(title)}));
-  return z ? z.getAttribute('data-zone') : null;
+  const r = Array.from(document.querySelectorAll('section[data-zone] [data-task-key]')).find((e) => (e.innerText || '').includes(${JSON.stringify(title)}));
+  if (!r) return null;
+  const g = r.closest('[data-ready-group]')?.getAttribute('data-ready-group');
+  return r.closest('section[data-zone]').getAttribute('data-zone') + (g ? ':' + g : '');
 `);
+const placeExpr = (title) => `(() => { const r = Array.from(document.querySelectorAll('section[data-zone] [data-task-key]')).filter((e) => (e.innerText || '').includes(${JSON.stringify(title)})); if (r.length !== 1) return null; const g = r[0].closest('[data-ready-group]')?.getAttribute('data-ready-group'); return r[0].closest('section[data-zone]').getAttribute('data-zone') + (g ? ':' + g : ''); })()`;
 const rowsOn = (title) => `document.body.innerText.includes(${JSON.stringify(title)})`;
 
 // ── рукопожатие и порядок запросов ──────────────────────────────────────────
@@ -156,40 +161,40 @@ check('заведённая задача появилась без «Обнов�
 const zoneBefore = await zoneOf(a);
 const t1 = Date.now();
 await fetch(`${API}/v1/tasks/${keyA}/transitions/start`, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-SDLC-Actor': 'e2e'}, body: '{}'});
-const dtMove = await waitFor(`(() => { const z = Array.from(document.querySelectorAll('section[data-zone]')).find((e) => (e.innerText || '').includes(${JSON.stringify(a)})); return z && z.getAttribute('data-zone') !== ${JSON.stringify(zoneBefore)}; })()`, 8000);
-check('переход задачи командой: строка переехала в другую зону не позже чем через 5 с', dtMove !== null && Date.now() - t1 <= 5000, `${zoneBefore} → ${await zoneOf(a)}, ${dtMove} мс`);
+const dtMove = await waitFor(`(${placeExpr(a)} || ${JSON.stringify(zoneBefore)}) !== ${JSON.stringify(zoneBefore)}`, 8000);
+check('переход задачи командой: строка переехала в другое место не позже чем через 5 с', dtMove !== null && Date.now() - t1 <= 5000, `${zoneBefore} → ${await zoneOf(a)}, ${dtMove} мс`);
 // Зоны приходят отдельными ответами: на миг строка может стоять и там и там,
 // но в установившемся виде — ровно в одной зоне.
-const zonesWith = (title) => `Array.from(document.querySelectorAll('section[data-zone]')).filter((e) => (e.innerText || '').includes(${JSON.stringify(title)})).length === 1`;
+const zonesWith = (title) => `Array.from(document.querySelectorAll('section[data-zone] [data-task-key]')).filter((e) => (e.innerText || '').includes(${JSON.stringify(title)})).length === 1`;
 check('строка в одной зоне (одна задача — одна зона)', (await waitFor(zonesWith(a), 3000)) !== null);
 
 // Правка приоритета — тоже событие, и блок бэклога читает его.
 const b2 = `Живая Б ${tag}`;
 const keyB = await create(b2);
 await waitFor(rowsOn(b2), 8000);
-const backlogTotal = async () => run(`return document.querySelector('section[data-zone=backlog] [data-zone-count]')?.getAttribute('aria-label');`);
-const truthTotal = async () => (await call('GET', '/projects/SDLC/tasks?terminal=false&in_work=false&top_level=true&order=backlog&limit=1&q=' + tag)).total;
-check('счётчик блока бэклога — total сервера после события', (await backlogTotal()) === `Приоритетные из бэклога, ${await truthTotal()}`, `${await backlogTotal()}`);
+const backlogTotal = async () => run(`return document.querySelector('section[data-zone=ready] [data-ready-free]')?.innerText;`);
+const truthTotal = async () => (await call('GET', '/projects/SDLC/tasks?terminal=false&in_work=false&category=backlog&attention_not=blocked&limit=1&q=' + tag)).total;
+check('число свободных неначатых — total сервера после события', (await backlogTotal()) === `${await truthTotal()} свободных`, `${await backlogTotal()}`);
 
 // ── вид не сбрасывается (AC-14.13) ──────────────────────────────────────────
 console.log('вид сохраняется');
 await run(`
   const toggle = (z) => document.querySelector('section[data-zone=' + z + '] [data-zone-toggle]');
-  toggle('queue').click(); toggle('done').click(); await sleep(300); return 1;
+  toggle('ready').click(); toggle('done').click(); await sleep(300); return 1;
 `);
 const viewState = () => run(`
   const exp = (z) => document.querySelector('section[data-zone=' + z + '] [data-zone-toggle]')?.getAttribute('aria-expanded');
-  return {queue: exp('queue'), done: exp('done'), size: Array.from(document.querySelectorAll('section[data-zone=backlog] [data-backlog-size] [role=radio]')).map((b) => b.getAttribute('data-state')).join(), url: location.search};
+  return {ready: exp('ready'), done: exp('done'), size: localStorage.getItem('sdlc.backlog.size.SDLC'), url: location.search};
 `);
 const v0 = await viewState();
 const keyC = await create(`Живая В ${tag}`);
 await waitFor(rowsOn(`Живая В ${tag}`).replace('document.body.innerText', 'document.body.innerText'), 8000);
 await sleep(400);
 const v1 = await viewState();
-check('свёрнутость зон и размер блока (10) остались после события', JSON.stringify(v0) === JSON.stringify(v1) && v1.size === 'off,on', `${JSON.stringify(v0)} → ${JSON.stringify(v1)}`);
+check('свёрнутость блоков и размер списка (10) остались после события', JSON.stringify(v0) === JSON.stringify(v1) && v1.size === '10', `${JSON.stringify(v0)} → ${JSON.stringify(v1)}`);
 await run(`
   const toggle = (z) => document.querySelector('section[data-zone=' + z + '] [data-zone-toggle]');
-  toggle('queue').click(); toggle('done').click(); await sleep(200); return 1;
+  toggle('ready').click(); toggle('done').click(); await sleep(200); return 1;
 `);
 
 // ── фокус клавиатуры (AC-14.13, design §2.7) ───────────────────────────────
@@ -218,14 +223,16 @@ await run(`
   return 1;
 `);
 let fi = await focusInfo();
-check('фокус на ссылке строки в блоке бэклога (исходное состояние)', fi.key === keyF && fi.zone === 'backlog', JSON.stringify(fi));
+const placeF0 = await zoneOf(titleF);
+check('фокус на ссылке строки неначатых (исходное состояние)', fi.key === keyF && fi.zone === 'ready' && placeF0 === 'ready:unstarted', JSON.stringify(fi) + placeF0);
 await post(`/tasks/${keyF}/transitions/start`);
-await waitFor(`(() => { const z = Array.from(document.querySelectorAll('section[data-zone]')).filter((e) => (e.innerText || '').includes(${JSON.stringify(titleF)})); return z.length === 1 && z[0].getAttribute('data-zone') !== 'backlog'; })()`, 8000);
-const zoneF = await zoneOf(titleF);
+await waitFor(`(${placeExpr(titleF)} || 'ready:unstarted') !== 'ready:unstarted'`, 8000);
+const placeF = await zoneOf(titleF);
+const zoneF = placeF ? placeF.split(':')[0] : null;
 await waitFor(`document.activeElement?.closest?.('[data-task-key]')?.dataset.taskKey === ${JSON.stringify(keyF)} && document.activeElement.closest('[data-zone]')?.dataset.zone === ${JSON.stringify(zoneF)}`, 3000);
 fi = await focusInfo();
 const ft = await run(`clearInterval(window.__fiv); return window.__ft;`);
-check(`задача переехала (backlog → ${zoneF}): фокус на её строке в новой зоне, не на <body>`, zoneF !== 'backlog' && fi.key === keyF && fi.zone === zoneF && fi.tag === 'A', `${JSON.stringify(fi)} ход фокуса: ${JSON.stringify(ft)}`);
+check(`задача переехала (ready:unstarted → ${placeF}): строка пересоздана, фокус на ней, не на <body>`, placeF !== 'ready:unstarted' && fi.key === keyF && fi.zone === zoneF && fi.tag === 'A', `${JSON.stringify(fi)} ход фокуса: ${JSON.stringify(ft)}`);
 // Между ответами зон (строка уже ушла из одной, но ещё не пришла в другую)
 // фокус может на десятки миллисекунд стоять на <body> — важно, где он в итоге.
 
@@ -257,14 +264,14 @@ for (let i = 1; i <= 3; i++) gone.push(await create(`Фокус В${i} ${tag}`))
 await waitFor(rowsOn(`Фокус В3 ${tag}`), 8000);
 await run(`${fk(gone[2])}.focus(); return 1;`);
 fi = await focusInfo();
-check('фокус на последней из трёх строк блока бэклога (исходное состояние)', fi.key === gone[2] && fi.zone === 'backlog', JSON.stringify(fi));
+check('фокус на последней из трёх строк неначатых (исходное состояние)', fi.key === gone[2] && fi.zone === 'ready', JSON.stringify(fi));
 await post(`/tasks/${gone[2]}/transitions/cancel`);
 const dtGone = await waitFor(`!document.body.innerText.includes(${JSON.stringify(`Фокус В3 ${tag}`)})`, 8000);
 await sleep(1500);
 fi = await focusInfo();
-const firstBacklog = await run(`return document.querySelector('section[data-zone=backlog] [data-task-key]')?.dataset.taskKey ?? null;`);
+const firstBacklog = await run(`return document.querySelector('section[data-zone=ready] [data-task-key]')?.dataset.taskKey ?? null;`);
 check('отменённой задачи на странице нет (завершённые свёрнуты)', dtGone !== null);
-check('фокус не на <body>: на первой строке той же зоны (блок бэклога)', fi.tag === 'A' && fi.zone === 'backlog' && fi.key === firstBacklog && fi.key !== gone[2], `${JSON.stringify(fi)} первая: ${firstBacklog}`);
+check('фокус не на <body>: на первой строке того же блока («Можно брать сейчас»)', fi.tag === 'A' && fi.zone === 'ready' && fi.key === firstBacklog && fi.key !== gone[2], `${JSON.stringify(fi)} первая: ${firstBacklog}`);
 // Человек сам увёл фокус — автообновление его не трогает.
 await run(`${fk(gone[0])}.focus(); return 1;`);
 await create(`Фокус Г ${tag}`);
@@ -300,17 +307,22 @@ const backlogReads = lg.filter((e) => e.kind === 'tasks' && e.u.includes('order=
 const gaps = backlogReads.slice(1).map((t, i) => t - backlogReads[i]);
 check(`12 заведений за ${spent} мс: перечитываний блока не больше окон по 2 с`, backlogReads.length >= 1 && backlogReads.length <= Math.ceil(spent / 2000) + 2, `${backlogReads.length}`);
 check('между перечитываниями не меньше ~2 с', gaps.every((g) => g >= 1900), gaps.map(Math.round).join());
-check('счётчик блока — total сервера после пачки (последнее событие учтено)', (await backlogTotal()) === `Приоритетные из бэклога, ${await truthTotal()}`, `${await backlogTotal()}`);
-check('блок: не больше 10 строк (размер сохранён)', (await run(`return document.querySelectorAll('section[data-zone=backlog] [data-density]').length;`)) <= 10);
+check('число свободных — total сервера после пачки (последнее событие учтено)', (await backlogTotal()) === `${await truthTotal()} свободных`, `${await backlogTotal()}`);
+check('неначатые: не больше 10 строк (размер сохранён)', (await run(`return document.querySelectorAll('[data-ready-group=unstarted] [data-density]').length;`)) <= 10);
 
 // ── тихий проект (AC-14.11, AC-14.21) ───────────────────────────────────────
 console.log('тихий проект, 60 с');
 await sleep(3000);
 const quietFrom = (await log()).length;
+const quietT0 = await run('return performance.now();');
 await sleep(60_000);
 lg = (await log()).slice(quietFrom);
 const quietEvents = lg.filter((e) => e.kind === 'events');
-check('за 60 с — ни одного запроса списков и /approvals', lg.every((e) => e.kind === 'events'), JSON.stringify(lg.filter((e) => e.kind !== 'events').map((e) => e.u)));
+// «Сводка» (CLAB-488) перечитывается с окном 30 с: хвост окна пачки — одно
+// чтение её счётчиков (limit=1, без фильтра причин) в первые 30 с тишины.
+// Других запросов списков и /approvals нет.
+const summaryTail = (e) => e.kind === 'tasks' && /[?&]limit=1(&|$)/.test(e.u) && !e.u.includes('attention') && e.t - quietT0 <= 31_000;
+check('за 60 с — ни одного запроса списков и /approvals (кроме хвоста окна «Сводки»)', lg.every((e) => e.kind === 'events' || summaryTail(e)), JSON.stringify(lg.filter((e) => e.kind !== 'events' && !summaryTail(e)).map((e) => e.u)));
 check('только долгие запросы ленты: 2–3 штуки, все с after и wait=25', quietEvents.length >= 2 && quietEvents.length <= 3 && quietEvents.every((e) => /after=/.test(e.u) && /wait=25/.test(e.u)), String(quietEvents.length));
 check('пустой ответ — тот же курсор в следующем запросе', new Set(quietEvents.map((e) => e.u.match(/after=([^&]+)/)?.[1])).size === 1);
 check('индикатор не менялся', (await live()).mode === 'live');
