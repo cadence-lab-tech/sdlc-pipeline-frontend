@@ -356,6 +356,9 @@ console.log('AC-11, AC-13: отключить в списке, затем «То
 const second = await begin({name: 'Desk Assistant'});
 const secondTokens = await grantViaApi(second);
 await open('/clients');
+// Отозванные свёрнуты, пока есть действующие: раскрыть, иначе на чистой базе в
+// списке одна карточка (тест тестировщика, CLAB-482).
+await run(`const b = byText('Показать отозванные'); if (b) { b.click(); await sleep(700); } return 1;`);
 check('новая выдача выше отозванных', await run(`
   const cards = all('[data-oauth-grant]');
   return cards.length >= 2 && cards[0].getAttribute('data-oauth-grant-state') === 'live';`));
@@ -591,6 +594,16 @@ check('«Скрыть отозванные (6)»', t.includes('Скрыть от
 await setMock({'GET grants': {status: 200, body: {grants: [g({client_name: 'Only Revoked', revoked_at: iso(1), revoke_reason: 'user'})]}}});
 await open('/clients');
 check('нет действующих — отозванные раскрыты', (await text()).includes('Only Revoked'));
+// Отключили последнего действующего: его строка остаётся на виду, а не уходит
+// под свёрнутый список (тест тестировщика, CLAB-482).
+await setMock({'GET grants': {status: 200, body: {grants: [g({client_name: 'Solo Live'})]}}});
+await open('/clients');
+check('единственный действующий — на виду, отозванных нет', (await text()).includes('Solo Live') && !(await text()).includes('отозванные'));
+await setMock({'GET grants': {status: 200, body: {grants: [g({client_name: 'Solo Live', revoked_at: iso(0), revoke_reason: 'user'})]}}, 'DELETE grants': {status: 204}});
+await run(`await clickIn('Solo Live', 'Отключить'); await confirm('Отключить'); return 1;`);
+await settle();
+t = await text();
+check('отключили последнего: строка «отозван» видна без раскрытия списка', t.includes('Solo Live') && t.includes('Вы отключили этот клиент.') && t.includes('Скрыть отозванные (1)'), t.slice(0, 400));
 await setMock({'GET grants': {status: 200, body: {grants: [
   g({client_name: XSS, redirect_host: LONGHOST}),
 ]}}});

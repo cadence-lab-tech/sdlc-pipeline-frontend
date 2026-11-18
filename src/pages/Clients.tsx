@@ -127,9 +127,12 @@ function RevokedList({
   liveCount: number;
   onRevoke: (grant: OAuthGrant) => Promise<unknown>;
 }) {
-  const [open, setOpen] = useState(revokedOpenByDefault(liveCount));
+  // Выбор человека побеждает умолчание; пока он не нажал, список раскрыт, как
+  // только действующих не осталось (отключили последнего — строка на виду).
+  const [chosen, setChosen] = useState<boolean>();
+  const open = chosen ?? revokedOpenByDefault(liveCount);
   return (
-    <Collapsible open={open} onOpenChange={setOpen} className="space-y-3">
+    <Collapsible open={open} onOpenChange={setChosen} className="space-y-3">
       <CollapsibleTrigger asChild>
         <Button variant="ghost" size="sm" className="-ml-2">
           <ChevronRight
