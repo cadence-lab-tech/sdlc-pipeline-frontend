@@ -45,7 +45,15 @@ export async function session(url) {
     });
 
   await send('Page.enable');
-  await evaluate('return 1');
+  // Сценарии считают запросы по performance.getEntriesByType('resource'), а
+  // буфер записей по умолчанию — 250 штук на документ. Dev-сервер отдаёт каждый
+  // модуль отдельным запросом, и страница, которая грузит больше 250 ресурсов,
+  // молча перестаёт пополнять буфер: счётчик замирает, и «один запрос» читается
+  // как ноль (CLAB-488, health.mjs на «Обзоре»). Буфер расширяется в каждом
+  // новом документе сессии и в текущем — первом, открытом по адресу target.
+  const RESOURCE_BUFFER = 'performance.setResourceTimingBufferSize(100000);';
+  await send('Page.addScriptToEvaluateOnNewDocument', {source: RESOURCE_BUFFER});
+  await evaluate(RESOURCE_BUFFER + ' return 1');
   return {
     evaluate,
     goto: async (u) => {
