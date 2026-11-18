@@ -50,6 +50,9 @@ export const READY_TEXTS = {
 } as const;
 
 export const viaText = (parentKey: string) => `внутри ${parentKey} — она уже в работе`;
+// Ребёнок начатого родителя, который сам заблокирован (подсписок «Ждут
+// блокирующих»).
+export const viaBlockedText = (parentKey: string) => `внутри заблокированного ${parentKey}`;
 
 // Подпись группы «Что делается сейчас» у статуса без роли.
 export const NO_ROLE_GROUP = 'этап без роли исполнителя — ведут люди';
@@ -231,7 +234,8 @@ export function readyTopQuery(f: OverviewFilters, limit = READY_SCAN): ListTasks
   return {...base, backlog: true, top_level: true};
 }
 
-// Неначатые дети родителей «в работе» — одним запросом по списку ключей.
+// Неначатые дети начатых и заблокированных родителей (kidsParents) — одним
+// запросом по списку ключей.
 export function readyKidsQuery(f: OverviewFilters, parents: string[]): ListTasksQuery {
   return {
     type: f.type || undefined,
@@ -589,26 +593,40 @@ export function visibleStages(
 
 export interface UnstartedEntry {
   task: TaskRow;
-  // Родитель «в работе», чьё место заняла строка (↳ внутри KEY); null —
+  // Начатый родитель, чьё место заняла строка (↳ внутри KEY); null —
   // строка верхнего уровня (или ребёнок родителя из фильтра).
   via: string | null;
+  // Родитель via сам заблокирован: строка стоит в «Ждут блокирующих» с
+  // пометкой «внутри заблокированного KEY», вне счётчика.
+  viaBlocked: boolean;
 }
 
 export interface UnstartedModel {
   free: UnstartedEntry[];
-  waiting: TaskRow[];
+  waiting: UnstartedEntry[];
+  // Свободные неначатые, которые выборка счётчика (freeCountQuery) считает,
+  // а блок взять не даёт: дети заблокированных родителей. Вычитаются из
+  // счётчика (freeCount), чтобы шапка сходилась со строками.
+  held: number;
 }
 
-// Неначатые по правилу clab backlog --next (AC-3): строки верхнего уровня в
-// порядке сервера; заблокированная — в «Ждут блокирующих»; начатая на этапе
-// без роли — не здесь (она в «Что делается сейчас»); родитель «в работе»
-// отдаёт своё место своим свободным неначатым детям в их порядке, а сам,
-// заблокированный, пропускается вместе с детьми, как в --next. kids — дети
-// родителей «в работе» (readyKidsQuery), порядок внутри родителя — сервера.
-// inParent — строки уже дети родителя из фильтра.
+// Неначатые по правилу clab backlog --next (AC-3) и «одна задача — один
+// блок» (AC-17): строки верхнего уровня в порядке сервера.
+// - Неначатая строка — сама: свободная в «Неначатых», заблокированная — в
+//   «Ждут блокирующих». Её неначатые дети — её поддерево, отдельных строк у
+//   них нет; у заблокированной они и в счётчик не входят (held).
+// - Начатая строка — in_work сервера или категория статуса не backlog (этап
+//   без роли тоже) — стоит в «Что делается сейчас» или «Заблокировано», а
+//   здесь отдаёт место своим неначатым детям в их порядке: свободные — в
+//   «Неначатые» с «↳ внутри KEY», ждущие блокирующих — в «Ждут
+//   блокирующих». Заблокирована она сама — все её неначатые дети в «Ждут
+//   блокирующих» с «внутри заблокированного KEY» и вне счётчика.
+// kids — дети родителей из kidsParents (readyKidsQuery), порядок внутри
+// родителя — сервера. inParent — строки уже дети родителя из фильтра.
 export function unstartedModel(top: TaskRow[], kids: TaskRow[], inParent: boolean): UnstartedModel {
   const free: UnstartedEntry[] = [];
-  const waiting: TaskRow[] = [];
+  const waiting: UnstartedEntry[] = [];
+  let held = 0;
   const byParent = new Map<string, TaskRow[]>();
   for (const k of kids) {
     const p = k.parent_key ?? '';
@@ -616,26 +634,47 @@ export function unstartedModel(top: TaskRow[], kids: TaskRow[], inParent: boolea
     if (g) g.push(k);
     else byParent.set(p, [k]);
   }
+  const unstartedKids = (key: string) => (byParent.get(key) ?? []).filter((k) => !rowStarted(k));
   const place = (t: TaskRow, via: string | null) => {
     if (rowStarted(t)) return;
-    if (isBlocked(t)) waiting.push(t);
-    else free.push({task: t, via});
+    if (isBlocked(t)) waiting.push({task: t, via, viaBlocked: false});
+    else free.push({task: t, via, viaBlocked: false});
   };
   for (const t of top) {
-    if (inParent || t.in_work !== true) {
+    if (inParent) {
       place(t, null);
       continue;
     }
-    if (isBlocked(t)) continue;
-    for (const k of byParent.get(t.key) ?? []) place(k, t.key);
+    const blocked = isBlocked(t);
+    if (!rowStarted(t)) {
+      place(t, null);
+      if (blocked) held += unstartedKids(t.key).filter((k) => !isBlocked(k)).length;
+      continue;
+    }
+    for (const k of unstartedKids(t.key)) {
+      if (!blocked) {
+        place(k, t.key);
+        continue;
+      }
+      waiting.push({task: k, via: t.key, viaBlocked: true});
+      if (!isBlocked(k)) held++;
+    }
   }
-  return {free, waiting};
+  return {free, waiting, held};
 }
 
-// Ключи родителей «в работе» среди строк верхнего уровня — им нужны дети.
-export function inWorkParents(top: TaskRow[], inParent: boolean): string[] {
+// Ключи строк верхнего уровня, чьи дети нужны блоку: начатые (дети займут
+// их место) и заблокированные (дети не входят в счётчик). Неначатый
+// свободный родитель представляет поддерево сам — его дети не читаются.
+export function kidsParents(top: TaskRow[], inParent: boolean): string[] {
   if (inParent) return [];
-  return top.filter((t) => t.in_work === true && hasChildren(t) && !isBlocked(t)).map((t) => t.key);
+  return top.filter((t) => hasChildren(t) && (rowStarted(t) || isBlocked(t))).map((t) => t.key);
+}
+
+// Свободных неначатых для счётчика и подзаголовка: total выборки без детей
+// заблокированных родителей. null — сервер отказал фильтру причин.
+export function freeCount(freeTotal: number | null, m: Pick<UnstartedModel, 'held'>): number | null {
+  return freeTotal === null ? null : Math.max(0, freeTotal - m.held);
 }
 
 export interface ReadyCount {
@@ -643,9 +682,9 @@ export interface ReadyCount {
   partial: boolean;
 }
 
-// Счётчик блока: этапы с claimable: true + все свободные неначатые (total
-// выборки). freeTotal null — сервер отказал фильтру причин, тогда число
-// показанных и «+».
+// Счётчик блока: этапы с claimable: true + свободные неначатые (freeCount:
+// total выборки без детей заблокированных родителей). freeTotal null —
+// сервер отказал фильтру причин, тогда число показанных и «+».
 export function readyCount(stages: StagesModel | null, freeTotal: number | null, shownFree: number): ReadyCount | null {
   if (!stages) return null;
   const free = freeTotal ?? shownFree;

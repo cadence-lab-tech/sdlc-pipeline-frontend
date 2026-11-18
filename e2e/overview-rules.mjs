@@ -319,11 +319,58 @@ const kids = [
 let um = Z.unstartedModel(top, kids, false);
 check('--next: свободные по порядку, родитель «в работе» отдаёт место детям', um.free.map((e) => e.task.key).join() === 'P-241,P-63,P-64,P-52', um.free.map((e) => e.task.key).join());
 check('↳ внутри KEY — у детей родителя в работе', um.free.find((e) => e.task.key === 'P-63').via === 'P-31' && um.free[0].via === null && Z.viaText('P-31') === 'внутри P-31 — она уже в работе');
-check('ждущие блокирующих — отдельно, не в свободных', um.waiting.map((t) => t.key).join() === 'P-245,P-65');
-check('начатая на этапе без роли — не здесь; заблокированный родитель в работе пропущен с детьми', !um.free.some((e) => ['P-77', 'P-99'].includes(e.task.key)));
-check('дети нужны только незаблокированным родителям в работе', Z.inWorkParents(top, false).join() === 'P-31' && Z.inWorkParents(top, true).length === 0);
+check('ждущие блокирующих — отдельно, не в свободных', um.waiting.map((e) => e.task.key).join() === 'P-245,P-65', um.waiting.map((e) => e.task.key).join());
+check('начатая на этапе без роли и заблокированный родитель — не строками здесь', !um.free.some((e) => ['P-77', 'P-99'].includes(e.task.key)) &&
+  !um.waiting.some((e) => ['P-77', 'P-99'].includes(e.task.key)));
+check('дети нужны начатым и заблокированным родителям', Z.kidsParents(top, false).join() === 'P-31,P-99' && Z.kidsParents(top, true).length === 0,
+  Z.kidsParents(top, false).join());
+
+// Возврат с проверки (AC-17): родитель, начатый без in_work (статус без роли
+// категории active/waiting, дети пока неначатые), отдаёт место детям так же,
+// как in_work; дети заблокированного начатого родителя — в «Ждут
+// блокирующих» с «внутри заблокированного KEY», вне счётчика; дети
+// заблокированного неначатого родителя — его поддерево, вне счётчика.
+const top2 = [
+  row({key: 'Q-1', in_work: false, status_category: 'waiting', child_counts: {backlog: 2}}), // без роли, после нарезки
+  row({key: 'Q-2', in_work: true, status_category: 'active', child_counts: {backlog: 3}, blocked_by: ['Q-9'], attention: [{code: 'blocked'}]}),
+  row({key: 'Q-3', in_work: false, status_category: 'active', child_counts: {backlog: 1}, blocked_by: ['Q-9'], attention: [{code: 'blocked'}]}),
+  row({key: 'Q-4', in_work: false, child_counts: {backlog: 2}, blocked_by: ['Q-9'], attention: [{code: 'blocked'}]}), // неначатый заблокированный
+  row({key: 'Q-5', in_work: false, child_counts: {backlog: 2}}), // неначатый свободный — одной строкой
+  row({key: 'Q-6', in_work: false, status_category: 'active'}), // без роли, без детей
+];
+const kids2 = [
+  row({key: 'Q-11', parent_key: 'Q-1'}),
+  row({key: 'Q-12', parent_key: 'Q-1'}),
+  row({key: 'Q-21', parent_key: 'Q-2'}),
+  row({key: 'Q-22', parent_key: 'Q-2', blocked_by: ['Q-21'], attention: [{code: 'blocked'}]}),
+  row({key: 'Q-23', parent_key: 'Q-2', status_category: 'active'}), // начатый ребёнок — не здесь
+  row({key: 'Q-31', parent_key: 'Q-3'}),
+  row({key: 'Q-41', parent_key: 'Q-4'}),
+  row({key: 'Q-42', parent_key: 'Q-4', blocked_by: ['Q-41'], attention: [{code: 'blocked'}]}),
+];
+check('детей читают у начатого без in_work, заблокированных и начатых; не у неначатого свободного и не у бездетного',
+  Z.kidsParents(top2, false).join() === 'Q-1,Q-2,Q-3,Q-4', Z.kidsParents(top2, false).join());
+const um2 = Z.unstartedModel(top2, kids2, false);
+const keysOf = (es) => es.map((e) => e.task.key).join();
+check('AC-17: дети родителя без роли и без in_work — в «Неначатых» с «↳ внутри KEY»', keysOf(um2.free) === 'Q-11,Q-12,Q-5' &&
+  um2.free[0].via === 'Q-1' && um2.free[0].viaBlocked === false && um2.free[2].via === null, keysOf(um2.free));
+check('AC-17: дети заблокированного начатого родителя — в «Ждут блокирующих», по порядку, с пометкой', keysOf(um2.waiting) === 'Q-21,Q-22,Q-31,Q-4' &&
+  um2.waiting.filter((e) => e.via !== null).every((e) => e.viaBlocked) && um2.waiting[3].via === null, keysOf(um2.waiting));
+check('пометка «внутри заблокированного KEY»', Z.viaBlockedText('Q-2') === 'внутри заблокированного Q-2');
+check('вне счётчика: свободные дети заблокированных родителей (Q-21, Q-31, Q-41)', um2.held === 3, String(um2.held));
+check('freeCount: total выборки минус удержанные, отказ — null', Z.freeCount(10, um2) === 7 && Z.freeCount(null, um2) === null && Z.freeCount(1, um2) === 0);
+// Счётчик сходится со строками: выборка freeCountQuery считает свободных
+// неначатых любого уровня — Q-11, Q-12, Q-5 и его двое детей, Q-21, Q-31, Q-41.
+const freeAll = 3 + 2 + 3;
+check('счётчик «можно брать» = свободные строки + поддерево неначатого свободного родителя', Z.freeCount(freeAll, um2) === um2.free.length + 2);
+// Стартовая связка, проверка тестировщика: родитель после нарезки на статусе
+// без роли (waiting), двое неначатых детей — две строки и счётчик 2.
+const um3 = Z.unstartedModel([row({key: 'T-1', in_work: false, status_category: 'waiting', child_counts: {backlog: 2}})],
+  [row({key: 'T-2', parent_key: 'T-1'}), row({key: 'T-3', parent_key: 'T-1'})], false);
+check('стартовая связка: дети нарезанного родителя видны, счётчик = строки', keysOf(um3.free) === 'T-2,T-3' && Z.freeCount(2, um3) === 2 &&
+  Z.readyCount(Z.stagesModel([], 0, null), Z.freeCount(2, um3), um3.free.length).n === 2);
 um = Z.unstartedModel([row({key: 'K-1', parent_key: 'P-31'}), row({key: 'K-2', parent_key: 'P-31', blocked_by: ['K-1'], attention: [{code: 'blocked'}]})], [], true);
-check('внутри родителя: дети подряд, без ↳', um.free.map((e) => e.task.key).join() === 'K-1' && um.free[0].via === null && um.waiting.length === 1);
+check('внутри родителя: дети подряд, без ↳', um.free.map((e) => e.task.key).join() === 'K-1' && um.free[0].via === null && um.waiting.length === 1 && um.held === 0);
 let rc = Z.readyCount(Z.stagesModel(qrows, 4, null), 35, 5);
 check('счётчик: claimable + все свободные (total)', rc.n === 3 + 35 && rc.partial === false);
 rc = Z.readyCount(Z.stagesModel(qrows, 4, null), null, 5);

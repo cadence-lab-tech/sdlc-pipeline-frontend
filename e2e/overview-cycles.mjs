@@ -135,6 +135,18 @@ const I1 = await lNew('Unified billing', {type: 'initiative'});
 const F8 = await lNew('Invoice preview API', {type: 'feature', parent_key: I1});
 const F9 = await lNew('Tax rules per region', {type: 'feature', parent_key: I1});
 const F11 = await lNew('Shipped already', {type: 'feature'});
+// Родители, начатые на статусе без роли (Running, active) без in_work:
+// дети пока неначатые. I2 свободен — его дети в «Неначатых» с «↳ внутри»;
+// I3 заблокирован — его дети в «Ждут блокирующих» с «внутри заблокированного».
+const I2 = await lNew('Partner onboarding', {type: 'initiative'});
+const F12 = await lNew('Partner signup form', {type: 'feature', parent_key: I2});
+const F13 = await lNew('Partner contract template', {type: 'feature', parent_key: I2});
+const I3 = await lNew('Regional pricing', {type: 'initiative'});
+const F14 = await lNew('Price list per region', {type: 'feature', parent_key: I3});
+const F15 = await lNew('Currency rounding rules', {type: 'feature', parent_key: I3});
+await go(I2, 'launch');
+await go(I3, 'launch');
+await call('POST', `/tasks/${F1}/links`, {task: I3, rel: 'blocks'});
 await go(F3, 'start');
 await go(F4, 'start', 'sized');
 await go(F5, 'start', 'sized', 'signed');
@@ -273,6 +285,9 @@ page = await run(`return {
   work: zoneKeys('work'), ready: zoneKeys('ready'), blocked: zoneKeys('blocked'), decisions: zoneKeys('decisions'),
   stages: all('[data-ready-group="stages"] [data-task-key]').map((r) => r.getAttribute('data-task-key')),
   free: all('[data-ready-group="unstarted"] [data-task-key]').map((r) => ({k: r.getAttribute('data-task-key'), note: r.querySelector('[data-row-note]')?.innerText || ''})),
+  waiting: all('[data-ready-group="waiting"] [data-task-key]').map((r) => ({k: r.getAttribute('data-task-key'), note: r.querySelector('[data-row-note]')?.innerText || ''})),
+  freeLabel: document.querySelector('[data-ready-free]')?.innerText || '',
+  readyCount: document.querySelector('section[data-zone="ready"] [data-zone-count]')?.innerText || '',
   decisionsText: zoneText('decisions'), blockedText: zoneText('blocked'),
   text: document.querySelector('[data-overview]').innerText,
 };`);
@@ -295,6 +310,17 @@ const free = page.free.map((x) => x.k);
 check('AC-3: родитель «в работе» отдаёт место детям — «↳ внутри KEY»', free.includes(F8) && !free.includes(I1) &&
   page.free.find((x) => x.k === F8).note.includes(`внутри ${I1} — она уже в работе`), JSON.stringify(page.free));
 check('AC-3: порядок верхнего уровня — бэклог сервера', free.indexOf(F1) < free.indexOf(D1) && free.indexOf(D1) < free.indexOf(F8), free.join());
+check('AC-17: дети родителя, начатого на статусе без роли, — в «Неначатых» с «↳ внутри»', [F12, F13].every((k) => page.free.find((x) => x.k === k)?.note.includes(`внутри ${I2}`)) &&
+  page.work.includes(I2) && !free.includes(I2), JSON.stringify(page.free));
+check('AC-17: дети заблокированного начатого родителя — в «Ждут блокирующих» с «внутри заблокированного»',
+  [F14, F15].every((k) => page.waiting.find((x) => x.k === k)?.note.includes(`внутри заблокированного ${I3}`)) && page.blocked.includes(I3) &&
+  ![F14, F15].some((k) => free.includes(k)), JSON.stringify(page.waiting));
+// Счётчик сходится со строками: свободных строк — все свободные неначатые
+// (поддеревьев неначатых свободных родителей на «Длинном» нет), этапы —
+// строки подраздела «Этапы ждут исполнителя».
+check('счётчик «можно брать» = этапы + свободные строки, подзаголовок = свободные строки',
+  page.freeLabel.startsWith(`${page.free.length} `) && page.readyCount === String(page.stages.length + page.free.length),
+  `${page.readyCount} / ${page.freeLabel} / этапов ${page.stages.length}, свободных ${page.free.length}`);
 const nonTerminalL = await total(LK, 'terminal=false');
 const shownL = [...page.work, ...page.ready, ...page.blocked, ...page.decisions];
 check('AC-17: каждая незавершённая — ровно в одном блоке', shownL.length === nonTerminalL && new Set(shownL).size === shownL.length, `${shownL.length} ≠ ${nonTerminalL}: ${shownL.join()}`);

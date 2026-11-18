@@ -20,7 +20,7 @@ import {
   decisionsQuery,
   doneQuery,
   freeCountQuery,
-  inWorkParents,
+  kidsParents,
   isOrderRejected,
   isRejected,
   mergePages,
@@ -172,7 +172,7 @@ async function loadUnstarted(projectKey: string, f: OverviewFilters): Promise<Un
     if (!isOrderRejected(err)) throw err;
     top = await list({...q, order: undefined, backlog: undefined, ...(f.parent ? {} : {terminal: false, in_work: false})});
   }
-  const parents = inWorkParents(top.tasks, Boolean(f.parent));
+  const parents = kidsParents(top.tasks, Boolean(f.parent));
   const [kids, free] = await Promise.all([
     parents.length > 0 ? list(readyKidsQuery(f, parents)).then((p) => p.tasks) : Promise.resolve([] as TaskRow[]),
     list(freeCountQuery(f)).then(

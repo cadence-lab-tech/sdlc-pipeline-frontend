@@ -14,7 +14,9 @@ import {
   CAPS,
   READY_TEXTS,
   parseBacklogSize,
+  freeCount,
   unstartedModel,
+  viaBlockedText,
   viaText,
   visibleStages,
   type ReadyCount,
@@ -34,6 +36,17 @@ function Sub({children, aside, ...rest}: {children: ReactNode; aside?: ReactNode
       <p className="text-muted-foreground text-xs">{children}</p>
       {aside}
     </div>
+  );
+}
+
+// «↳ внутри KEY — она уже в работе» или «↳ внутри заблокированного KEY».
+function viaNote(via: string | null, blocked: boolean): ReactNode {
+  if (!via) return undefined;
+  return (
+    <span className="inline-flex items-center gap-1">
+      <CornerDownRight aria-hidden className="size-3" />
+      {blocked ? viaBlockedText(via) : viaText(via)}
+    </span>
   );
 }
 
@@ -63,10 +76,10 @@ export function ReadyZone({
   const u = data.unstarted;
   const error = s.error ?? u.error;
   const pending = (!s.data || !u.data) && !error;
-  const model = u.data ? unstartedModel(u.data.top.tasks, u.data.kids, inParent) : {free: [], waiting: []};
+  const model = u.data ? unstartedModel(u.data.top.tasks, u.data.kids, inParent) : {free: [], waiting: [], held: 0};
   const size = inParent ? CAPS.readyInParent : data.backlogSize;
   const free = model.free.slice(0, size);
-  const freeTotal = u.data ? u.data.freeTotal : null;
+  const freeTotal = u.data ? freeCount(u.data.freeTotal, model) : null;
   const rejected = u.data !== undefined && freeTotal === null;
   const v = stages ? visibleStages(stages, data.view.stagesMore) : null;
   const waiting = data.view.waitingMore ? model.waiting : model.waiting.slice(0, CAPS.readyWaiting);
@@ -186,14 +199,7 @@ export function ReadyZone({
                     zone="backlog"
                     density="row"
                     index={i + 1}
-                    note={
-                      e.via ? (
-                        <span className="inline-flex items-center gap-1">
-                          <CornerDownRight aria-hidden className="size-3" />
-                          {viaText(e.via)}
-                        </span>
-                      ) : undefined
-                    }
+                    note={viaNote(e.via, e.viaBlocked)}
                     {...rowProps}
                   />
                 ))}
@@ -207,8 +213,8 @@ export function ReadyZone({
                 {READY_TEXTS.waiting} · {topPartial ? `${model.waiting.length}+` : model.waiting.length}
               </Sub>
               <Rows>
-                {waiting.map((t) => (
-                  <TaskRow key={t.key} task={t} zone="backlog" density="row" {...rowProps} />
+                {waiting.map((e) => (
+                  <TaskRow key={e.task.key} task={e.task} zone="backlog" density="row" note={viaNote(e.via, e.viaBlocked)} {...rowProps} />
                 ))}
               </Rows>
               {waitingHidden > 0 ? (

@@ -42,6 +42,7 @@ import {
   nextContainer,
   pageState,
   parentOptions,
+  freeCount,
   readyCount,
   readFilters,
   showParentFilter,
@@ -151,7 +152,7 @@ function OverviewPage({projectKey, project}: {projectKey: string; project?: Proj
   const ready =
     data.stages.error || data.unstarted.error || !data.unstarted.data
       ? null
-      : readyCount(stages, data.unstarted.data.freeTotal, unstarted?.free.length ?? 0);
+      : readyCount(stages, freeCount(data.unstarted.data.freeTotal, unstarted ?? {held: 0}), unstarted?.free.length ?? 0);
 
   const canDecide = data.approvals.data?.can_decide;
   const decisionsTotal = decisionsCount(data, filters);
@@ -162,7 +163,7 @@ function OverviewPage({projectKey, project}: {projectKey: string; project?: Proj
     // «Можно брать» целиком: этапы (и назначенные другому), свободные и
     // ждущие блокирующих — пусто только при нулях везде.
     stagesData && unstarted && data.unstarted.data && !data.stages.error && !data.unstarted.error
-      ? stagesData.page.tasks.length + (data.unstarted.data.freeTotal ?? unstarted.free.length) + unstarted.waiting.length
+      ? stagesData.page.tasks.length + (freeCount(data.unstarted.data.freeTotal, unstarted) ?? unstarted.free.length) + unstarted.waiting.length
       : null,
     data.done.error ? null : (data.done.data?.total ?? null),
   ];
