@@ -251,7 +251,7 @@ export function ConfirmButton({
   // основную кнопку.
   confirmVariant?: React.ComponentProps<typeof Button>['variant'];
   // Атрибуты триггера: опоры сценариев (data-*) и aria-describedby.
-  triggerProps?: Partial<Record<`data-${string}` | 'aria-describedby', string | undefined>>;
+  triggerProps?: Partial<Record<`data-${string}` | 'aria-describedby' | 'aria-label', string | undefined>>;
   children: React.ReactNode;
 }) {
   const [isOpen, setIsOpen] = useState(false);

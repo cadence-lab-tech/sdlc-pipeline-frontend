@@ -2,6 +2,7 @@ import {useEffect, useState} from 'react';
 
 import {api} from '../api/client';
 import type {Tenancy} from '../api/types';
+import {oauthEnabledOf} from '../components/oauth/rules';
 
 // Сведения об инстансе (GET /v1/instance, CLAB-87) — то, что от загрузки к
 // загрузке страницы не меняется: версия сборки и профиль. Поэтому, в
@@ -19,9 +20,12 @@ export interface InstanceView {
   // Предел файла вложения в байтах (limits.max_file_bytes); нет — сервер
   // старше пределов, и интерфейс его не знает: отказ придёт от сервера.
   maxFileBytes?: number;
+  // Подключение внешних клиентов (CLAB-482): true — действует; false — сервер
+  // не объявил его, объявил выключенным или не ответил: раздела нет.
+  oauthEnabled: boolean;
 }
 
-const FALLBACK: InstanceView = {tenancy: 'shared'};
+const FALLBACK: InstanceView = {tenancy: 'shared', oauthEnabled: false};
 
 let pending: Promise<InstanceView> | undefined;
 let known: InstanceView | undefined;
@@ -36,6 +40,7 @@ export function loadInstance(): Promise<InstanceView> {
         tenancy: i.tenancy === 'single' ? 'single' : 'shared',
         version: i.version || undefined,
         maxFileBytes: (i.limits?.max_file_bytes ?? 0) > 0 ? i.limits?.max_file_bytes : undefined,
+        oauthEnabled: oauthEnabledOf(i),
       }),
       (): InstanceView => FALLBACK,
     )
