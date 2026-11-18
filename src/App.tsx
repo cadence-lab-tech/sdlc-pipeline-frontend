@@ -17,6 +17,7 @@ import {
   ListOrdered,
   LogOut,
   Moon,
+  Plug,
   ScrollText,
   Search,
   Settings2,
@@ -68,6 +69,9 @@ import {
 import { Principals, Teams } from "./pages/Admin";
 import { InstanceAudit } from "./pages/Audit";
 import { CLILogin, CLI_LOGIN_PATH } from "./pages/CLILogin";
+import { Clients } from "./pages/Clients";
+import { OAuthConsent } from "./pages/OAuthConsent";
+import { CLIENTS_PATH, CONSENT_PATH } from "./components/oauth/rules";
 import { Docs } from "./pages/Docs";
 import { docsHref } from "./components/cli";
 import { GITHUB_RETURN_PATH, Login } from "./pages/Login";
@@ -100,6 +104,12 @@ export function App() {
             <Route path="/login" element={<Login />} />
             <Route path={GITHUB_RETURN_PATH} element={<Login />} />
             <Route path={CLI_LOGIN_PATH} element={<CLILogin />} />
+            {/* Согласие на подключение клиента (CLAB-482): вне оболочки, как
+                подтверждение входа CLI; сюда ведёт authorize сервера. */}
+            <Route
+              path={`${CONSENT_PATH}/:requestId`}
+              element={<OAuthConsent />}
+            />
             {/* Приём приглашения вне оболочки: у только что вошедшего нет
                 проектов, а вход он проходит сам (решение 0035). */}
             <Route path={INVITE_PATH} element={<Invite />} />
@@ -136,6 +146,15 @@ export function App() {
               element={
                 <Shell page="docs">
                   <Docs />
+                </Shell>
+              }
+            />
+            {/* Подключённые клиенты человека (CLAB-482): уровень инстанса. */}
+            <Route
+              path={CLIENTS_PATH}
+              element={
+                <Shell page="clients">
+                  <Clients />
                 </Shell>
               }
             />
@@ -264,6 +283,7 @@ type Page =
   | "principals"
   | "audit"
   | "docs"
+  | "clients"
   | "github"
   | "overview"
   | "backlog"
@@ -279,6 +299,7 @@ const TITLES: Record<Page, string> = {
   principals: "Принципалы",
   audit: "Журнал",
   docs: "Подключение",
+  clients: "Подключённые клиенты",
   github: "Подключение GitHub",
   overview: "Обзор",
   backlog: "Бэклог",
@@ -499,6 +520,16 @@ function Nav({
     icon: BookOpen,
     href: docsHref(projectKey),
   });
+  // Подключённые клиенты — пока сервер объявил подключение действующим; без
+  // объявления (старый сервер, выключено, сбой запроса) пункта нет.
+  if (instance?.oauthEnabled) {
+    global.push({
+      page: "clients",
+      label: "Подключённые клиенты",
+      icon: Plug,
+      href: CLIENTS_PATH,
+    });
+  }
 
   const inProject: NavEntry[] = projectKey
     ? [
