@@ -76,6 +76,7 @@ src/
                возврат фокуса после перечитывания (focusKeeper.ts, useFocusKeeper.ts)
     backlog/   страница «Бэклог»: правила (rules.ts), данные группы, фокус
     taskrow/   строка задачи с сигналами (TaskRow) и её правила
+    oauth/     подключённые клиенты (CLAB-482): правила (rules.ts), карточка запроса, карточка клиента
     agentsettings/  раздел «Агенты и модели» в настройках проекта: правила (rules.ts), вид версии, редактор черновика, история
     ui/        компоненты shadcn: исходники в репозитории, а не зависимость
   hooks/       useCollapsed, useBacklogSize (число строк блока бэклога), useIsMobile, useInstance (профиль и версия сервера),
@@ -84,8 +85,8 @@ src/
                useRoleRights (права на версии ролей и предложения),
                useBacklogEditable (право двигать бэклог и менять приоритет)
   pages/       Projects, Teams, Principals, Audit, Overview, Backlog, TaskDetail, Pipeline,
-               Knowledge, Metrics, Settings, Login, CLILogin, GitHubConnect,
-               Invite
+               Knowledge, Metrics, Settings, Login, CLILogin, OAuthConsent, Clients,
+               GitHubConnect, Invite
   lib/         cn и провайдер темы
   App.tsx      оболочка с боковым меню, переключатель темы, роутинг
 e2e/           сквозные проверки в headless-Chrome поверх живого бэкенда
@@ -108,6 +109,8 @@ e2e/           сквозные проверки в headless-Chrome поверх
 | CLILogin | `/login/cli`: подтверждение входа `clab auth login` по коду из терминала; без входа уводит на Login и возвращается с тем же кодом |
 | GitHubConnect | `/settings/github/callback`: возврат от GitHub после установки приложения и повторной авторизации; записывает установку на команду и предлагает репозитории на выбор для проекта |
 | Invite | `/invite/:token`: приём приглашения ссылкой — куда зовут, кто, с какой ролью или уровнем и до какого срока; без входа уводит на Login и возвращается на ту же ссылку |
+| OAuthConsent | `/login/oauth/:id`: согласие на подключение клиента (CLAB-482, решение 0079) вне оболочки — куда ведёт `authorize` сервера авторизации; без входа уводит на Login и возвращается на тот же адрес |
+| Clients | `/clients`, пункт меню «Подключённые клиенты» после «Подключения», виден при `oauth.enabled` из `/v1/instance`: клиенты человека карточками, «Отключить» с подтверждением, отозванные под «Показать отозванные» |
 
 ## Конвенции кода
 
@@ -779,6 +782,31 @@ e2e/           сквозные проверки в headless-Chrome поверх
   курсором), `data-backlog-zone` (подсвеченный блок эпика). Проверка —
   `e2e/backlog-rules.mjs` (правила) и `e2e/backlog-dnd.mjs` (мышь и касание
   настоящими событиями драйвера: `s.drag`, `s.touch`).
+
+- **Подключение внешних клиентов — страница согласия и список человека**
+  (CLAB-482, решение 0079, design.spec эпика CLAB-480). Сервер авторизации
+  (`/v1/oauth/*`) в режиме header отвечает 404 целиком, поэтому сквозные
+  проверки идут на стенде в режиме токенов. `/login/oauth/:id` — вне
+  оболочки: `api.me()`, затем `GET /v1/oauth/requests/:id`; 401 — на вход с
+  возвратом на тот же адрес, `403`/`404`/`409` и «выдать нельзя»
+  (`can_grant: false`, текст `reason_message` дословно) — состояния одной
+  карточки. Имя клиента и хосты — недоверенные: выводятся только текстом
+  (`<bdi>`, перенос по символам, без обрезки и ссылок), хост адреса возврата
+  — главный признак, крупнее заголовка и имени. Решение — один `POST`
+  (флаг в обработчике, а не только `disabled`); адрес возврата из ответа
+  проходит `safeRedirect` (только `https` и `http` на петле) и открывается
+  `location.replace`, в тексте и консоли его нет. Все правила — одним
+  модулем `components/oauth/rules.ts` без React и без `@/` (состояние по
+  коду ответа, допустимый адрес, словарь причин отзыва, видимость раздела
+  `oauthEnabledOf`/`clientsAccess`, метка токена клиента `tokenClientMark`);
+  проверка — `e2e/oauth-rules.mjs` без браузера. Сведения `oauth` читает
+  `useInstance` (`oauthEnabled`): нет поля, `false` и сбой — раздела нет.
+  «Токены» проекта помечают строку с `oauth_grant`; отзыв — тот же
+  `DELETE /auth/tokens/:id`. Сквозной сценарий — `e2e/oauth-consent.mjs`
+  (в `run.sh` не входит: нужен стенд в режиме токенов и свой Chrome, см.
+  шапку). Опоры — `data-oauth-request`, `data-oauth-host`,
+  `data-oauth-client-name`, `data-oauth-document-host`, `data-oauth-loopback`,
+  `data-oauth-grants` (`live|revoked`), `data-oauth-grant` (+`-state`).
 
 ## Что нельзя делать
 

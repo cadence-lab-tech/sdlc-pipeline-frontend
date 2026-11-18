@@ -1227,6 +1227,8 @@ export interface AccessToken {
   expires_at?: string;
   last_used_at?: string;
   revoked_at?: string;
+  // Токен выдан подключённому клиенту (CLAB-481); у остальных поля нет.
+  oauth_grant?: { id: UUID; client_name: string; redirect_host: string };
 }
 
 // Запись журнала действий (CLAB-210, MCP_CONTRACT.md «Журнал действий»):
@@ -1294,6 +1296,59 @@ export interface Instance {
   // Пределы сервера. Нет поля — сервер старше пределов, и предел файла
   // интерфейс не знает: отказ придёт от сервера.
   limits?: { max_file_bytes?: number };
+  // Подключение внешних клиентов (CLAB-481): нет поля — сервер старше
+  // подключения, интерфейс раздела клиентов не показывает.
+  oauth?: InstanceOAuth;
+}
+
+// enabled — подключение клиентов действует на инстансе; dcr и cimd — какими
+// способами клиент может заявить о себе.
+export interface InstanceOAuth {
+  enabled: boolean;
+  dcr?: boolean;
+  cimd?: boolean;
+}
+
+// Запрос на подключение клиента, как его видит страница согласия
+// (GET /v1/oauth/requests/:id). Имя клиента — со слов самого клиента, ему
+// нельзя доверять; redirect_host — хост адреса возврата без порта и пути.
+export interface OAuthConsent {
+  id: UUID;
+  client_id: string;
+  client_kind: string;
+  client_name: string;
+  redirect_host: string;
+  // Хост документа клиента — только у клиента, описанного документом.
+  document_host?: string;
+  loopback: boolean;
+  principal: { kind: string; handle: string };
+  resource: string;
+  project_key?: string;
+  project_name?: string;
+  scope: string;
+  expires_at: string;
+  can_grant: boolean;
+  // Почему «Разрешить» недоступна: код и текст сервера для экрана.
+  reason?: string;
+  reason_message?: string;
+}
+
+// Подключённый клиент человека (GET /v1/oauth/grants).
+export interface OAuthGrant {
+  id: UUID;
+  token_id: UUID;
+  client_id: string;
+  client_kind: string;
+  client_name: string;
+  redirect_host: string;
+  resource: string;
+  project_key?: string;
+  scope: string;
+  created_at: string;
+  refreshed_at?: string;
+  last_used_at?: string;
+  revoked_at?: string;
+  revoke_reason?: string;
 }
 
 // Набор агента инстанса (GET /v1/agent-kit, CLAB-232): скилы и саб-агент той

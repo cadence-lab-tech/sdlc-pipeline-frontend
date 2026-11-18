@@ -73,6 +73,8 @@ import type {
   Workflow,
   WorkflowHead,
   CLILoginView,
+  OAuthConsent,
+  OAuthGrant,
   Invite,
   IssuedInvite,
   AcceptedInvite,
@@ -528,6 +530,27 @@ export const api = {
       `/auth/cli/${encodeURIComponent(code)}`,
       post({ approve }),
     ),
+
+  // ── подключение клиентов (CLAB-481, CLAB-482) ─────────────────────────────
+  // Запрос на подключение: что показать человеку и решение. Адрес возврата
+  // приходит ответом на решение и больше нигде не хранится.
+  oauthRequest: (id: string) =>
+    request<OAuthConsent>(`/oauth/requests/${encodeURIComponent(id)}`),
+
+  decideOAuthRequest: (id: string, allow: boolean) =>
+    request<{ redirect_uri: string }>(
+      `/oauth/requests/${encodeURIComponent(id)}`,
+      post({ decision: allow ? "allow" : "deny" }),
+    ),
+
+  listOAuthGrants: () =>
+    request<{ grants: OAuthGrant[] }>("/oauth/grants").then(
+      (r) => r.grants ?? [],
+    ),
+
+  // Повтор по уже отозванному — тоже 204.
+  revokeOAuthGrant: (id: UUID) =>
+    request<void>(`/oauth/grants/${encodeURIComponent(id)}`, del()),
 
   listTokens: (projectKey?: string) =>
     request<{ tokens: AccessToken[] }>(

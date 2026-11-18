@@ -1,5 +1,5 @@
 import {useEffect, useRef, useState} from 'react';
-import {useNavigate, useParams, useSearchParams} from 'react-router-dom';
+import {Link, useNavigate, useParams, useSearchParams} from 'react-router-dom';
 import {toast} from 'sonner';
 
 import {Badge} from '@/components/ui/badge';
@@ -17,6 +17,7 @@ import {PROJECT_HEALTH_EVENT} from '../components/health';
 import {AppStateNote, InstallationsList} from '../components/Installations';
 import {InviteDialog, InvitesTable} from '../components/Invites';
 import {counted} from '../components/removals';
+import {NO_CLIENT_NAME, CLIENTS_PATH, tokenClientMark} from '../components/oauth/rules';
 import type {
   AccessToken,
   GitHubStatus,
@@ -845,7 +846,25 @@ function Tokens({projectKey, me}: {projectKey: string; me: Me}) {
             idKey="id"
             empty={<EmptyState title="Токенов нет" />}
             columns={[
-              {key: 'name', header: 'Имя'},
+              {
+                key: 'name',
+                header: 'Имя',
+                renderCell: (t) => {
+                  // Токен подключённого клиента (CLAB-482): метка и кто это
+                  // со слов клиента, хост — главный признак.
+                  const mark = tokenClientMark(t);
+                  if (!mark) return t.name;
+                  return (
+                    <div className="space-y-1">
+                      <div>{t.name}</div>
+                      <Token label="подключённый клиент" color="blue" />
+                      <div className="text-muted-foreground text-xs [overflow-wrap:anywhere]">
+                        {mark.name ?? NO_CLIENT_NAME} · {mark.host}
+                      </div>
+                    </div>
+                  );
+                },
+              },
               {key: 'handle', header: 'Кому', renderCell: (t) => `${t.kind}:${t.handle}`},
               {key: 'prefix', header: 'Начало', width: 130},
               {
@@ -871,20 +890,36 @@ function Tokens({projectKey, me}: {projectKey: string; me: Me}) {
                 header: '',
                 width: 110,
                 align: 'end',
-                renderCell: (t) =>
-                  t.revoked_at ? null : (
+                renderCell: (t) => {
+                  if (t.revoked_at) return null;
+                  const mark = tokenClientMark(t);
+                  return (
                     <ConfirmButton
-                      title="Отозвать токен?"
-                      description={`Токен ${t.name} перестанет действовать сразу; вернуть его нельзя`}
+                      title={mark ? 'Отозвать токен подключённого клиента?' : 'Отозвать токен?'}
+                      description={
+                        mark
+                          ? `Клиент «${mark.name ?? NO_CLIENT_NAME}» (${mark.host}) перестанет работать сразу, вместе с токеном обновления. Это то же, что «Отключить» в разделе «Подключённые клиенты»; вернуть доступ можно только подключив клиент заново.`
+                          : `Токен ${t.name} перестанет действовать сразу; вернуть его нельзя`
+                      }
                       onConfirm={() => revoke(t)}>
                       Отозвать
                     </ConfirmButton>
-                  ),
+                  );
+                },
               },
             ]}
           />
         )}
       </Loaded>
+      {tokens.data?.some((t) => tokenClientMark(t)) ? (
+        <p className="text-muted-foreground text-xs">
+          Токены подключённых клиентов выдаются при согласии; «Отозвать» здесь — то же, что «Отключить» в разделе{' '}
+          <Link to={CLIENTS_PATH} className="underline underline-offset-2">
+            Подключённые клиенты
+          </Link>
+          .
+        </p>
+      ) : null}
     </Section>
   );
 }
