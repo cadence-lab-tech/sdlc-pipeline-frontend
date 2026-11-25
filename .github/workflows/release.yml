@@ -174,7 +174,7 @@ jobs:
       # не ловятся). Находка вне VEX — предупреждение с ID в сводке прогона,
       # релиз не падает: образ уже опубликован и подписан, а разбор находки —
       # PR (подъём зависимости в caddy/go.mod или запись в openvex.json).
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
         with:
           go-version-file: caddy/go.mod
           cache: false
